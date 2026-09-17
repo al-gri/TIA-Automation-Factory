@@ -29,11 +29,16 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - Implemented `Candidate Validation` orchestration: requirements review -> Linux PLC package -> trusted TIA V21 -> PLC/TIA review.
 - Replaced bot-PR implicit chaining with explicit trusted `repository_dispatch` from `Autonomous Agent` to `Candidate Validation`, avoiding manual approval as part of the intended path.
 - CI remained green after the Git-task agent changes.
+- Started full `INFRA-001` smoke run. Git task resolution, prompt loading, branch creation and Gemini session initialization all worked.
+- `INFRA-001` was blocked before source edits by Gemini free-tier daily quota: API returned HTTP 429 / daily quota exhausted, limit 20 requests for actual model `gemini-3.5-flash`; workflow correctly failed and model audit recorded requested `gemini-3.8-flash`, initialized `gemini-3.8-flash`, actual usage `gemini-3.5-flash`.
 
 ### CURRENT
-- I2-I4 are implemented but not accepted yet. Run the full `tasks/INFRA-001.json` Valve smoke test through coder -> Requirements Reviewer -> TIA V21 -> PLC/TIA Reviewer.
+- I2-I4 are implemented but cannot yet be accepted because the single-provider Gemini free tier is exhausted.
+- Add provider redundancy before repeating `INFRA-001`: keep Gemini support, add a provider-agnostic coding/review path with at least one independent cloud fallback.
 
 ### NEXT
+- Prepare OpenCode as the provider-agnostic headless agent harness and add OpenRouter as the first fallback provider; secrets remain GitHub Actions secrets.
+- Repeat the full `tasks/INFRA-001.json` Valve smoke test through coder -> Requirements Reviewer -> TIA V21 -> PLC/TIA Reviewer.
 - Fix any defects found by the full INFRA-001 smoke test and then mark I2-I4 DONE.
 - I5: bounded repair loop using structured reviewer and TIA diagnostics, maximum attempts from the task.
 - I6: repeat a clean end-to-end Git-task smoke run with no manual source-code intervention and prepare handoff documentation for the generator-development chat.
