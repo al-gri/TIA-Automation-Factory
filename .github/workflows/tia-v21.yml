@@ -24,6 +24,15 @@ jobs:
           if not exist "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Base.dll" exit /b 1
           if not exist "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Step7.dll" exit /b 1
           echo Required Openness assemblies found.
+      - name: Verify Siemens TIA Openness group membership
+        shell: cmd
+        run: |
+          whoami /groups | findstr /I /C:"Siemens TIA Openness"
+          if errorlevel 1 (
+            echo Current runner user is not a member of Siemens TIA Openness.
+            exit /b 1
+          )
+          echo Current runner user has Siemens TIA Openness group membership.
       - name: Verify .NET Framework 4.8 build prerequisites
         shell: cmd
         run: |
