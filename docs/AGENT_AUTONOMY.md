@@ -1,41 +1,60 @@
 # Autonomous coding-agent loop
 
-Milestone 2 adds OpenHands on a GitHub-hosted Linux runner. The agent edits the repository in an ephemeral cloud runner, runs deterministic Linux checks, and opens a pull request. It does not receive RDP, WinRM, SSH, or generic shell access to the Windows TIA V21 runner.
+The autonomous implementation agent runs on a disposable GitHub-hosted Linux runner. TIA Portal V21 remains behind a trusted Windows acceptance boundary.
 
-## LLM
+The infrastructure design and current milestones are tracked in:
+- `docs/INFRASTRUCTURE_PLAN.md`
+- `docs/INFRASTRUCTURE_LOG.md`
 
-Initial provider: Google Gemini Developer API.
+## Agent runtime
 
-Model: `gemini/gemini-3.8-flash`.
+Provider: Google Gemini Developer API.
 
-Store the API key only as the repository Actions secret `GEMINI_API_KEY`. Never commit it.
+CLI: pinned stable Google Gemini CLI (`@google/gemini-cli`).
+
+Requested coding model: `gemini-3.8-flash`.
+
+Authentication: repository Actions secret `GEMINI_API_KEY`; never commit the key.
+
+Gemini CLI can route/fallback internal calls. Therefore each run must record both the requested model and the actual model names reported in the CLI result statistics. In the first successful autonomous run, the session was initialized as `gemini-3.8-flash`, while final usage statistics attributed tokens to `gemini-3.5-flash`.
+
+## Versioned instructions
+
+Agent behavior is not defined only inside workflow YAML.
+
+- Coder prompt: `agents/prompts/coder.md`
+- Requirements reviewer: `agents/prompts/reviewer-requirements.md`
+- PLC/TIA reviewer: `agents/prompts/reviewer-tia.md`
+- Machine-readable tasks: `tasks/*.json`
+
+The target smoke task is `tasks/INFRA-001.json`.
 
 ## Security boundary
 
-In the first autonomous phase the agent is not allowed to change:
+Candidate/AI-authored code may execute only on disposable GitHub-hosted Linux runners.
 
+The coding agent may not modify:
 - `.github/**`
+- `agents/**`
+- `tasks/**`
+- `.gemini/**`
+- `.openhands/**`
+- `.gitignore`
 - `src/TiaV21Worker/**`
 
-The workflow rejects the run if these paths are changed. This prevents the coding agent from rewriting the workflows or the executable boundary that talks to TIA Portal.
+The Windows self-hosted runner must not check out or execute code from an AI candidate branch. A candidate branch is allowed to produce bounded PLC artifacts in Linux. The Windows gate consumes those artifacts while running a trusted `TiaV21Worker` checked out from `main`.
 
-The Windows self-hosted runner remains an acceptance environment. Do not add `pull_request` workflows that execute arbitrary PR code directly on the Windows runner.
+This prevents a modified `GeneratorCli` or test project from becoming arbitrary code execution on the Windows/TIA workstation.
 
-## Flow
+## Review model
 
-1. Create a clear GitHub Issue with acceptance criteria.
-2. Trigger `Autonomous Agent` with the issue number (initially by `workflow_dispatch`).
-3. OpenHands checks out `main` on `ubuntu-latest`, creates an `agent/issue-*` branch and works on the task.
-4. The repository OpenHands stop hook runs the Linux quality gate.
-5. The workflow independently repeats deterministic tests and rejects protected-path changes.
-6. If changes are valid, the workflow commits, pushes the branch and opens a PR.
-7. Normal CI runs on the PR.
-8. TIA V21 remains a separate trusted acceptance gate.
+Two independent read-only review sessions are planned:
+
+1. Requirements Reviewer — task specification + diff + Linux test/generator evidence.
+2. PLC/TIA Reviewer — task specification + generated PLC artifact + real `tia-diagnostics.json`.
+
+Reviewers do not replace deterministic tests or TIA compile. TIA diagnostics are authoritative for real Siemens import/compile status.
 
 ## Bounded execution
 
-The agent workflow sets `MAX_ITERATIONS=30` and a GitHub job timeout. A failed task must become a failed/blocked run instead of an infinite retry loop.
-
-## First agent task
-
-Use a deliberately small cloud-only task that does not require changing the Windows worker. Example: add validation for duplicate field names in the vendor-neutral PLC IR and cover it with tests.
+The future repair loop is bounded by the task's `maxRepairAttempts`. A failed candidate receives structured reviewer/TIA feedback and may be repaired on the same branch. Exhausted attempts become `BLOCKED`; no unbounded `while (!success) askAI()` loop is permitted.
