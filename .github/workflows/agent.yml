@@ -9,10 +9,6 @@ on:
         type: string
   issues:
     types: [labeled]
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/agent.yml'
 
 permissions:
   contents: write
@@ -21,7 +17,7 @@ permissions:
 
 jobs:
   implement:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.label.name == 'agent-ready'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'agent-ready'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -32,8 +28,6 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            echo "number=3" >> "$GITHUB_OUTPUT"
           else
             echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
           fi
@@ -84,7 +78,7 @@ jobs:
           from pathlib import Path
 
           issue = json.loads(Path(os.environ['RUNNER_TEMP'], 'issue.json').read_text())
-          task = f'''# OpenHands task\n\nImplement GitHub Issue #{os.environ['ISSUE_NUMBER']}.\n\nTitle: {issue['title']}\nURL: {issue['url']}\n\nIssue body:\n{issue.get('body') or ''}\n\nRepository constraints:\n- Work only in this checked-out repository.\n- Do not modify .github/**, .openhands/**, or src/TiaV21Worker/**.\n- Do not attempt to contact, control, or access the Windows self-hosted runner or TIA Portal directly.\n- Keep Siemens.Engineering dependencies out of the vendor-neutral domain/compiler projects.\n- Run the relevant dotnet tests and generation checks before finishing.\n- Make the smallest coherent change that satisfies the issue.\n- Do not commit or push; the outer workflow owns Git operations.\n'''
+          task = f'''# OpenHands task\n\nImplement GitHub Issue #{os.environ['ISSUE_NUMBER']}.\n\nTitle: {issue['title']}\nURL: {issue['url']}\n\nIssue body:\n{issue.get('body') or ''}\n\nRepository constraints:\n- Work only in this checked-out repository.\n- Do not modify .github/**, .openhands/**, .gitignore, or src/TiaV21Worker/**.\n- Do not attempt to contact, control, or access the Windows self-hosted runner or TIA Portal directly.\n- Keep Siemens.Engineering dependencies out of the vendor-neutral domain/compiler projects.\n- Run the relevant dotnet tests and generation checks before finishing.\n- Make the smallest coherent change that satisfies the issue.\n- Do not commit or push; the outer workflow owns Git operations.\n'''
           Path(os.environ['RUNNER_TEMP'], 'agent-task.md').write_text(task)
           PY
 
@@ -100,6 +94,7 @@ jobs:
         env:
           LLM_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LLM_MODEL: gemini/gemini-3.8-flash
+          LLM_CACHING_PROMPT: 'false'
           MAX_ITERATIONS: '30'
           LLM_NUM_RETRIES: '4'
           LLM_TIMEOUT: '120'
@@ -112,19 +107,28 @@ jobs:
             --file "$RUNNER_TEMP/agent-task.md" \
             | tee "$RUNNER_TEMP/openhands-output.jsonl"
 
-      - name: Reject protected-path changes
+          if grep -q '"kind": "ConversationErrorEvent"' "$RUNNER_TEMP/openhands-output.jsonl"; then
+            echo "OpenHands conversation ended with an LLM/runtime error."
+            exit 1
+          fi
+
+      - name: Capture and validate agent changes
         shell: bash
         run: |
           {
-            git diff --name-only origin/main...HEAD
             git diff --name-only
             git ls-files --others --exclude-standard
-          } | sort -u > "$RUNNER_TEMP/changed-files.txt"
+          } | sort -u > "$RUNNER_TEMP/agent-changed-files.txt"
 
-          echo "Changed files:"
-          cat "$RUNNER_TEMP/changed-files.txt"
+          echo "Agent changed files:"
+          cat "$RUNNER_TEMP/agent-changed-files.txt"
 
-          if grep -E '^(\.github/|\.openhands/|src/TiaV21Worker/)' "$RUNNER_TEMP/changed-files.txt"; then
+          if [ ! -s "$RUNNER_TEMP/agent-changed-files.txt" ]; then
+            echo "OpenHands finished without repository changes."
+            exit 1
+          fi
+
+          if grep -E '^(\.github/|\.openhands/|\.gitignore$|src/TiaV21Worker/)' "$RUNNER_TEMP/agent-changed-files.txt"; then
             echo "Agent changed a protected path. Refusing to publish the branch."
             exit 1
           fi
@@ -137,11 +141,16 @@ jobs:
           dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/generated"
           test -f "$RUNNER_TEMP/generated/UDT_Motor.scl"
 
-      - name: Require actual code changes
+      - name: Verify no protected changes appeared during acceptance
         shell: bash
         run: |
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "OpenHands finished without repository changes."
+          {
+            git diff --name-only
+            git ls-files --others --exclude-standard
+          } | sort -u > "$RUNNER_TEMP/final-changed-files.txt"
+
+          if grep -E '^(\.github/|\.openhands/|\.gitignore$|src/TiaV21Worker/)' "$RUNNER_TEMP/final-changed-files.txt"; then
+            echo "Protected path changed. Refusing to publish the branch."
             exit 1
           fi
 
@@ -171,6 +180,8 @@ jobs:
 
           The agent ran on a GitHub-hosted Linux runner. Protected Windows/TIA integration paths were not permitted to change.
 
+          This pull request was created by an AI coding agent on behalf of the repository owner.
+
           Closes #${ISSUE_NUMBER}
           EOF
 
@@ -189,4 +200,4 @@ jobs:
           ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
           PR_URL: ${{ steps.pr.outputs.url }}
         run: |
-          gh issue comment "$ISSUE_NUMBER" --body "OpenHands created a candidate PR: $PR_URL"
+          gh issue comment "$ISSUE_NUMBER" --body "OpenHands created a candidate PR: $PR_URL\n\n_This comment was generated by an AI coding agent on behalf of the repository owner._"
