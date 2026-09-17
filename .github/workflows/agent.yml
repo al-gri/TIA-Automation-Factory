@@ -51,13 +51,14 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Require Gemini API key
+      - name: Require at least one LLM provider
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "Missing repository Actions secret GEMINI_API_KEY."
+          if [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "Configure GEMINI_API_KEY and/or OPENROUTER_API_KEY as repository Actions secrets."
             exit 1
           fi
 
@@ -149,69 +150,53 @@ jobs:
             } >> "$RUNNER_TEMP/agent-task.md"
           fi
 
-      - name: Install Gemini CLI
+      - name: Install coding runtimes
         shell: bash
         run: |
-          npm install --global @google/gemini-cli@0.60.0
+          npm install --global @google/gemini-cli@0.60.0 opencode-ai@1.18.31
           gemini --version
+          opencode --version
 
-      - name: Run Gemini coding agent
+      - name: Run coding agent with provider fallback
+        id: agent
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
-          REQUESTED_MODEL: gemini-3.8-flash
+          GEMINI_MODEL: gemini-3.8-flash
+          OPENROUTER_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
         run: |
-          echo "Requested model: $REQUESTED_MODEL"
-          gemini \
-            --model "$REQUESTED_MODEL" \
-            --prompt "$(cat "$RUNNER_TEMP/agent-task.md")" \
-            --approval-mode=yolo \
-            --skip-trust \
-            --extensions none \
-            --output-format stream-json \
-            | tee "$RUNNER_TEMP/gemini-output.jsonl"
+          bash agents/runtime/run-coder.sh \
+            "$RUNNER_TEMP/agent-task.md" \
+            "$RUNNER_TEMP/coder-provider-audit.json"
 
-      - name: Record model audit
+      - name: Record provider and model audit
         id: model
         if: always()
         shell: bash
-        env:
-          REQUESTED_MODEL: gemini-3.8-flash
         run: |
-          OUTPUT="$RUNNER_TEMP/gemini-output.jsonl"
-          INIT_MODEL="unknown"
-          ACTUAL_MODELS='{}'
-
-          if [ -f "$OUTPUT" ]; then
-            FOUND_INIT=$(jq -r 'select(.type == "init") | .model // empty' "$OUTPUT" | head -n 1 || true)
-            FOUND_ACTUAL=$(jq -c 'select(.type == "result") | .stats.models // {}' "$OUTPUT" | tail -n 1 || true)
-            [ -n "$FOUND_INIT" ] && INIT_MODEL="$FOUND_INIT"
-            [ -n "$FOUND_ACTUAL" ] && ACTUAL_MODELS="$FOUND_ACTUAL"
+          AUDIT="$RUNNER_TEMP/coder-provider-audit.json"
+          if [ ! -f "$AUDIT" ]; then
+            echo '{"selected_provider":null,"selected_model":null,"error":"audit missing"}' > "$AUDIT"
           fi
-
-          jq -n \
-            --arg requested "$REQUESTED_MODEL" \
-            --arg initialized "$INIT_MODEL" \
-            --argjson actual "$ACTUAL_MODELS" \
-            '{requested:$requested, initialized:$initialized, actual_usage:$actual}' \
-            > "$RUNNER_TEMP/model-audit.json"
-
-          cat "$RUNNER_TEMP/model-audit.json"
-          echo "initialized=$INIT_MODEL" >> "$GITHUB_OUTPUT"
-          echo "actual=$ACTUAL_MODELS" >> "$GITHUB_OUTPUT"
-
+          cat "$AUDIT"
+          COMPACT=$(jq -c . "$AUDIT")
+          SELECTED_PROVIDER=$(jq -r '.selected_provider // "none"' "$AUDIT")
+          SELECTED_MODEL=$(jq -r '.selected_model // "none"' "$AUDIT")
+          echo "audit=$COMPACT" >> "$GITHUB_OUTPUT"
+          echo "provider=$SELECTED_PROVIDER" >> "$GITHUB_OUTPUT"
+          echo "model=$SELECTED_MODEL" >> "$GITHUB_OUTPUT"
           {
-            echo "### Gemini model audit"
+            echo '### Coding provider audit'
             echo
-            echo "- Requested: \`$REQUESTED_MODEL\`"
-            echo "- Session initialized: \`$INIT_MODEL\`"
-            echo "- Actual usage stats: \`$ACTUAL_MODELS\`"
+            echo "- Selected provider: \`$SELECTED_PROVIDER\`"
+            echo "- Selected model: \`$SELECTED_MODEL\`"
+            echo
+            echo '```json'
+            cat "$AUDIT"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$INIT_MODEL" != "unknown" ] && [ "$INIT_MODEL" != "$REQUESTED_MODEL" ]; then
-            echo "::warning::Gemini CLI initialized a different model than requested."
-          fi
 
       - name: Capture and validate agent changes
         shell: bash
@@ -229,7 +214,7 @@ jobs:
             exit 1
           fi
 
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|src/TiaV21Worker/)' "$RUNNER_TEMP/agent-changed-files.txt"; then
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/agent-changed-files.txt"; then
             echo "Agent changed a protected path. Refusing to publish the branch."
             exit 1
           fi
@@ -266,7 +251,7 @@ jobs:
             git ls-files --others --exclude-standard
           } | sort -u > "$RUNNER_TEMP/final-changed-files.txt"
 
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|src/TiaV21Worker/)' "$RUNNER_TEMP/final-changed-files.txt"; then
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/final-changed-files.txt"; then
             echo "Protected path changed. Refusing to publish the branch."
             exit 1
           fi
@@ -295,8 +280,7 @@ jobs:
           ISSUE_NUMBER: ${{ steps.work.outputs.issue_number }}
           WORK_KEY: ${{ steps.work.outputs.key }}
           BRANCH: ${{ steps.branch.outputs.name }}
-          MODEL_INITIALIZED: ${{ steps.model.outputs.initialized }}
-          MODEL_ACTUAL: ${{ steps.model.outputs.actual }}
+          PROVIDER_AUDIT: ${{ steps.model.outputs.audit }}
         run: |
           if [ "$MODE" = "task" ]; then
             TITLE=$(jq -r '.title' "$TASK_PATH")
@@ -309,16 +293,14 @@ jobs:
           fi
 
           cat > "$RUNNER_TEMP/pr-body.md" <<EOF
-          Automated Gemini CLI candidate for ${WORK_KEY}.
+          Automated coding-agent candidate for ${WORK_KEY}.
 
           ${SOURCE_LINE}
 
           Agent execution environment: disposable GitHub-hosted Linux runner. Protected Windows/TIA integration paths were not permitted to change.
 
-          Model audit:
-          - requested: \`gemini-3.8-flash\`
-          - initialized: \`${MODEL_INITIALIZED}\`
-          - actual usage: \`${MODEL_ACTUAL}\`
+          Provider/model audit:
+          \`${PROVIDER_AUDIT}\`
 
           ${CLOSES_LINE}
           EOF
@@ -363,4 +345,4 @@ jobs:
           ISSUE_NUMBER: ${{ steps.work.outputs.issue_number }}
           PR_URL: ${{ steps.pr.outputs.url }}
         run: |
-          gh issue comment "$ISSUE_NUMBER" --body "Gemini CLI created a candidate PR: $PR_URL\n\n_This comment was generated by an AI coding agent on behalf of the repository owner._"
+          gh issue comment "$ISSUE_NUMBER" --body "Coding agent created a candidate PR: $PR_URL\n\n_This comment was generated by an AI coding agent on behalf of the repository owner._"
