@@ -1,0 +1,258 @@
+name: Autonomous Repair
+
+on:
+  repository_dispatch:
+    types: [candidate-repair]
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: repair-${{ github.event.client_payload.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: startsWith(github.event.client_payload.branch, 'agent/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout candidate branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.client_payload.branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Validate repair context
+        id: context
+        shell: bash
+        env:
+          BRANCH: ${{ github.event.client_payload.branch }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          TASK_PATH: ${{ github.event.client_payload.task_path }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          VALIDATION_RUN_ID: ${{ github.event.client_payload.validation_run_id }}
+          ATTEMPT: ${{ github.event.client_payload.attempt }}
+        run: |
+          set -euo pipefail
+          case "$BRANCH" in agent/*) ;; *) echo "Invalid repair branch: $BRANCH"; exit 1 ;; esac
+          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path: $TASK_PATH"; exit 1 ;; esac
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$VALIDATION_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+
+          git fetch origin main "$BRANCH"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git show "origin/main:$TASK_PATH" > "$RUNNER_TEMP/task.json"
+          jq -e '.id and .acceptance.requirements and .acceptance.tia and .generator.input and .generator.expectedArtifact and .maxRepairAttempts' "$RUNNER_TEMP/task.json" >/dev/null
+
+          MAX_ATTEMPTS=$(jq -r '.maxRepairAttempts' "$RUNNER_TEMP/task.json")
+          [[ "$MAX_ATTEMPTS" =~ ^[0-9]+$ ]]
+          if [ "$ATTEMPT" -gt "$MAX_ATTEMPTS" ]; then
+            echo "Repair attempt $ATTEMPT exceeds maxRepairAttempts=$MAX_ATTEMPTS"
+            exit 1
+          fi
+
+          git diff --name-only origin/main...HEAD | sort -u > "$RUNNER_TEMP/current-candidate-files.txt"
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/current-candidate-files.txt"; then
+            echo "Existing candidate contains protected-path changes. Refusing repair."
+            exit 1
+          fi
+
+          echo "before_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "max_attempts=$MAX_ATTEMPTS" >> "$GITHUB_OUTPUT"
+
+      - name: Require at least one LLM provider
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "Configure GEMINI_API_KEY and/or OPENROUTER_API_KEY."
+            exit 1
+          fi
+
+      - name: Collect previous validation evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          VALIDATION_RUN_ID: ${{ github.event.client_payload.validation_run_id }}
+        run: |
+          set +e
+          gh pr view "$PR_NUMBER" --json comments --jq '.comments[-6:][] | .body' > "$RUNNER_TEMP/reviewer-comments.txt"
+          gh run view "$VALIDATION_RUN_ID" --log-failed > "$RUNNER_TEMP/failed-validation.log" 2>&1
+          mkdir -p "$RUNNER_TEMP/previous-tia"
+          gh run download "$VALIDATION_RUN_ID" \
+            --name "tia-candidate-diagnostics-${VALIDATION_RUN_ID}" \
+            --dir "$RUNNER_TEMP/previous-tia" >/dev/null 2>&1
+          set -e
+
+          test -f "$RUNNER_TEMP/reviewer-comments.txt" || : > "$RUNNER_TEMP/reviewer-comments.txt"
+          test -f "$RUNNER_TEMP/failed-validation.log" || : > "$RUNNER_TEMP/failed-validation.log"
+
+      - name: Build repair prompt from trusted Git state
+        shell: bash
+        env:
+          ATTEMPT: ${{ github.event.client_payload.attempt }}
+          MAX_ATTEMPTS: ${{ steps.context.outputs.max_attempts }}
+        run: |
+          git show origin/main:agents/prompts/coder.md > "$RUNNER_TEMP/repair-task.md"
+          printf '\n\n' >> "$RUNNER_TEMP/repair-task.md"
+          git show origin/main:agents/prompts/repair.md >> "$RUNNER_TEMP/repair-task.md"
+
+          git diff --no-ext-diff --unified=80 origin/main...HEAD > "$RUNNER_TEMP/current-candidate.diff"
+
+          {
+            echo
+            echo '# Repair state'
+            echo "Repair attempt: $ATTEMPT of $MAX_ATTEMPTS"
+            echo
+            echo '# Trusted task specification'
+            echo '```json'
+            cat "$RUNNER_TEMP/task.json"
+            echo '```'
+            echo
+            echo '# Current candidate diff'
+            echo '```diff'
+            cat "$RUNNER_TEMP/current-candidate.diff"
+            echo '```'
+            echo
+            echo '# Recent reviewer comments'
+            cat "$RUNNER_TEMP/reviewer-comments.txt"
+            echo
+            echo '# Failed validation logs'
+            cat "$RUNNER_TEMP/failed-validation.log"
+            echo
+            echo '# Previous TIA diagnostics'
+            if [ -f "$RUNNER_TEMP/previous-tia/tia-diagnostics.json" ]; then
+              cat "$RUNNER_TEMP/previous-tia/tia-diagnostics.json"
+            else
+              echo 'No TIA diagnostics were produced in the previous validation attempt.'
+            fi
+          } >> "$RUNNER_TEMP/repair-task.md"
+
+      - name: Install coding runtimes
+        shell: bash
+        run: |
+          npm install --global @google/gemini-cli@0.60.0 opencode-ai@1.18.31
+          gemini --version
+          opencode --version
+
+      - name: Run repair agent with provider fallback
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
+          GEMINI_MODEL: gemini-3.8-flash
+          OPENROUTER_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
+        run: |
+          bash agents/runtime/run-coder.sh \
+            "$RUNNER_TEMP/repair-task.md" \
+            "$RUNNER_TEMP/repair-provider-audit.json"
+
+      - name: Validate repair changes
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ steps.context.outputs.before_sha }}
+        run: |
+          {
+            git diff --name-only "$BEFORE_SHA"
+            git ls-files --others --exclude-standard
+          } | sort -u > "$RUNNER_TEMP/repair-changed-files.txt"
+
+          echo "Repair changed files:"
+          cat "$RUNNER_TEMP/repair-changed-files.txt"
+
+          if [ ! -s "$RUNNER_TEMP/repair-changed-files.txt" ]; then
+            echo "Repair agent produced no repository changes."
+            exit 1
+          fi
+
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/repair-changed-files.txt"; then
+            echo "Repair agent changed protected infrastructure."
+            exit 1
+          fi
+
+      - name: Deterministic Linux acceptance after repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
+
+          rm -rf "$RUNNER_TEMP/motor-generated"
+          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-generated"
+          test -f "$RUNNER_TEMP/motor-generated/UDT_Motor.scl"
+
+          INPUT=$(jq -r '.generator.input' "$RUNNER_TEMP/task.json")
+          EXPECTED=$(jq -r '.generator.expectedArtifact' "$RUNNER_TEMP/task.json")
+          test -f "$INPUT"
+          rm -rf "$RUNNER_TEMP/repaired-generated"
+          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/repaired-generated"
+          test -f "$RUNNER_TEMP/repaired-generated/$EXPECTED"
+
+      - name: Commit and push repair to same candidate branch
+        id: push
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.client_payload.branch }}
+          TASK_PATH: ${{ github.event.client_payload.task_path }}
+          ATTEMPT: ${{ github.event.client_payload.attempt }}
+        run: |
+          TASK_ID=$(jq -r '.id' "$RUNNER_TEMP/task.json")
+          git config user.name "tia-automation-agent"
+          git config user.email "tia-automation-agent@users.noreply.github.com"
+          git add -A
+          git commit -m "Agent: repair ${TASK_ID} attempt ${ATTEMPT}"
+          gh auth setup-git
+          git push origin "HEAD:$BRANCH"
+          NEW_SHA=$(git rev-parse HEAD)
+          echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Comment repair attempt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          ATTEMPT: ${{ github.event.client_payload.attempt }}
+          MAX_ATTEMPTS: ${{ steps.context.outputs.max_attempts }}
+        run: |
+          PROVIDER=$(jq -r '.selected_provider // "unknown"' "$RUNNER_TEMP/repair-provider-audit.json")
+          MODEL=$(jq -r '.selected_model // "unknown"' "$RUNNER_TEMP/repair-provider-audit.json")
+          gh pr comment "$PR_NUMBER" --body "### Autonomous Repair\n\nRepair attempt **${ATTEMPT}/${MAX_ATTEMPTS}** committed to the same candidate branch.\n\nProvider: \`${PROVIDER}\`  \nModel: \`${MODEL}\`\n\nA fresh trusted candidate validation has been dispatched."
+
+      - name: Dispatch fresh trusted candidate validation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          CANDIDATE_SHA: ${{ steps.push.outputs.candidate_sha }}
+          BRANCH: ${{ github.event.client_payload.branch }}
+          TASK_PATH: ${{ github.event.client_payload.task_path }}
+          ATTEMPT: ${{ github.event.client_payload.attempt }}
+        run: |
+          jq -n \
+            --argjson pr "$PR_NUMBER" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg branch "$BRANCH" \
+            --arg task_path "$TASK_PATH" \
+            --argjson attempt "$ATTEMPT" \
+            '{event_type:"candidate-validation",client_payload:{pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,attempt:$attempt}}' \
+            > "$RUNNER_TEMP/candidate-dispatch.json"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/candidate-dispatch.json"
