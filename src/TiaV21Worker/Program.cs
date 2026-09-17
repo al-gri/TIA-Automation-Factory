@@ -33,7 +33,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             string diagnosticsPath = Path.GetFullPath(args[1]);
             string workRoot = args.Length == 3
                 ? Path.GetFullPath(args[2])
-                : Path.Combine(Path.GetTempPath(), "TiaAutomationFactory");
+                : Path.GetFullPath(Path.Combine(Path.GetTempPath(), "TiaAutomationFactory"));
 
             Directory.CreateDirectory(Path.GetDirectoryName(diagnosticsPath));
             Directory.CreateDirectory(workRoot);
@@ -79,7 +79,16 @@ namespace TiaAutomationFactory.TiaV21Worker
                 throw new FileNotFoundException("Generated PLC source file was not found.", sourcePath);
 
             string runName = "Smoke_" + DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-            DirectoryInfo projectsDirectory = Directory.CreateDirectory(Path.Combine(workRoot, "projects"));
+            string projectsPath = Path.GetFullPath(Path.Combine(workRoot, "projects"));
+            if (!Path.IsPathRooted(projectsPath))
+                throw new InvalidOperationException("TIA project target directory is not absolute: " + projectsPath);
+
+            Directory.CreateDirectory(projectsPath);
+            DirectoryInfo projectsDirectory = new DirectoryInfo(projectsPath);
+
+            Console.WriteLine("TIA work root: " + workRoot);
+            Console.WriteLine("TIA project target directory: " + projectsDirectory.FullName);
+            Console.WriteLine("TIA project target rooted: " + Path.IsPathRooted(projectsDirectory.FullName));
 
             var output = new WorkerResult();
 
@@ -89,7 +98,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 Project project = null;
                 try
                 {
-                    project = portal.Projects.Create(projectsDirectory, runName);
+                    project = portal.Projects.Create(new DirectoryInfo(projectsDirectory.FullName), runName);
                     output.ProjectPath = project.Path.FullName;
 
                     Device station = project.Devices.CreateWithItem(CpuTypeIdentifier, "PLC_1", "S7_1500_Station_1");
