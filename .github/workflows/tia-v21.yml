@@ -26,4 +26,5 @@ jobs:
           Get-ChildItem $api
       - name: Runner ready
         shell: powershell
-        run: Write-Host 'Windows runner is ready for the next milestone: real TIA Openness import and compile.'
+        run: |
+          Write-Host 'Windows runner is ready for the next milestone: real TIA Openness import and compile.'
