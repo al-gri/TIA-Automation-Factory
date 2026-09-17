@@ -36,14 +36,15 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - Pinned OpenCode fallback runtime to `opencode-ai@1.18.31` and free fallback model `nvidia/nemotron-3-ultra-550b-a55b:free`.
 - Updated coder and both reviewer workflows to record selected provider/model and fallback audit information.
 - Added CI syntax validation for trusted agent runtime scripts and upgraded CI checkout/setup-dotnet actions to current majors.
+- Configured `OPENROUTER_API_KEY` in GitHub Actions and proved runtime fallback detection: Gemini quota failure -> clean Git workspace -> OpenRouter/OpenCode invocation.
+- Found OpenCode `1.18.31` CLI incompatibility with the `--standalone` flag before any candidate source edits; corrected fallback invocation to supported `--pure --auto --agent build --format json --model ...` flags.
 
 ### CURRENT
-- I1.5 provider resilience is implemented but not yet runtime-accepted because `OPENROUTER_API_KEY` is not configured in GitHub Actions.
+- I1.5 provider resilience is implemented and has reached the OpenRouter runtime; one clean rerun is required to prove the corrected OpenCode invocation actually edits the candidate workspace.
 - I2-I4 remain implemented but not accepted until the full `INFRA-001` chain completes.
 
 ### NEXT
-- Add repository Actions secret `OPENROUTER_API_KEY` and repeat `tasks/INFRA-001.json`.
-- Confirm automatic Gemini quota failure -> clean workspace -> OpenRouter/OpenCode coder fallback.
+- Repeat `tasks/INFRA-001.json` from current `main` and confirm Gemini quota failure -> clean workspace -> successful OpenRouter/OpenCode coder fallback.
 - Confirm Requirements Reviewer -> Linux artifact package -> trusted TIA V21 -> PLC/TIA Reviewer completes without manual source-code intervention.
 - Fix any defects found by the full INFRA-001 smoke test and then mark I1.5 and I2-I4 DONE.
 - I5: bounded repair loop using structured reviewer and TIA diagnostics, maximum attempts from the task.
