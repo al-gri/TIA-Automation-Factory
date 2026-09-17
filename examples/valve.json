@@ -1,0 +1,10 @@
+{
+  "name": "Valve",
+  "fields": [
+    { "name": "Open", "type": "Bool" },
+    { "name": "Close", "type": "Bool" },
+    { "name": "Opened", "type": "Bool" },
+    { "name": "Closed", "type": "Bool" },
+    { "name": "Fault", "type": "Bool" }
+  ]
+}
