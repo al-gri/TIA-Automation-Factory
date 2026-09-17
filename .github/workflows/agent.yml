@@ -1,0 +1,186 @@
+name: Autonomous Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: GitHub Issue number for OpenHands to implement
+        required: true
+        type: string
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  implement:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'agent-ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Resolve issue number
+        id: issue
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require Gemini API key
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "Missing repository Actions secret GEMINI_API_KEY."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Create agent branch
+        id: branch
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          BRANCH="agent/issue-${ISSUE_NUMBER}-${GITHUB_RUN_ID}"
+          git checkout -b "$BRANCH"
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Build task from GitHub Issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          gh issue view "$ISSUE_NUMBER" --json title,body,url > "$RUNNER_TEMP/issue.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          issue = json.loads(Path(os.environ['RUNNER_TEMP'], 'issue.json').read_text())
+          task = f'''# OpenHands task\n\nImplement GitHub Issue #{os.environ['ISSUE_NUMBER']}.\n\nTitle: {issue['title']}\nURL: {issue['url']}\n\nIssue body:\n{issue.get('body') or ''}\n\nRepository constraints:\n- Work only in this checked-out repository.\n- Do not modify .github/**, .openhands/**, or src/TiaV21Worker/**.\n- Do not attempt to contact, control, or access the Windows self-hosted runner or TIA Portal directly.\n- Keep Siemens.Engineering dependencies out of the vendor-neutral domain/compiler projects.\n- Run the relevant dotnet tests and generation checks before finishing.\n- Make the smallest coherent change that satisfies the issue.\n- Do not commit or push; the outer workflow owns Git operations.\n'''
+          Path(os.environ['RUNNER_TEMP'], 'agent-task.md').write_text(task)
+          PY
+
+      - name: Install OpenHands CLI
+        shell: bash
+        run: |
+          python -m pip install --upgrade uv
+          uvx --from openhands==1.18.0 openhands --version
+
+      - name: Run OpenHands headlessly
+        shell: bash
+        env:
+          LLM_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LLM_MODEL: gemini/gemini-3.8-flash
+          MAX_ITERATIONS: '30'
+          LLM_NUM_RETRIES: '4'
+          LLM_TIMEOUT: '120'
+          SAVE_TRAJECTORY_PATH: ${{ runner.temp }}/openhands-trajectories
+          SANDBOX_VOLUMES: ${{ github.workspace }}:/workspace:rw
+        run: |
+          uvx --from openhands==1.18.0 openhands \
+            --headless \
+            --json \
+            --override-with-envs \
+            --file "$RUNNER_TEMP/agent-task.md" \
+            | tee "$RUNNER_TEMP/openhands-output.jsonl"
+
+      - name: Reject protected-path changes
+        shell: bash
+        run: |
+          {
+            git diff --name-only origin/main...HEAD
+            git diff --name-only
+            git ls-files --others --exclude-standard
+          } | sort -u > "$RUNNER_TEMP/changed-files.txt"
+
+          echo "Changed files:"
+          cat "$RUNNER_TEMP/changed-files.txt"
+
+          if grep -E '^(\.github/|\.openhands/|src/TiaV21Worker/)' "$RUNNER_TEMP/changed-files.txt"; then
+            echo "Agent changed a protected path. Refusing to publish the branch."
+            exit 1
+          fi
+
+      - name: Deterministic Linux acceptance
+        shell: bash
+        run: |
+          dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
+          rm -rf "$RUNNER_TEMP/generated"
+          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/generated"
+          test -f "$RUNNER_TEMP/generated/UDT_Motor.scl"
+
+      - name: Require actual code changes
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "OpenHands finished without repository changes."
+            exit 1
+          fi
+
+      - name: Commit and push agent branch
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+        run: |
+          git config user.name "tia-automation-agent"
+          git config user.email "tia-automation-agent@users.noreply.github.com"
+          git add -A
+          git commit -m "Agent: implement issue #${ISSUE_NUMBER}"
+          git push --set-upstream origin "$BRANCH"
+
+      - name: Open pull request
+        id: pr
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+        run: |
+          TITLE=$(jq -r '.title' "$RUNNER_TEMP/issue.json")
+          cat > "$RUNNER_TEMP/pr-body.md" <<EOF
+          Automated OpenHands implementation for #${ISSUE_NUMBER}.
+
+          The agent ran on a GitHub-hosted Linux runner. Protected Windows/TIA integration paths were not permitted to change.
+
+          Closes #${ISSUE_NUMBER}
+          EOF
+
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Agent: #${ISSUE_NUMBER} ${TITLE}" \
+            --body-file "$RUNNER_TEMP/pr-body.md")
+          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "$PR_URL"
+
+      - name: Comment on source issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "OpenHands created a candidate PR: $PR_URL"
