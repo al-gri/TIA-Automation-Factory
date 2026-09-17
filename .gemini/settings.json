@@ -1,4 +1,10 @@
 {
+  "general": {
+    "plan": {
+      "enabled": true,
+      "modelRouting": false
+    }
+  },
   "model": {
     "name": "gemini-3.8-flash"
   },
