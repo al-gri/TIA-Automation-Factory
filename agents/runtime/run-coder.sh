@@ -22,6 +22,8 @@ write_audit() {
   local fallback_reason="$4"
   local gemini_initialized="$5"
   local gemini_actual="$6"
+  local openrouter_outcome="${7:-not_attempted}"
+  local openrouter_status="${8:-0}"
 
   jq -n \
     --arg selected_provider "$selected_provider" \
@@ -32,7 +34,9 @@ write_audit() {
     --arg gemini_initialized "$gemini_initialized" \
     --argjson gemini_actual "$gemini_actual" \
     --arg openrouter_requested "openrouter/$OPENROUTER_MODEL" \
-    '{selected_provider:$selected_provider,selected_model:$selected_model,fallback_from:$fallback_from,fallback_reason:$fallback_reason,gemini:{requested:$gemini_requested,initialized:$gemini_initialized,actual_usage:$gemini_actual},openrouter:{requested:$openrouter_requested}}' \
+    --arg openrouter_outcome "$openrouter_outcome" \
+    --argjson openrouter_status "$openrouter_status" \
+    '{selected_provider:$selected_provider,selected_model:$selected_model,fallback_from:$fallback_from,fallback_reason:$fallback_reason,gemini:{requested:$gemini_requested,initialized:$gemini_initialized,actual_usage:$gemini_actual},openrouter:{requested:$openrouter_requested,outcome:$openrouter_outcome,exit_status:$openrouter_status}}' \
     > "$AUDIT_PATH"
 }
 
@@ -64,7 +68,7 @@ if [[ -n "${GEMINI_API_KEY:-}" ]]; then
   fi
 
   if [[ "$GEMINI_STATUS" -eq 0 ]]; then
-    write_audit "gemini" "$GEMINI_MODEL" "" "" "$GEMINI_INITIALIZED" "$GEMINI_ACTUAL"
+    write_audit "gemini" "$GEMINI_MODEL" "" "" "$GEMINI_INITIALIZED" "$GEMINI_ACTUAL" "not_attempted" 0
     exit 0
   fi
 
@@ -81,7 +85,7 @@ fi
 
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
   echo "No OPENROUTER_API_KEY fallback is configured."
-  write_audit "none" "" "gemini" "$GEMINI_REASON" "$GEMINI_INITIALIZED" "$GEMINI_ACTUAL"
+  write_audit "none" "" "gemini" "$GEMINI_REASON" "$GEMINI_INITIALIZED" "$GEMINI_ACTUAL" "not_configured" 0
   exit "$GEMINI_STATUS"
 fi
 
@@ -104,9 +108,22 @@ OPENROUTER_STATUS=${PIPESTATUS[0]}
 set -e
 
 if [[ "$OPENROUTER_STATUS" -ne 0 ]]; then
-  write_audit "openrouter" "openrouter/$OPENROUTER_MODEL" "gemini" "$GEMINI_REASON" "$GEMINI_INITIALIZED" "$GEMINI_ACTUAL"
-  echo "OpenRouter/OpenCode fallback failed with status $OPENROUTER_STATUS." >&2
+  OPENROUTER_REASON="provider_or_runtime_error"
+  if grep -Eqi 'quota|429|exhausted|rate.?limit|free-models-per-day' "$OPENROUTER_OUTPUT" 2>/dev/null; then
+    OPENROUTER_REASON="quota_or_rate_limit"
+  fi
+
+  # A provider can hit its quota after it has already produced a coherent candidate.
+  # Preserve such edits and let deterministic acceptance + independent reviewers decide.
+  if [[ "$OPENROUTER_REASON" = "quota_or_rate_limit" ]] && [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+    write_audit "openrouter" "openrouter/$OPENROUTER_MODEL" "gemini" "$GEMINI_REASON" "$GEMINI_INITIALIZED" "$GEMINI_ACTUAL" "partial_candidate_after_rate_limit" "$OPENROUTER_STATUS"
+    echo "OpenRouter hit a late quota/rate limit after producing repository changes. Preserving candidate for deterministic validation."
+    exit 0
+  fi
+
+  write_audit "openrouter" "openrouter/$OPENROUTER_MODEL" "gemini" "$GEMINI_REASON" "$GEMINI_INITIALIZED" "$GEMINI_ACTUAL" "failed" "$OPENROUTER_STATUS"
+  echo "OpenRouter/OpenCode fallback failed with status $OPENROUTER_STATUS ($OPENROUTER_REASON)." >&2
   exit "$OPENROUTER_STATUS"
 fi
 
-write_audit "openrouter" "openrouter/$OPENROUTER_MODEL" "gemini" "$GEMINI_REASON" "$GEMINI_INITIALIZED" "$GEMINI_ACTUAL"
+write_audit "openrouter" "openrouter/$OPENROUTER_MODEL" "gemini" "$GEMINI_REASON" "$GEMINI_INITIALIZED" "$GEMINI_ACTUAL" "success" 0
