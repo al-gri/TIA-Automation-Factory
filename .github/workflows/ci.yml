@@ -10,10 +10,14 @@ jobs:
   build-test-generate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
+      - name: Validate trusted agent runtime scripts
+        run: |
+          bash -n agents/runtime/run-coder.sh
+          python3 -m py_compile agents/runtime/run-reviewer.py
       - name: Test Siemens backend
         run: dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
       - name: Generate first Siemens artifact
