@@ -412,3 +412,75 @@ jobs:
         run: |
           test "$WORKER_OUTCOME" = "success"
           test "$REVIEW_STATUS" = "PASS"
+
+  repair-or-finish:
+    needs: [requirements-review, generate-candidate-artifact, tia-v21-acceptance, plc-tia-review]
+    if: always() && startsWith(github.event.client_payload.branch, 'agent/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout trusted orchestration state
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Decide pass, repair, or blocked
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          BRANCH: ${{ github.event.client_payload.branch }}
+          TASK_PATH: ${{ github.event.client_payload.task_path }}
+          ATTEMPT_RAW: ${{ github.event.client_payload.attempt }}
+          REQUIREMENTS_RESULT: ${{ needs.requirements-review.result }}
+          PACKAGE_RESULT: ${{ needs.generate-candidate-artifact.result }}
+          TIA_RESULT: ${{ needs.tia-v21-acceptance.result }}
+          PLC_REVIEW_RESULT: ${{ needs.plc-tia-review.result }}
+        run: |
+          set -euo pipefail
+          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path: $TASK_PATH"; exit 1 ;; esac
+          test -f "$TASK_PATH"
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+
+          ATTEMPT="${ATTEMPT_RAW:-0}"
+          [[ "$ATTEMPT" =~ ^[0-9]+$ ]]
+          MAX_ATTEMPTS=$(jq -r '.maxRepairAttempts // 0' "$TASK_PATH")
+          [[ "$MAX_ATTEMPTS" =~ ^[0-9]+$ ]]
+
+          SUMMARY="requirements=${REQUIREMENTS_RESULT}, package=${PACKAGE_RESULT}, tia=${TIA_RESULT}, plc-review=${PLC_REVIEW_RESULT}"
+
+          if [ "$REQUIREMENTS_RESULT" = "success" ] \
+            && [ "$PACKAGE_RESULT" = "success" ] \
+            && [ "$TIA_RESULT" = "success" ] \
+            && [ "$PLC_REVIEW_RESULT" = "success" ]; then
+            gh pr comment "$PR_NUMBER" --body "### Autonomous Validation\n\n**PASS** after repair attempt ${ATTEMPT}/${MAX_ATTEMPTS}.\n\n${SUMMARY}\n\nNo further repair was dispatched."
+            exit 0
+          fi
+
+          if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+            gh pr comment "$PR_NUMBER" --body "### Autonomous Validation\n\n**BLOCKED** after exhausting ${MAX_ATTEMPTS} repair attempt(s).\n\n${SUMMARY}\n\nNo further autonomous repair will be dispatched."
+            echo "Repair budget exhausted."
+            exit 1
+          fi
+
+          NEXT_ATTEMPT=$((ATTEMPT + 1))
+          gh pr comment "$PR_NUMBER" --body "### Autonomous Validation\n\nValidation did not pass. Dispatching repair attempt **${NEXT_ATTEMPT}/${MAX_ATTEMPTS}**.\n\n${SUMMARY}"
+
+          jq -n \
+            --argjson pr "$PR_NUMBER" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg branch "$BRANCH" \
+            --arg task_path "$TASK_PATH" \
+            --argjson validation_run_id "$GITHUB_RUN_ID" \
+            --argjson attempt "$NEXT_ATTEMPT" \
+            '{event_type:"candidate-repair",client_payload:{pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,validation_run_id:$validation_run_id,attempt:$attempt}}' \
+            > "$RUNNER_TEMP/repair-dispatch.json"
+
+          cat "$RUNNER_TEMP/repair-dispatch.json"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/repair-dispatch.json"
