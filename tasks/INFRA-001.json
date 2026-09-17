@@ -1,0 +1,42 @@
+{
+  "id": "INFRA-001",
+  "title": "Autonomous Valve UDT end-to-end smoke test",
+  "goal": "Prove that a coding agent can read a task from Git, make a small generator/example change, produce a Siemens SCL artifact, and have that exact artifact accepted by the trusted TIA Portal V21 gate.",
+  "scope": [
+    "Create examples/valve.json describing a simple Valve device.",
+    "Use the existing vendor-neutral Domain -> PLC IR -> SiemensBackend path.",
+    "Add or update automated tests that prove the Valve artifact generation behavior.",
+    "Do not redesign the compiler architecture for this smoke task."
+  ],
+  "generator": {
+    "input": "examples/valve.json",
+    "expectedArtifact": "UDT_Valve.scl"
+  },
+  "valveFields": [
+    { "name": "Open", "type": "Bool" },
+    { "name": "Close", "type": "Bool" },
+    { "name": "Opened", "type": "Bool" },
+    { "name": "Closed", "type": "Bool" },
+    { "name": "Fault", "type": "Bool" }
+  ],
+  "acceptance": [
+    "examples/valve.json exists and represents the requested Valve fields using the existing AutomationDevice schema.",
+    "Automated tests cover the Valve generation path and remain deterministic.",
+    "Existing Motor tests and examples remain green.",
+    "GeneratorCli produces UDT_Valve.scl from examples/valve.json on Linux.",
+    "The generated UDT_Valve.scl is the artifact transferred to the trusted Windows acceptance job.",
+    "TIA Portal V21 imports/generates the tested artifact and compiles with zero errors.",
+    "Requirements Reviewer returns PASS.",
+    "PLC/TIA Reviewer returns PASS."
+  ],
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "src/TiaV21Worker/**"
+  ],
+  "maxRepairAttempts": 3
+}
