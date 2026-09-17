@@ -43,13 +43,17 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - I3 complete: Linux generated and packaged exact `UDT_Valve.scl`; Windows checked out trusted `main`, received only the PLC package, ran trusted `TiaV21Worker`, and TIA Portal V21 compiled with 0 errors / 0 warnings.
 - I4 complete: PLC/TIA Reviewer independently verified the artifact manifest plus TIA diagnostics and returned `PASS`.
 - Full Git-task path is now proven end-to-end: versioned task/prompt -> coder -> PR -> reviewer -> PLC artifact -> trusted Windows/TIA -> diagnostics -> second reviewer.
+- I5 implemented: `Candidate Validation` now dispatches bounded `candidate-repair` attempts using `maxRepairAttempts`; `Autonomous Repair` edits the same candidate branch/PR and redispatches trusted validation.
+- I5 repair prompt consumes trusted task state, current diff, recent reviewer comments, failed validation logs, and prior TIA diagnostics when available; protected infrastructure remains non-editable.
+- I5 proven with PR #6: intentionally incomplete Valve was rejected by Requirements Reviewer, repair attempt 1/3 fixed the same PR, fresh validation passed requirements, TIA V21 compiled `UDT_Valve` with 0 errors / 0 warnings, and PLC/TIA Reviewer passed.
+- Added reusable manual `I5 Repair Smoke` workflow for regression testing the bounded repair loop.
 
 ### CURRENT
-- I5: implement bounded autonomous repair loop using structured reviewer/TIA diagnostics and `maxRepairAttempts` from the task.
+- I6: perform one final clean end-to-end task run through the production path and prepare handoff documentation for the generator-development chat.
 
 ### NEXT
-- Prove a deliberately failing task can receive reviewer or TIA diagnostics, return to the coder, update the same PR, and stop on `PASS` or `BLOCKED` after the configured attempt limit.
-- I6: repeat one clean end-to-end Git-task smoke run with no manual source-code intervention and prepare concise handoff documentation for the generator-development chat.
+- Run one clean Git-task smoke from current `main` with no intentional fault injection and no manual source-code intervention.
+- Prepare concise handoff documentation: architecture, workflows, task schema, provider fallback, Windows/TIA boundary, repair-loop semantics, and operating instructions for the next chat.
 - After I6, freeze infrastructure changes unless they block generator development.
 
 ## Logging rule
