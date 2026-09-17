@@ -3,9 +3,23 @@ name: Autonomous Agent
 on:
   workflow_dispatch:
     inputs:
-      issue_number:
-        description: GitHub Issue number for the coding agent to implement
+      source:
+        description: Work source
         required: true
+        default: task
+        type: choice
+        options:
+          - task
+          - issue
+      task_path:
+        description: Versioned JSON task path when source=task
+        required: false
+        default: tasks/INFRA-001.json
+        type: string
+      issue_number:
+        description: GitHub Issue number when source=issue
+        required: false
+        default: ''
         type: string
   issues:
     types: [labeled]
@@ -22,26 +36,6 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Resolve issue number
-        id: issue
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Require Gemini API key
-        shell: bash
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "Missing repository Actions secret GEMINI_API_KEY."
-            exit 1
-          fi
-
       - uses: actions/checkout@v6
         with:
           ref: main
@@ -57,32 +51,103 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Require Gemini API key
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "Missing repository Actions secret GEMINI_API_KEY."
+            exit 1
+          fi
+
+      - name: Resolve work source
+        id: work
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SOURCE: ${{ inputs.source }}
+          DISPATCH_TASK_PATH: ${{ inputs.task_path }}
+          DISPATCH_ISSUE: ${{ inputs.issue_number }}
+          EVENT_ISSUE: ${{ github.event.issue.number }}
+        run: |
+          if [ "$EVENT_NAME" = "issues" ]; then
+            MODE="issue"
+            ISSUE_NUMBER="$EVENT_ISSUE"
+            KEY="issue-${ISSUE_NUMBER}"
+            TASK_PATH=""
+          elif [ "$DISPATCH_SOURCE" = "issue" ]; then
+            MODE="issue"
+            ISSUE_NUMBER="$DISPATCH_ISSUE"
+            if [ -z "$ISSUE_NUMBER" ]; then
+              echo "source=issue requires issue_number"
+              exit 1
+            fi
+            KEY="issue-${ISSUE_NUMBER}"
+            TASK_PATH=""
+          else
+            MODE="task"
+            ISSUE_NUMBER=""
+            TASK_PATH="$DISPATCH_TASK_PATH"
+            case "$TASK_PATH" in
+              tasks/*.json) ;;
+              *) echo "task_path must be under tasks/ and end in .json"; exit 1 ;;
+            esac
+            if [ ! -f "$TASK_PATH" ]; then
+              echo "Task file not found: $TASK_PATH"
+              exit 1
+            fi
+            jq -e '.id and .title and .acceptance' "$TASK_PATH" >/dev/null
+            TASK_ID=$(jq -r '.id' "$TASK_PATH")
+            KEY="task-${TASK_ID}"
+          fi
+
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "task_path=$TASK_PATH" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
       - name: Create agent branch
         id: branch
         shell: bash
         env:
-          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          WORK_KEY: ${{ steps.work.outputs.key }}
         run: |
-          BRANCH="agent/issue-${ISSUE_NUMBER}-${GITHUB_RUN_ID}"
+          SAFE_KEY=$(printf '%s' "$WORK_KEY" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')
+          BRANCH="agent/${SAFE_KEY}-${GITHUB_RUN_ID}"
           git checkout -b "$BRANCH"
           echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Build task from GitHub Issue
+      - name: Build agent task from Git
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          MODE: ${{ steps.work.outputs.mode }}
+          TASK_PATH: ${{ steps.work.outputs.task_path }}
+          ISSUE_NUMBER: ${{ steps.work.outputs.issue_number }}
         run: |
-          gh issue view "$ISSUE_NUMBER" --json title,body,url > "$RUNNER_TEMP/issue.json"
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
+          test -f agents/prompts/coder.md
+          cp agents/prompts/coder.md "$RUNNER_TEMP/agent-task.md"
 
-          issue = json.loads(Path(os.environ['RUNNER_TEMP'], 'issue.json').read_text())
-          task = f'''# Coding task\n\nImplement GitHub Issue #{os.environ['ISSUE_NUMBER']}.\n\nTitle: {issue['title']}\nURL: {issue['url']}\n\nIssue body:\n{issue.get('body') or ''}\n\nRepository constraints:\n- Work only in this checked-out repository.\n- Do not modify .github/**, .openhands/**, .gemini/**, .gitignore, or src/TiaV21Worker/**.\n- Do not attempt to contact, control, or access the Windows self-hosted runner or TIA Portal directly.\n- Keep Siemens.Engineering dependencies out of the vendor-neutral domain/compiler projects.\n- Inspect the existing implementation before changing it; do not duplicate functionality that already exists.\n- Add or update tests needed to satisfy the issue.\n- Run the relevant dotnet tests and generation checks before finishing.\n- Make the smallest coherent change that satisfies the issue.\n- Do not commit, push, create branches, or open pull requests; the outer workflow owns Git operations.\n'''
-          Path(os.environ['RUNNER_TEMP'], 'agent-task.md').write_text(task)
-          PY
+          if [ "$MODE" = "task" ]; then
+            {
+              echo
+              echo "# Current versioned task"
+              echo
+              echo '```json'
+              cat "$TASK_PATH"
+              echo
+              echo '```'
+            } >> "$RUNNER_TEMP/agent-task.md"
+          else
+            gh issue view "$ISSUE_NUMBER" --json title,body,url > "$RUNNER_TEMP/issue.json"
+            {
+              echo
+              echo "# Current GitHub Issue"
+              echo
+              jq -r '"Issue: " + .url + "\nTitle: " + .title + "\n\n" + (.body // "")' "$RUNNER_TEMP/issue.json"
+            } >> "$RUNNER_TEMP/agent-task.md"
+          fi
 
       - name: Install Gemini CLI
         shell: bash
@@ -95,15 +160,58 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
+          REQUESTED_MODEL: gemini-3.8-flash
         run: |
+          echo "Requested model: $REQUESTED_MODEL"
           gemini \
-            --model gemini-3.8-flash \
+            --model "$REQUESTED_MODEL" \
             --prompt "$(cat "$RUNNER_TEMP/agent-task.md")" \
             --approval-mode=yolo \
             --skip-trust \
             --extensions none \
             --output-format stream-json \
             | tee "$RUNNER_TEMP/gemini-output.jsonl"
+
+      - name: Record model audit
+        id: model
+        if: always()
+        shell: bash
+        env:
+          REQUESTED_MODEL: gemini-3.8-flash
+        run: |
+          OUTPUT="$RUNNER_TEMP/gemini-output.jsonl"
+          INIT_MODEL="unknown"
+          ACTUAL_MODELS='{}'
+
+          if [ -f "$OUTPUT" ]; then
+            FOUND_INIT=$(jq -r 'select(.type == "init") | .model // empty' "$OUTPUT" | head -n 1 || true)
+            FOUND_ACTUAL=$(jq -c 'select(.type == "result") | .stats.models // {}' "$OUTPUT" | tail -n 1 || true)
+            [ -n "$FOUND_INIT" ] && INIT_MODEL="$FOUND_INIT"
+            [ -n "$FOUND_ACTUAL" ] && ACTUAL_MODELS="$FOUND_ACTUAL"
+          fi
+
+          jq -n \
+            --arg requested "$REQUESTED_MODEL" \
+            --arg initialized "$INIT_MODEL" \
+            --argjson actual "$ACTUAL_MODELS" \
+            '{requested:$requested, initialized:$initialized, actual_usage:$actual}' \
+            > "$RUNNER_TEMP/model-audit.json"
+
+          cat "$RUNNER_TEMP/model-audit.json"
+          echo "initialized=$INIT_MODEL" >> "$GITHUB_OUTPUT"
+          echo "actual=$ACTUAL_MODELS" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Gemini model audit"
+            echo
+            echo "- Requested: \`$REQUESTED_MODEL\`"
+            echo "- Session initialized: \`$INIT_MODEL\`"
+            echo "- Actual usage stats: \`$ACTUAL_MODELS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$INIT_MODEL" != "unknown" ] && [ "$INIT_MODEL" != "$REQUESTED_MODEL" ]; then
+            echo "::warning::Gemini CLI initialized a different model than requested."
+          fi
 
       - name: Capture and validate agent changes
         shell: bash
@@ -121,18 +229,34 @@ jobs:
             exit 1
           fi
 
-          if grep -E '^(\.github/|\.openhands/|\.gemini/|\.gitignore$|src/TiaV21Worker/)' "$RUNNER_TEMP/agent-changed-files.txt"; then
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|src/TiaV21Worker/)' "$RUNNER_TEMP/agent-changed-files.txt"; then
             echo "Agent changed a protected path. Refusing to publish the branch."
             exit 1
           fi
 
       - name: Deterministic Linux acceptance
         shell: bash
+        env:
+          MODE: ${{ steps.work.outputs.mode }}
+          TASK_PATH: ${{ steps.work.outputs.task_path }}
         run: |
           dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
-          rm -rf "$RUNNER_TEMP/generated"
-          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/generated"
-          test -f "$RUNNER_TEMP/generated/UDT_Motor.scl"
+
+          rm -rf "$RUNNER_TEMP/motor-generated"
+          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-generated"
+          test -f "$RUNNER_TEMP/motor-generated/UDT_Motor.scl"
+
+          if [ "$MODE" = "task" ]; then
+            INPUT=$(jq -r '.generator.input // empty' "$TASK_PATH")
+            EXPECTED=$(jq -r '.generator.expectedArtifact // empty' "$TASK_PATH")
+            if [ -n "$INPUT" ] && [ -n "$EXPECTED" ]; then
+              test -f "$INPUT"
+              rm -rf "$RUNNER_TEMP/candidate-generated"
+              dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/candidate-generated"
+              test -f "$RUNNER_TEMP/candidate-generated/$EXPECTED"
+              echo "Generated candidate artifact: $EXPECTED"
+            fi
+          fi
 
       - name: Verify no protected changes appeared during acceptance
         shell: bash
@@ -142,7 +266,7 @@ jobs:
             git ls-files --others --exclude-standard
           } | sort -u > "$RUNNER_TEMP/final-changed-files.txt"
 
-          if grep -E '^(\.github/|\.openhands/|\.gemini/|\.gitignore$|src/TiaV21Worker/)' "$RUNNER_TEMP/final-changed-files.txt"; then
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|src/TiaV21Worker/)' "$RUNNER_TEMP/final-changed-files.txt"; then
             echo "Protected path changed. Refusing to publish the branch."
             exit 1
           fi
@@ -151,13 +275,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          WORK_KEY: ${{ steps.work.outputs.key }}
           BRANCH: ${{ steps.branch.outputs.name }}
         run: |
           git config user.name "tia-automation-agent"
           git config user.email "tia-automation-agent@users.noreply.github.com"
           git add -A
-          git commit -m "Agent: implement issue #${ISSUE_NUMBER}"
+          git commit -m "Agent: implement ${WORK_KEY}"
           gh auth setup-git
           git push --set-upstream origin "$BRANCH"
 
@@ -166,33 +290,53 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          MODE: ${{ steps.work.outputs.mode }}
+          TASK_PATH: ${{ steps.work.outputs.task_path }}
+          ISSUE_NUMBER: ${{ steps.work.outputs.issue_number }}
+          WORK_KEY: ${{ steps.work.outputs.key }}
           BRANCH: ${{ steps.branch.outputs.name }}
+          MODEL_INITIALIZED: ${{ steps.model.outputs.initialized }}
+          MODEL_ACTUAL: ${{ steps.model.outputs.actual }}
         run: |
-          TITLE=$(jq -r '.title' "$RUNNER_TEMP/issue.json")
+          if [ "$MODE" = "task" ]; then
+            TITLE=$(jq -r '.title' "$TASK_PATH")
+            CLOSES_LINE=""
+            SOURCE_LINE="Task: \`$TASK_PATH\`"
+          else
+            TITLE=$(jq -r '.title' "$RUNNER_TEMP/issue.json")
+            CLOSES_LINE="Closes #${ISSUE_NUMBER}"
+            SOURCE_LINE="Issue: #${ISSUE_NUMBER}"
+          fi
+
           cat > "$RUNNER_TEMP/pr-body.md" <<EOF
-          Automated Gemini CLI implementation for #${ISSUE_NUMBER}.
+          Automated Gemini CLI candidate for ${WORK_KEY}.
 
-          The coding agent ran on a disposable GitHub-hosted Linux runner. Protected Windows/TIA integration paths were not permitted to change.
+          ${SOURCE_LINE}
 
-          This pull request was created by an AI coding agent on behalf of the repository owner.
+          Agent execution environment: disposable GitHub-hosted Linux runner. Protected Windows/TIA integration paths were not permitted to change.
 
-          Closes #${ISSUE_NUMBER}
+          Model audit:
+          - requested: \`gemini-3.8-flash\`
+          - initialized: \`${MODEL_INITIALIZED}\`
+          - actual usage: \`${MODEL_ACTUAL}\`
+
+          ${CLOSES_LINE}
           EOF
 
           PR_URL=$(gh pr create \
             --base main \
             --head "$BRANCH" \
-            --title "Agent: #${ISSUE_NUMBER} ${TITLE}" \
+            --title "Agent: ${WORK_KEY} ${TITLE}" \
             --body-file "$RUNNER_TEMP/pr-body.md")
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "$PR_URL"
 
       - name: Comment on source issue
+        if: steps.work.outputs.mode == 'issue'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          ISSUE_NUMBER: ${{ steps.work.outputs.issue_number }}
           PR_URL: ${{ steps.pr.outputs.url }}
         run: |
           gh issue comment "$ISSUE_NUMBER" --body "Gemini CLI created a candidate PR: $PR_URL\n\n_This comment was generated by an AI coding agent on behalf of the repository owner._"
