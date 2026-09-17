@@ -1,0 +1,408 @@
+name: Candidate Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  requirements-review:
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'agent/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      task_path: ${{ steps.task.outputs.path }}
+      expected_artifact: ${{ steps.task.outputs.expected }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve task from PR
+        id: task
+        shell: bash
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          TASK_PATH=$(python3 - <<'PY'
+          import os, re
+          body = os.environ.get('PR_BODY', '')
+          match = re.search(r'Task:\s*`(tasks/[^`]+\.json)`', body)
+          print(match.group(1) if match else '')
+          PY
+          )
+          if [ -z "$TASK_PATH" ]; then
+            echo "Candidate Validation currently requires a versioned Task: tasks/*.json line in the PR body."
+            exit 1
+          fi
+          case "$TASK_PATH" in tasks/*.json) ;; *) exit 1 ;; esac
+          test -f "$TASK_PATH"
+          jq -e '.id and .acceptance and .generator.input and .generator.expectedArtifact' "$TASK_PATH" >/dev/null
+          EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
+          echo "path=$TASK_PATH" >> "$GITHUB_OUTPUT"
+          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+
+      - name: Reject protected-path changes
+        shell: bash
+        run: |
+          git fetch origin main
+          git diff --name-only origin/main...HEAD | sort -u | tee "$RUNNER_TEMP/changed-files.txt"
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|src/TiaV21Worker/)' "$RUNNER_TEMP/changed-files.txt"; then
+            echo "Candidate changed protected infrastructure."
+            exit 1
+          fi
+          git diff --no-ext-diff --unified=80 origin/main...HEAD > "$RUNNER_TEMP/candidate.diff"
+
+      - name: Deterministic Linux evidence
+        shell: bash
+        env:
+          TASK_PATH: ${{ steps.task.outputs.path }}
+        run: |
+          set -o pipefail
+          dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release 2>&1 | tee "$RUNNER_TEMP/linux-test.log"
+
+          INPUT=$(jq -r '.generator.input' "$TASK_PATH")
+          EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
+          rm -rf "$RUNNER_TEMP/reviewer-generated"
+          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/reviewer-generated" 2>&1 | tee "$RUNNER_TEMP/generator.log"
+          test -f "$RUNNER_TEMP/reviewer-generated/$EXPECTED"
+
+          rm -rf "$RUNNER_TEMP/motor-generated"
+          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-generated" 2>&1 | tee -a "$RUNNER_TEMP/generator.log"
+          test -f "$RUNNER_TEMP/motor-generated/UDT_Motor.scl"
+
+      - name: Install Gemini CLI
+        shell: bash
+        run: |
+          npm install --global @google/gemini-cli@0.60.0
+          gemini --version
+
+      - name: Build Requirements Reviewer input
+        shell: bash
+        env:
+          TASK_PATH: ${{ steps.task.outputs.path }}
+        run: |
+          {
+            cat agents/prompts/reviewer-requirements.md
+            echo
+            echo '# Task specification'
+            cat "$TASK_PATH"
+            echo
+            echo '# Candidate diff'
+            cat "$RUNNER_TEMP/candidate.diff"
+            echo
+            echo '# Deterministic Linux test output'
+            cat "$RUNNER_TEMP/linux-test.log"
+            echo
+            echo '# Generator output'
+            cat "$RUNNER_TEMP/generator.log"
+          } > "$RUNNER_TEMP/requirements-review-prompt.md"
+
+      - name: Run Requirements Reviewer
+        id: review
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        run: |
+          gemini \
+            --model gemini-3.8-flash \
+            --prompt "$(cat "$RUNNER_TEMP/requirements-review-prompt.md")" \
+            --approval-mode=plan \
+            --skip-trust \
+            --extensions none \
+            --output-format json \
+            > "$RUNNER_TEMP/requirements-envelope.json"
+
+          python3 - <<'PY'
+          import json, pathlib, re
+          envelope = json.loads(pathlib.Path(__import__('os').environ['RUNNER_TEMP'], 'requirements-envelope.json').read_text())
+          text = (envelope.get('response') or '').strip()
+          text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.I)
+          text = re.sub(r'\s*```$', '', text)
+          start, end = text.find('{'), text.rfind('}')
+          if start < 0 or end < start:
+              raise SystemExit('Reviewer did not return a JSON object')
+          result = json.loads(text[start:end+1])
+          if result.get('status') not in {'PASS', 'CHANGES_REQUIRED', 'BLOCKED'}:
+              raise SystemExit('Invalid reviewer status')
+          out = pathlib.Path(__import__('os').environ['RUNNER_TEMP'], 'requirements-review.json')
+          out.write_text(json.dumps(result, indent=2))
+          print(out.read_text())
+          PY
+
+          STATUS=$(jq -r '.status' "$RUNNER_TEMP/requirements-review.json")
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Comment Requirements Reviewer result
+        if: always() && hashFiles(format('{0}/requirements-review.json', runner.temp)) != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo '### Requirements Reviewer'
+            echo
+            echo '```json'
+            cat "$RUNNER_TEMP/requirements-review.json"
+            echo '```'
+          } > "$RUNNER_TEMP/requirements-comment.md"
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/requirements-comment.md"
+
+      - name: Enforce Requirements Reviewer
+        shell: bash
+        run: |
+          test "${{ steps.review.outputs.status }}" = "PASS"
+
+  generate-candidate-artifact:
+    needs: requirements-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      expected_artifact: ${{ steps.package.outputs.expected }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Generate candidate PLC package on Linux
+        id: package
+        shell: bash
+        env:
+          TASK_PATH: ${{ needs.requirements-review.outputs.task_path }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          INPUT=$(jq -r '.generator.input' "$TASK_PATH")
+          EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
+          TASK_ID=$(jq -r '.id' "$TASK_PATH")
+
+          rm -rf candidate-package
+          mkdir -p candidate-package
+          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" candidate-package
+          test -f "candidate-package/$EXPECTED"
+
+          HASH=$(sha256sum "candidate-package/$EXPECTED" | awk '{print $1}')
+          jq -n \
+            --arg taskId "$TASK_ID" \
+            --arg taskPath "$TASK_PATH" \
+            --arg candidateSha "$CANDIDATE_SHA" \
+            --argjson pr "$PR_NUMBER" \
+            --arg artifact "$EXPECTED" \
+            --arg sha256 "$HASH" \
+            '{taskId:$taskId,taskPath:$taskPath,candidateSha:$candidateSha,pr:$pr,artifact:$artifact,sha256:$sha256}' \
+            > candidate-package/manifest.json
+          cp "$TASK_PATH" candidate-package/task.json
+          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+          cat candidate-package/manifest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-plc-${{ github.run_id }}
+          path: candidate-package
+          if-no-files-found: error
+
+  tia-v21-acceptance:
+    needs: generate-candidate-artifact
+    runs-on: [self-hosted, Windows, X64, tia-v21]
+    timeout-minutes: 20
+    outputs:
+      worker_outcome: ${{ steps.tia.outcome }}
+
+    steps:
+      - name: Checkout trusted infrastructure only
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Download candidate PLC artifact only
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-plc-${{ github.run_id }}
+          path: candidate-package
+
+      - name: Verify candidate package shape
+        shell: cmd
+        env:
+          EXPECTED: ${{ needs.generate-candidate-artifact.outputs.expected_artifact }}
+        run: |
+          if not exist "candidate-package\manifest.json" exit /b 1
+          if not exist "candidate-package\task.json" exit /b 1
+          if not exist "candidate-package\%EXPECTED%" exit /b 1
+          dir candidate-package
+
+      - name: Build trusted TiaV21Worker from main
+        shell: cmd
+        run: dotnet build src\TiaV21Worker\TiaV21Worker.csproj --configuration Release
+
+      - name: Run trusted TIA V21 acceptance
+        id: tia
+        continue-on-error: true
+        shell: cmd
+        env:
+          EXPECTED: ${{ needs.generate-candidate-artifact.outputs.expected_artifact }}
+        run: |
+          if not exist artifacts\tia mkdir artifacts\tia
+          src\TiaV21Worker\bin\Release\net48\TiaV21Worker.exe "%GITHUB_WORKSPACE%\candidate-package\%EXPECTED%" "%GITHUB_WORKSPACE%\artifacts\tia\tia-diagnostics.json"
+
+      - name: Show TIA diagnostics
+        if: always()
+        shell: cmd
+        run: |
+          if exist artifacts\tia\tia-diagnostics.json type artifacts\tia\tia-diagnostics.json
+          if not exist artifacts\tia\tia-diagnostics.json echo tia-diagnostics.json was not created.
+
+      - name: Upload TIA diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tia-candidate-diagnostics-${{ github.run_id }}
+          path: artifacts/tia
+          if-no-files-found: warn
+
+  plc-tia-review:
+    needs: [requirements-review, generate-candidate-artifact, tia-v21-acceptance]
+    if: always() && needs.requirements-review.result == 'success' && needs.generate-candidate-artifact.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout trusted reviewer prompt and task
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Download candidate package
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-plc-${{ github.run_id }}
+          path: candidate-package
+
+      - name: Download TIA diagnostics
+        uses: actions/download-artifact@v4
+        with:
+          name: tia-candidate-diagnostics-${{ github.run_id }}
+          path: tia-diagnostics
+
+      - name: Install Gemini CLI
+        shell: bash
+        run: |
+          npm install --global @google/gemini-cli@0.60.0
+          gemini --version
+
+      - name: Build PLC TIA Reviewer input
+        shell: bash
+        run: |
+          {
+            cat agents/prompts/reviewer-tia.md
+            echo
+            echo '# Task specification'
+            cat candidate-package/task.json
+            echo
+            echo '# Artifact manifest'
+            cat candidate-package/manifest.json
+            echo
+            echo '# Generated PLC artifact'
+            EXPECTED=$(jq -r '.artifact' candidate-package/manifest.json)
+            cat "candidate-package/$EXPECTED"
+            echo
+            echo '# TIA worker outcome'
+            echo '${{ needs.tia-v21-acceptance.outputs.worker_outcome }}'
+            echo
+            echo '# TIA diagnostics'
+            if [ -f tia-diagnostics/tia-diagnostics.json ]; then
+              cat tia-diagnostics/tia-diagnostics.json
+            else
+              echo '{"success":false,"errors":1,"diagnostics":[{"description":"tia-diagnostics.json missing"}]}'
+            fi
+          } > "$RUNNER_TEMP/tia-review-prompt.md"
+
+      - name: Run PLC TIA Reviewer
+        id: review
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        run: |
+          gemini \
+            --model gemini-3.8-flash \
+            --prompt "$(cat "$RUNNER_TEMP/tia-review-prompt.md")" \
+            --approval-mode=plan \
+            --skip-trust \
+            --extensions none \
+            --output-format json \
+            > "$RUNNER_TEMP/tia-review-envelope.json"
+
+          python3 - <<'PY'
+          import json, pathlib, re, os
+          envelope = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'tia-review-envelope.json').read_text())
+          text = (envelope.get('response') or '').strip()
+          text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.I)
+          text = re.sub(r'\s*```$', '', text)
+          start, end = text.find('{'), text.rfind('}')
+          if start < 0 or end < start:
+              raise SystemExit('Reviewer did not return a JSON object')
+          result = json.loads(text[start:end+1])
+          if result.get('status') not in {'PASS', 'CHANGES_REQUIRED', 'BLOCKED'}:
+              raise SystemExit('Invalid reviewer status')
+          out = pathlib.Path(os.environ['RUNNER_TEMP'], 'tia-review.json')
+          out.write_text(json.dumps(result, indent=2))
+          print(out.read_text())
+          PY
+          STATUS=$(jq -r '.status' "$RUNNER_TEMP/tia-review.json")
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Comment PLC TIA Reviewer result
+        if: always() && hashFiles(format('{0}/tia-review.json', runner.temp)) != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo '### PLC / TIA Reviewer'
+            echo
+            echo '```json'
+            cat "$RUNNER_TEMP/tia-review.json"
+            echo '```'
+          } > "$RUNNER_TEMP/tia-comment.md"
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/tia-comment.md"
+
+      - name: Enforce TIA and reviewer result
+        shell: bash
+        env:
+          WORKER_OUTCOME: ${{ needs.tia-v21-acceptance.outputs.worker_outcome }}
+          REVIEW_STATUS: ${{ steps.review.outputs.status }}
+        run: |
+          test "$WORKER_OUTCOME" = "success"
+          test "$REVIEW_STATUS" = "PASS"
