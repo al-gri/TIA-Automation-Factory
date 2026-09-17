@@ -9,6 +9,10 @@ on:
         type: string
   issues:
     types: [labeled]
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/agent.yml'
 
 permissions:
   contents: write
@@ -17,7 +21,7 @@ permissions:
 
 jobs:
   implement:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'agent-ready'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.label.name == 'agent-ready'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -28,6 +32,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "number=${{ inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            echo "number=3" >> "$GITHUB_OUTPUT"
           else
             echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
           fi
@@ -86,7 +92,8 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade uv
-          uvx --from openhands==1.18.0 openhands --version
+          uv tool install openhands==1.16.0 --python 3.12
+          openhands --version
 
       - name: Run OpenHands headlessly
         shell: bash
@@ -96,10 +103,9 @@ jobs:
           MAX_ITERATIONS: '30'
           LLM_NUM_RETRIES: '4'
           LLM_TIMEOUT: '120'
-          SAVE_TRAJECTORY_PATH: ${{ runner.temp }}/openhands-trajectories
           SANDBOX_VOLUMES: ${{ github.workspace }}:/workspace:rw
         run: |
-          uvx --from openhands==1.18.0 openhands \
+          openhands \
             --headless \
             --json \
             --override-with-envs \
