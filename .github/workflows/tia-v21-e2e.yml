@@ -6,6 +6,12 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/tia-v21-e2e.yml'
+      - 'src/TiaV21Worker/**'
+      - 'src/GeneratorCli/**'
+      - 'src/Domain/**'
+      - 'src/PlcCompiler/**'
+      - 'src/SiemensBackend/**'
+      - 'examples/**'
 
 jobs:
   generate-import-compile:
