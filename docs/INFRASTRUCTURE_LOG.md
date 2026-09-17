@@ -38,17 +38,19 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - Added CI syntax validation for trusted agent runtime scripts and upgraded CI checkout/setup-dotnet actions to current majors.
 - Configured `OPENROUTER_API_KEY` in GitHub Actions and proved runtime fallback detection: Gemini quota failure -> clean Git workspace -> OpenRouter/OpenCode invocation.
 - Found OpenCode `1.18.31` CLI incompatibility with the `--standalone` flag before any candidate source edits; corrected fallback invocation to supported `--pure --auto --agent build --format json --model ...` flags.
+- I1.5 complete: `INFRA-001 #7` proved automatic Gemini quota failure -> clean workspace -> successful OpenRouter/OpenCode fallback using `nvidia/nemotron-3-ultra-550b-a55b:free`.
+- I2 complete: autonomous coder created PR #5 with `examples/valve.json` and deterministic Valve generation tests; Requirements Reviewer independently returned `PASS`.
+- I3 complete: Linux generated and packaged exact `UDT_Valve.scl`; Windows checked out trusted `main`, received only the PLC package, ran trusted `TiaV21Worker`, and TIA Portal V21 compiled with 0 errors / 0 warnings.
+- I4 complete: PLC/TIA Reviewer independently verified the artifact manifest plus TIA diagnostics and returned `PASS`.
+- Full Git-task path is now proven end-to-end: versioned task/prompt -> coder -> PR -> reviewer -> PLC artifact -> trusted Windows/TIA -> diagnostics -> second reviewer.
 
 ### CURRENT
-- I1.5 provider resilience is implemented and has reached the OpenRouter runtime; one clean rerun is required to prove the corrected OpenCode invocation actually edits the candidate workspace.
-- I2-I4 remain implemented but not accepted until the full `INFRA-001` chain completes.
+- I5: implement bounded autonomous repair loop using structured reviewer/TIA diagnostics and `maxRepairAttempts` from the task.
 
 ### NEXT
-- Repeat `tasks/INFRA-001.json` from current `main` and confirm Gemini quota failure -> clean workspace -> successful OpenRouter/OpenCode coder fallback.
-- Confirm Requirements Reviewer -> Linux artifact package -> trusted TIA V21 -> PLC/TIA Reviewer completes without manual source-code intervention.
-- Fix any defects found by the full INFRA-001 smoke test and then mark I1.5 and I2-I4 DONE.
-- I5: bounded repair loop using structured reviewer and TIA diagnostics, maximum attempts from the task.
-- I6: repeat a clean end-to-end Git-task smoke run with no manual source-code intervention and prepare handoff documentation for the generator-development chat.
+- Prove a deliberately failing task can receive reviewer or TIA diagnostics, return to the coder, update the same PR, and stop on `PASS` or `BLOCKED` after the configured attempt limit.
+- I6: repeat one clean end-to-end Git-task smoke run with no manual source-code intervention and prepare concise handoff documentation for the generator-development chat.
+- After I6, freeze infrastructure changes unless they block generator development.
 
 ## Logging rule
 After every meaningful infrastructure change, append one short bullet under DONE/CURRENT/NEXT. Do not turn this file into design documentation; design belongs in `docs/INFRASTRUCTURE_PLAN.md`.
