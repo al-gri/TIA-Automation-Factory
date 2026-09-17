@@ -4,6 +4,7 @@
 
 # Generated artifacts
 artifacts/
+output/
 
 # IDE / user state
 .vs/
