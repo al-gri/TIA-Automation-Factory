@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test-generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test Siemens backend
+        run: dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
+      - name: Generate first Siemens artifact
+        run: dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json artifacts/generated
+      - name: Show generated SCL
+        run: cat artifacts/generated/UDT_Motor.scl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plc-generated
+          path: artifacts/generated
