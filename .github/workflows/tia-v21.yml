@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/tia-v21.yml'
+      - 'src/TiaV21Worker/**'
 
 jobs:
   verify-runner:
@@ -15,33 +16,23 @@ jobs:
       - name: Verify TIA Portal V21 installation
         shell: cmd
         run: |
-          if not exist "C:\Program Files\Siemens\Automation\Portal V21" (
-            echo TIA Portal V21 was not found at C:\Program Files\Siemens\Automation\Portal V21
-            exit /b 1
-          )
+          if not exist "C:\Program Files\Siemens\Automation\Portal V21" exit /b 1
           echo TIA Portal V21 installation found.
-      - name: Verify Openness net48 assemblies
+      - name: Verify Openness V21 assemblies
         shell: cmd
         run: |
-          if not exist "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48" (
-            echo TIA Portal V21 Openness net48 API folder was not found.
-            exit /b 1
-          )
-          dir "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Base.dll"
-          dir "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Step7.dll"
-      - name: Probe .NET and MSBuild toolchain
+          if not exist "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Base.dll" exit /b 1
+          if not exist "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Step7.dll" exit /b 1
+          echo Required Openness assemblies found.
+      - name: Verify .NET Framework 4.8 build prerequisites
         shell: cmd
         run: |
-          echo === dotnet ===
-          where dotnet 2>nul && dotnet --info || echo dotnet not found in PATH
-          echo === msbuild ===
-          where msbuild 2>nul && msbuild -version || echo msbuild not found in PATH
-          echo === .NET Framework 4.8 reference assemblies ===
-          if exist "%ProgramFiles(x86)%\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\mscorlib.dll" (
-            echo .NET Framework 4.8 reference assemblies found.
-          ) else (
-            echo .NET Framework 4.8 reference assemblies NOT found.
-          )
-      - name: Runner ready
+          dotnet --version
+          if not exist "%ProgramFiles(x86)%\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\mscorlib.dll" exit /b 1
+          echo .NET Framework 4.8 reference assemblies found.
+      - name: Build TiaV21Worker
         shell: cmd
-        run: echo Windows runner and TIA V21 Openness are reachable.
+        run: dotnet build src\TiaV21Worker\TiaV21Worker.csproj --configuration Release
+      - name: Build completed
+        shell: cmd
+        run: echo TiaV21Worker compiled successfully. TIA Portal has not been started by this workflow.
