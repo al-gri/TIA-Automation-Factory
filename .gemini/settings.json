@@ -1,0 +1,8 @@
+{
+  "model": {
+    "name": "gemini-3.8-flash"
+  },
+  "experimental": {
+    "enableAgents": false
+  }
+}
