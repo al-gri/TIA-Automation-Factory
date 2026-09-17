@@ -97,7 +97,7 @@ jobs:
               echo "Task file not found: $TASK_PATH"
               exit 1
             fi
-            jq -e '.id and .title and .acceptance' "$TASK_PATH" >/dev/null
+            jq -e '.id and .title and .acceptance.requirements and .acceptance.tia and .generator.input and .generator.expectedArtifact' "$TASK_PATH" >/dev/null
             TASK_ID=$(jq -r '.id' "$TASK_PATH")
             KEY="task-${TASK_ID}"
           fi
@@ -328,8 +328,32 @@ jobs:
             --head "$BRANCH" \
             --title "Agent: ${WORK_KEY} ${TITLE}" \
             --body-file "$RUNNER_TEMP/pr-body.md")
+          PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq '.number')
+          CANDIDATE_SHA=$(git rev-parse HEAD)
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "$PR_URL"
+
+      - name: Dispatch trusted candidate validation
+        if: steps.work.outputs.mode == 'task'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          CANDIDATE_SHA: ${{ steps.pr.outputs.candidate_sha }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+          TASK_PATH: ${{ steps.work.outputs.task_path }}
+        run: |
+          jq -n \
+            --argjson pr "$PR_NUMBER" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg branch "$BRANCH" \
+            --arg task_path "$TASK_PATH" \
+            '{event_type:"candidate-validation",client_payload:{pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path}}' \
+            > "$RUNNER_TEMP/candidate-dispatch.json"
+          cat "$RUNNER_TEMP/candidate-dispatch.json"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/candidate-dispatch.json"
 
       - name: Comment on source issue
         if: steps.work.outputs.mode == 'issue'
