@@ -27,7 +27,21 @@ jobs:
             echo TIA Portal V21 Openness net48 API folder was not found.
             exit /b 1
           )
-          dir "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48"
+          dir "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Base.dll"
+          dir "C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Step7.dll"
+      - name: Probe .NET and MSBuild toolchain
+        shell: cmd
+        run: |
+          echo === dotnet ===
+          where dotnet 2>nul && dotnet --info || echo dotnet not found in PATH
+          echo === msbuild ===
+          where msbuild 2>nul && msbuild -version || echo msbuild not found in PATH
+          echo === .NET Framework 4.8 reference assemblies ===
+          if exist "%ProgramFiles(x86)%\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\mscorlib.dll" (
+            echo .NET Framework 4.8 reference assemblies found.
+          ) else (
+            echo .NET Framework 4.8 reference assemblies NOT found.
+          )
       - name: Runner ready
         shell: cmd
-        run: echo Windows runner is ready for the next milestone - real TIA Openness import and compile.
+        run: echo Windows runner and TIA V21 Openness are reachable.
