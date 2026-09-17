@@ -1,0 +1,53 @@
+name: TIA V21 End-to-End
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tia-v21-e2e.yml'
+
+jobs:
+  generate-import-compile:
+    runs-on: [self-hosted, Windows, X64, tia-v21]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate UDT_Motor SCL
+        shell: cmd
+        run: |
+          dotnet run --project src\GeneratorCli\GeneratorCli.csproj --configuration Release -- examples\motor.json artifacts\generated
+          type artifacts\generated\UDT_Motor.scl
+
+      - name: Build TiaV21Worker
+        shell: cmd
+        run: dotnet build src\TiaV21Worker\TiaV21Worker.csproj --configuration Release
+
+      - name: Run TIA V21 Openness import and compile
+        id: tia
+        continue-on-error: true
+        shell: cmd
+        run: |
+          if not exist artifacts\tia mkdir artifacts\tia
+          src\TiaV21Worker\bin\Release\net48\TiaV21Worker.exe "%GITHUB_WORKSPACE%\artifacts\generated\UDT_Motor.scl" "%GITHUB_WORKSPACE%\artifacts\tia\tia-diagnostics.json" "%RUNNER_TEMP%\TiaAutomationFactory"
+
+      - name: Show TIA diagnostics
+        if: always()
+        shell: cmd
+        run: |
+          if exist artifacts\tia\tia-diagnostics.json type artifacts\tia\tia-diagnostics.json
+          if not exist artifacts\tia\tia-diagnostics.json echo tia-diagnostics.json was not created.
+
+      - name: Upload TIA diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tia-v21-diagnostics
+          path: artifacts/tia
+          if-no-files-found: warn
+
+      - name: Enforce TIA result
+        if: steps.tia.outcome == 'failure'
+        shell: cmd
+        run: exit /b 1
