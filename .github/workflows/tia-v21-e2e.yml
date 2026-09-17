@@ -30,7 +30,7 @@ jobs:
         shell: cmd
         run: |
           if not exist artifacts\tia mkdir artifacts\tia
-          src\TiaV21Worker\bin\Release\net48\TiaV21Worker.exe "%GITHUB_WORKSPACE%\artifacts\generated\UDT_Motor.scl" "%GITHUB_WORKSPACE%\artifacts\tia\tia-diagnostics.json" "%RUNNER_TEMP%\TiaAutomationFactory"
+          src\TiaV21Worker\bin\Release\net48\TiaV21Worker.exe "%GITHUB_WORKSPACE%\artifacts\generated\UDT_Motor.scl" "%GITHUB_WORKSPACE%\artifacts\tia\tia-diagnostics.json"
 
       - name: Show TIA diagnostics
         if: always()
