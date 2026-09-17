@@ -1,0 +1,10 @@
+{
+  "name": "Motor",
+  "fields": [
+    { "name": "Start", "type": "Bool" },
+    { "name": "Stop", "type": "Bool" },
+    { "name": "Running", "type": "Bool" },
+    { "name": "Fault", "type": "Bool" },
+    { "name": "Speed", "type": "Real" }
+  ]
+}
