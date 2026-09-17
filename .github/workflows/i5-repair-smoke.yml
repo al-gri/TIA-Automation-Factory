@@ -1,10 +1,6 @@
 name: I5 Repair Smoke
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/i5-repair-smoke.yml'
   workflow_dispatch:
 
 permissions:
