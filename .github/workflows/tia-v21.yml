@@ -1,0 +1,29 @@
+name: TIA V21 Verification
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify-runner:
+    runs-on: [self-hosted, Windows, X64, tia-v21]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify TIA Portal V21 installation
+        shell: powershell
+        run: |
+          $tia = 'C:\Program Files\Siemens\Automation\Portal V21'
+          if (-not (Test-Path $tia)) {
+            throw "TIA Portal V21 was not found at $tia"
+          }
+          Write-Host "TIA Portal V21 installation found."
+      - name: Verify Openness net48 assemblies
+        shell: powershell
+        run: |
+          $api = 'C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48'
+          if (-not (Test-Path $api)) {
+            throw "TIA Portal V21 Openness net48 API folder was not found at $api"
+          }
+          Get-ChildItem $api
+      - name: Runner ready
+        shell: powershell
+        run: Write-Host 'Windows runner is ready for the next milestone: real TIA Openness import and compile.'
