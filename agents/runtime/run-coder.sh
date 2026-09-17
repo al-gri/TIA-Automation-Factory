@@ -93,7 +93,7 @@ git clean -fd
 echo "Trying OpenRouter/OpenCode coding provider: $OPENROUTER_MODEL"
 set +e
 opencode run \
-  --standalone \
+  --pure \
   --auto \
   --agent build \
   --format json \
