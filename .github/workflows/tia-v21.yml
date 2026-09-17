@@ -2,6 +2,10 @@ name: TIA V21 Verification
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tia-v21.yml'
 
 jobs:
   verify-runner:
