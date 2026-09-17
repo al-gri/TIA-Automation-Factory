@@ -47,14 +47,15 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - I5 repair prompt consumes trusted task state, current diff, recent reviewer comments, failed validation logs, and prior TIA diagnostics when available; protected infrastructure remains non-editable.
 - I5 proven with PR #6: intentionally incomplete Valve was rejected by Requirements Reviewer, repair attempt 1/3 fixed the same PR, fresh validation passed requirements, TIA V21 compiled `UDT_Valve` with 0 errors / 0 warnings, and PLC/TIA Reviewer passed.
 - Added reusable manual `I5 Repair Smoke` workflow for regression testing the bounded repair loop.
+- Closed smoke PR #6 without merge after proving I5.
+- Prepared `docs/GENERATOR_CHAT_HANDOFF.md` with architecture, workflows, task schema, provider fallback, Windows/TIA boundary, repair semantics, and normal operating procedure for the next chat.
 
 ### CURRENT
-- I6: perform one final clean end-to-end task run through the production path and prepare handoff documentation for the generator-development chat.
+- I6: perform one final clean end-to-end task run through the production path.
 
 ### NEXT
 - Run one clean Git-task smoke from current `main` with no intentional fault injection and no manual source-code intervention.
-- Prepare concise handoff documentation: architecture, workflows, task schema, provider fallback, Windows/TIA boundary, repair-loop semantics, and operating instructions for the next chat.
-- After I6, freeze infrastructure changes unless they block generator development.
+- After I6, mark infrastructure setup complete and freeze infrastructure changes unless they block generator development.
 
 ## Logging rule
 After every meaningful infrastructure change, append one short bullet under DONE/CURRENT/NEXT. Do not turn this file into design documentation; design belongs in `docs/INFRASTRUCTURE_PLAN.md`.
