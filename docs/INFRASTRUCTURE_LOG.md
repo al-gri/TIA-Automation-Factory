@@ -31,15 +31,21 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - CI remained green after the Git-task agent changes.
 - Started full `INFRA-001` smoke run. Git task resolution, prompt loading, branch creation and Gemini session initialization all worked.
 - `INFRA-001` was blocked before source edits by Gemini free-tier daily quota: API returned HTTP 429 / daily quota exhausted, limit 20 requests for actual model `gemini-3.5-flash`; workflow correctly failed and model audit recorded requested `gemini-3.8-flash`, initialized `gemini-3.8-flash`, actual usage `gemini-3.5-flash`.
+- Implemented provider-resilient coder runtime at `agents/runtime/run-coder.sh`: Gemini is attempted first; failed provider/quota attempts are discarded before OpenRouter/OpenCode fallback runs in the disposable Linux workspace.
+- Implemented provider-resilient read-only reviewer runtime at `agents/runtime/run-reviewer.py`: OpenRouter direct API is preferred when configured, with Gemini fallback; reviewers receive no repository editing tools through the OpenRouter path.
+- Pinned OpenCode fallback runtime to `opencode-ai@1.18.31` and free fallback model `nvidia/nemotron-3-ultra-550b-a55b:free`.
+- Updated coder and both reviewer workflows to record selected provider/model and fallback audit information.
+- Added CI syntax validation for trusted agent runtime scripts and upgraded CI checkout/setup-dotnet actions to current majors.
 
 ### CURRENT
-- I2-I4 are implemented but cannot yet be accepted because the single-provider Gemini free tier is exhausted.
-- Add provider redundancy before repeating `INFRA-001`: keep Gemini support, add a provider-agnostic coding/review path with at least one independent cloud fallback.
+- I1.5 provider resilience is implemented but not yet runtime-accepted because `OPENROUTER_API_KEY` is not configured in GitHub Actions.
+- I2-I4 remain implemented but not accepted until the full `INFRA-001` chain completes.
 
 ### NEXT
-- Prepare OpenCode as the provider-agnostic headless agent harness and add OpenRouter as the first fallback provider; secrets remain GitHub Actions secrets.
-- Repeat the full `tasks/INFRA-001.json` Valve smoke test through coder -> Requirements Reviewer -> TIA V21 -> PLC/TIA Reviewer.
-- Fix any defects found by the full INFRA-001 smoke test and then mark I2-I4 DONE.
+- Add repository Actions secret `OPENROUTER_API_KEY` and repeat `tasks/INFRA-001.json`.
+- Confirm automatic Gemini quota failure -> clean workspace -> OpenRouter/OpenCode coder fallback.
+- Confirm Requirements Reviewer -> Linux artifact package -> trusted TIA V21 -> PLC/TIA Reviewer completes without manual source-code intervention.
+- Fix any defects found by the full INFRA-001 smoke test and then mark I1.5 and I2-I4 DONE.
 - I5: bounded repair loop using structured reviewer and TIA diagnostics, maximum attempts from the task.
 - I6: repeat a clean end-to-end Git-task smoke run with no manual source-code intervention and prepare handoff documentation for the generator-development chat.
 
