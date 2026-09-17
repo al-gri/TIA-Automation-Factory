@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using TiaAutomationFactory.Domain;
 using TiaAutomationFactory.PlcCompiler;
 using TiaAutomationFactory.SiemensBackend;
@@ -11,6 +12,8 @@ if (args.Length != 2)
 
 var json = await File.ReadAllTextAsync(args[0]);
 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+options.Converters.Add(new JsonStringEnumConverter());
+
 var device = JsonSerializer.Deserialize<AutomationDevice>(json, options)
     ?? throw new InvalidOperationException("Input JSON did not contain an AutomationDevice.");
 
