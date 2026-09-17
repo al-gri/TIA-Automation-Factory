@@ -49,9 +49,12 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - Added reusable manual `I5 Repair Smoke` workflow for regression testing the bounded repair loop.
 - Closed smoke PR #6 without merge after proving I5.
 - Prepared `docs/GENERATOR_CHAT_HANDOFF.md` with architecture, workflows, task schema, provider fallback, Windows/TIA boundary, repair semantics, and normal operating procedure for the next chat.
+- I6 run #8 exposed a late OpenRouter daily-limit case: the agent had already created Valve changes, passed 2/2 tests, generated `UDT_Valve.scl`, and rechecked Motor before OpenRouter returned 429 at 50/50 free requests.
+- Hardened `run-coder.sh` so a late quota/rate-limit with real repository changes preserves the partial candidate for deterministic Linux acceptance and independent reviewers instead of discarding it; audit records `partial_candidate_after_rate_limit`.
+- Added disposable `output/` to `.gitignore` so agent-generated verification artifacts cannot enter candidate PRs.
 
 ### CURRENT
-- I6: perform one final clean end-to-end task run through the production path.
+- I6: repeat the final clean end-to-end task run through the production path with late-quota preservation enabled.
 
 ### NEXT
 - Run one clean Git-task smoke from current `main` with no intentional fault injection and no manual source-code intervention.
