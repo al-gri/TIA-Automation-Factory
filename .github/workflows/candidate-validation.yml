@@ -1,9 +1,8 @@
 name: Candidate Validation
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [main]
+  repository_dispatch:
+    types: [candidate-validation]
 
 permissions:
   contents: read
@@ -11,7 +10,7 @@ permissions:
 
 jobs:
   requirements-review:
-    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'agent/')
+    if: startsWith(github.event.client_payload.branch, 'agent/')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -21,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.client_payload.candidate_sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -34,26 +33,19 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Resolve task from PR
+      - name: Resolve trusted dispatch task
         id: task
         shell: bash
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
+          TASK_PATH: ${{ github.event.client_payload.task_path }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
         run: |
-          TASK_PATH=$(python3 - <<'PY'
-          import os, re
-          body = os.environ.get('PR_BODY', '')
-          match = re.search(r'Task:\s*`(tasks/[^`]+\.json)`', body)
-          print(match.group(1) if match else '')
-          PY
-          )
-          if [ -z "$TASK_PATH" ]; then
-            echo "Candidate Validation currently requires a versioned Task: tasks/*.json line in the PR body."
-            exit 1
-          fi
-          case "$TASK_PATH" in tasks/*.json) ;; *) exit 1 ;; esac
+          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task_path: $TASK_PATH"; exit 1 ;; esac
+          test -n "$PR_NUMBER"
+          test -n "$CANDIDATE_SHA"
           test -f "$TASK_PATH"
-          jq -e '.id and .acceptance and .generator.input and .generator.expectedArtifact' "$TASK_PATH" >/dev/null
+          jq -e '.id and .acceptance.requirements and .acceptance.tia and .generator.input and .generator.expectedArtifact' "$TASK_PATH" >/dev/null
           EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
           echo "path=$TASK_PATH" >> "$GITHUB_OUTPUT"
           echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
@@ -131,8 +123,9 @@ jobs:
             > "$RUNNER_TEMP/requirements-envelope.json"
 
           python3 - <<'PY'
-          import json, pathlib, re
-          envelope = json.loads(pathlib.Path(__import__('os').environ['RUNNER_TEMP'], 'requirements-envelope.json').read_text())
+          import json, pathlib, re, os
+          envelope_path = pathlib.Path(os.environ['RUNNER_TEMP'], 'requirements-envelope.json')
+          envelope = json.loads(envelope_path.read_text())
           text = (envelope.get('response') or '').strip()
           text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.I)
           text = re.sub(r'\s*```$', '', text)
@@ -142,20 +135,28 @@ jobs:
           result = json.loads(text[start:end+1])
           if result.get('status') not in {'PASS', 'CHANGES_REQUIRED', 'BLOCKED'}:
               raise SystemExit('Invalid reviewer status')
-          out = pathlib.Path(__import__('os').environ['RUNNER_TEMP'], 'requirements-review.json')
+          out = pathlib.Path(os.environ['RUNNER_TEMP'], 'requirements-review.json')
           out.write_text(json.dumps(result, indent=2))
           print(out.read_text())
+          print('Reviewer model usage:', json.dumps((envelope.get('stats') or {}).get('models', {})))
           PY
 
           STATUS=$(jq -r '.status' "$RUNNER_TEMP/requirements-review.json")
+          MODELS=$(jq -c '.stats.models // {}' "$RUNNER_TEMP/requirements-envelope.json")
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          {
+            echo '### Requirements Reviewer model audit'
+            echo
+            echo "- Requested: \`gemini-3.8-flash\`"
+            echo "- Actual usage: \`$MODELS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment Requirements Reviewer result
-        if: always() && hashFiles(format('{0}/requirements-review.json', runner.temp)) != ''
+        if: always() && steps.review.outcome == 'success'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
         run: |
           {
             echo '### Requirements Reviewer'
@@ -168,8 +169,7 @@ jobs:
 
       - name: Enforce Requirements Reviewer
         shell: bash
-        run: |
-          test "${{ steps.review.outputs.status }}" = "PASS"
+        run: test "${{ steps.review.outputs.status }}" = "PASS"
 
   generate-candidate-artifact:
     needs: requirements-review
@@ -181,7 +181,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.client_payload.candidate_sha }}
           persist-credentials: false
 
       - uses: actions/setup-dotnet@v5
@@ -193,8 +193,8 @@ jobs:
         shell: bash
         env:
           TASK_PATH: ${{ needs.requirements-review.outputs.task_path }}
-          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
         run: |
           INPUT=$(jq -r '.generator.input' "$TASK_PATH")
           EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
@@ -365,7 +365,8 @@ jobs:
 
           python3 - <<'PY'
           import json, pathlib, re, os
-          envelope = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'tia-review-envelope.json').read_text())
+          envelope_path = pathlib.Path(os.environ['RUNNER_TEMP'], 'tia-review-envelope.json')
+          envelope = json.loads(envelope_path.read_text())
           text = (envelope.get('response') or '').strip()
           text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.I)
           text = re.sub(r'\s*```$', '', text)
@@ -378,16 +379,24 @@ jobs:
           out = pathlib.Path(os.environ['RUNNER_TEMP'], 'tia-review.json')
           out.write_text(json.dumps(result, indent=2))
           print(out.read_text())
+          print('Reviewer model usage:', json.dumps((envelope.get('stats') or {}).get('models', {})))
           PY
           STATUS=$(jq -r '.status' "$RUNNER_TEMP/tia-review.json")
+          MODELS=$(jq -c '.stats.models // {}' "$RUNNER_TEMP/tia-review-envelope.json")
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          {
+            echo '### PLC / TIA Reviewer model audit'
+            echo
+            echo "- Requested: \`gemini-3.8-flash\`"
+            echo "- Actual usage: \`$MODELS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PLC TIA Reviewer result
-        if: always() && hashFiles(format('{0}/tia-review.json', runner.temp)) != ''
+        if: always() && steps.review.outcome == 'success'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
         run: |
           {
             echo '### PLC / TIA Reviewer'
