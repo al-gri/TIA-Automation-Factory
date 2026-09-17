@@ -19,14 +19,16 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - Enabled GitHub Actions PR creation.
 - Completed first successful autonomous candidate run and created PR #4.
 - Learned that green deterministic tests do not prove all acceptance criteria were implemented; reviewer stage is required.
-- Model audit: workflow requested `gemini-3.8-flash`; successful run init reported `gemini-3.8-flash`, while final usage statistics attributed tokens to `gemini-3.5-flash`. Model routing/actual usage must therefore be logged explicitly.
+- Model audit: workflow requested `gemini-3.8-flash`; successful run init reported `gemini-3.8-flash`, while final usage statistics attributed tokens to `gemini-3.5-flash`.
+- Added trusted `.gemini/settings.json` that pins `gemini-3.8-flash` and disables built-in subagents; future runs still record actual usage instead of assuming the requested model was used.
+- I1 complete: coder prompt is versioned at `agents/prompts/coder.md`, reviewer prompts are versioned under `agents/prompts/`, and smoke task `tasks/INFRA-001.json` is stored in Git.
+- Updated `Autonomous Agent` workflow to run from a Git task path or GitHub Issue and to record requested/initialized/actual model information.
+- CI remained green after I1 changes.
 
 ### CURRENT
-- I1: move agent instructions/tasks into versioned Git files instead of embedding the full prompt in workflow YAML.
-- Add requested-vs-actual model telemetry to each agent run.
+- I2: add independent read-only Requirements Reviewer and structured criterion-by-criterion result.
 
 ### NEXT
-- I2: independent read-only Requirements Reviewer.
 - I3: safe Linux artifact -> trusted Windows/TIA acceptance bridge; never execute candidate branch code on the Windows runner.
 - I4: independent read-only PLC/TIA Reviewer.
 - I5: bounded repair loop using reviewer and TIA diagnostics.
