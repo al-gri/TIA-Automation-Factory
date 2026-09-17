@@ -19,16 +19,18 @@
     { "name": "Closed", "type": "Bool" },
     { "name": "Fault", "type": "Bool" }
   ],
-  "acceptance": [
-    "examples/valve.json exists and represents the requested Valve fields using the existing AutomationDevice schema.",
-    "Automated tests cover the Valve generation path and remain deterministic.",
-    "Existing Motor tests and examples remain green.",
-    "GeneratorCli produces UDT_Valve.scl from examples/valve.json on Linux.",
-    "The generated UDT_Valve.scl is the artifact transferred to the trusted Windows acceptance job.",
-    "TIA Portal V21 imports/generates the tested artifact and compiles with zero errors.",
-    "Requirements Reviewer returns PASS.",
-    "PLC/TIA Reviewer returns PASS."
-  ],
+  "acceptance": {
+    "requirements": [
+      "examples/valve.json exists and represents the requested Valve fields using the existing AutomationDevice schema.",
+      "Automated tests cover the Valve generation path and remain deterministic.",
+      "Existing Motor tests and examples remain green.",
+      "GeneratorCli produces UDT_Valve.scl from examples/valve.json on Linux."
+    ],
+    "tia": [
+      "The generated UDT_Valve.scl is the exact candidate artifact transferred to the trusted Windows acceptance job.",
+      "TIA Portal V21 imports/generates the tested UDT_Valve.scl artifact and compiles with zero errors."
+    ]
+  },
   "protectedPaths": [
     ".github/**",
     "agents/**",
