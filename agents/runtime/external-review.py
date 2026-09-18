@@ -20,6 +20,8 @@ ASSESSMENT_STATUSES = {"PASS", "FAIL", "NOT_APPLICABLE", "INSUFFICIENT_EVIDENCE"
 SEVERITIES = {"critical", "major", "minor"}
 REQUIRED_TOP_LEVEL = {
     "protocolVersion",
+    "reviewRequestId",
+    "reviewerSlot",
     "taskId",
     "candidateSha",
     "reviewType",
@@ -105,11 +107,9 @@ def validate_finding(index: int, value: Any) -> None:
         fail(f"{prefix} must be an object")
     keys = set(value)
     if not FINDING_REQUIRED.issubset(keys):
-        missing = sorted(FINDING_REQUIRED - keys)
-        fail(f"{prefix} missing required keys: {', '.join(missing)}")
+        fail(f"{prefix} missing required keys: {', '.join(sorted(FINDING_REQUIRED - keys))}")
     if not keys.issubset(FINDING_ALLOWED):
-        extra = sorted(keys - FINDING_ALLOWED)
-        fail(f"{prefix} has unknown keys: {', '.join(extra)}")
+        fail(f"{prefix} has unknown keys: {', '.join(sorted(keys - FINDING_ALLOWED))}")
 
     finding_id = require_string(value["id"], f"{prefix}.id")
     if not FINDING_ID_RE.fullmatch(finding_id):
@@ -118,7 +118,6 @@ def validate_finding(index: int, value: Any) -> None:
         fail(f"{prefix}.severity is invalid: {value['severity']!r}")
     require_string(value["problem"], f"{prefix}.problem")
     require_string(value["requiredChange"], f"{prefix}.requiredChange")
-
     for optional in ("file", "location"):
         if optional in value and value[optional] is not None:
             require_string(value[optional], f"{prefix}.{optional}", allow_empty=True)
@@ -127,6 +126,8 @@ def validate_finding(index: int, value: Any) -> None:
 def validate_response(
     response_path: Path,
     *,
+    expected_request_id: str | None,
+    expected_reviewer_slot: str | None,
     expected_task_id: str | None,
     expected_candidate_sha: str | None,
     expected_review_type: str | None,
@@ -150,6 +151,8 @@ def validate_response(
     if data["protocolVersion"] != "1.0":
         fail("protocolVersion must be '1.0'")
 
+    request_id = require_string(data["reviewRequestId"], "reviewRequestId")
+    reviewer_slot = require_string(data["reviewerSlot"], "reviewerSlot")
     task_id = require_string(data["taskId"], "taskId")
     candidate_sha = require_string(data["candidateSha"], "candidateSha")
     if not SHA_RE.fullmatch(candidate_sha):
@@ -158,18 +161,15 @@ def validate_response(
     review_type = data["reviewType"]
     if review_type not in REVIEW_TYPES:
         fail(f"Invalid reviewType: {review_type!r}")
-
     review_round = data["reviewRound"]
     if isinstance(review_round, bool) or not isinstance(review_round, int) or review_round < 1:
         fail("reviewRound must be an integer >= 1")
-
     review_status = data["reviewStatus"]
     if review_status not in REVIEW_STATUSES:
         fail(f"Invalid reviewStatus: {review_status!r}")
 
     require_string(data["summary"], "summary")
     require_string(data["recommendation"], "recommendation")
-
     for assessment in ("requirements", "architecture", "codeQuality", "tests"):
         validate_assessment(assessment, data[assessment])
 
@@ -189,14 +189,18 @@ def validate_response(
         if blocking:
             fail("APPROVE cannot contain critical/major findings: " + ", ".join(blocking))
 
-    if expected_task_id is not None and task_id != expected_task_id:
-        fail(f"taskId binding mismatch: expected {expected_task_id!r}, got {task_id!r}")
+    bindings = (
+        ("reviewRequestId", request_id, expected_request_id),
+        ("reviewerSlot", reviewer_slot, expected_reviewer_slot),
+        ("taskId", task_id, expected_task_id),
+        ("reviewType", review_type, expected_review_type),
+        ("reviewRound", review_round, expected_review_round),
+    )
+    for name, actual, expected in bindings:
+        if expected is not None and actual != expected:
+            fail(f"{name} binding mismatch: expected {expected!r}, got {actual!r}")
     if expected_candidate_sha is not None and candidate_sha.lower() != expected_candidate_sha.lower():
         fail("candidateSha binding mismatch")
-    if expected_review_type is not None and review_type != expected_review_type:
-        fail(f"reviewType binding mismatch: expected {expected_review_type!r}, got {review_type!r}")
-    if expected_review_round is not None and review_round != expected_review_round:
-        fail(f"reviewRound binding mismatch: expected {expected_review_round}, got {review_round}")
 
     return data
 
@@ -212,12 +216,13 @@ def make_parser() -> argparse.ArgumentParser:
 
     validate = sub.add_parser("validate-response", help="Validate and bind an external reviewer JSON response")
     validate.add_argument("--input", type=Path, required=True)
+    validate.add_argument("--request-id")
+    validate.add_argument("--reviewer-slot")
     validate.add_argument("--task-id")
     validate.add_argument("--candidate-sha")
     validate.add_argument("--review-type", choices=sorted(REVIEW_TYPES))
     validate.add_argument("--review-round", type=int)
     validate.add_argument("--normalized-output", type=Path)
-
     return parser
 
 
@@ -231,6 +236,8 @@ def main() -> int:
 
         data = validate_response(
             args.input,
+            expected_request_id=args.request_id,
+            expected_reviewer_slot=args.reviewer_slot,
             expected_task_id=args.task_id,
             expected_candidate_sha=args.candidate_sha,
             expected_review_type=args.review_type,
