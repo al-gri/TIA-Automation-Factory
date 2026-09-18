@@ -9,13 +9,14 @@ Do not infer successful TIA compilation unless trusted `tia-diagnostics.json` ev
 ## Review identity
 
 - Protocol version: `1.0`
+- Review request ID: `{{REVIEW_REQUEST_ID}}`
+- Reviewer slot: `{{REVIEWER_SLOT}}`
 - Task ID: `{{TASK_ID}}`
 - Candidate SHA: `{{CANDIDATE_SHA}}`
 - PR: `{{PR_REFERENCE}}`
 - Review type: `PLC_REVIEW`
 - Review round: `{{REVIEW_ROUND}}`
 - Risk class: `{{RISK_CLASS}}`
-- Reviewer slot: `{{REVIEWER_SLOT}}`
 
 ## Project and trust boundary
 
@@ -80,6 +81,8 @@ Use:
 ```json
 {
   "protocolVersion": "1.0",
+  "reviewRequestId": "{{REVIEW_REQUEST_ID}}",
+  "reviewerSlot": "{{REVIEWER_SLOT}}",
   "taskId": "{{TASK_ID}}",
   "candidateSha": "{{CANDIDATE_SHA}}",
   "reviewType": "PLC_REVIEW",
