@@ -240,6 +240,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: main
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Decide pass, repair, or blocked
@@ -260,6 +261,7 @@ jobs:
           case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path: $TASK_PATH"; exit 1 ;; esac
           test -f "$TASK_PATH"
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
 
           ATTEMPT="${ATTEMPT_RAW:-0}"
           [[ "$ATTEMPT" =~ ^[0-9]+$ ]]
@@ -282,17 +284,35 @@ jobs:
             exit 1
           fi
 
+          TASK_RISK=$(jq -r '.review.riskClass' "$TASK_PATH")
+          TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$TASK_PATH")
+          case "$TASK_RISK" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid trusted task risk class: $TASK_RISK"; exit 1 ;; esac
+          case "$TASK_REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid trusted task review type: $TASK_REVIEW_TYPE"; exit 1 ;; esac
+
+          git fetch --no-tags origin "$CANDIDATE_SHA"
+          git log --format='%ae' "origin/main..$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate-author-emails.txt"
+          test -s "$RUNNER_TEMP/candidate-author-emails.txt"
+          REVIEWER_SLOT=$(python3 agents/runtime/reviewer-policy.py expected-slot \
+            --emails-file "$RUNNER_TEMP/candidate-author-emails.txt")
+          python3 agents/runtime/reviewer-policy.py authorize-slot \
+            --task-file "$TASK_PATH" \
+            --reviewer-slot "$REVIEWER_SLOT"
+
           NEXT_ATTEMPT=$((ATTEMPT + 1))
-          gh pr comment "$PR_NUMBER" --body "### Autonomous Validation\n\nValidation did not pass. Dispatching repair attempt **${NEXT_ATTEMPT}/${MAX_ATTEMPTS}**.\n\n${SUMMARY}"
+          gh pr comment "$PR_NUMBER" --body "### Autonomous Validation\n\nValidation did not pass. Dispatching repair attempt **${NEXT_ATTEMPT}/${MAX_ATTEMPTS}**.\n\n${SUMMARY}\n\nAny candidate-changing repair must return to a fresh external review for the new exact SHA before Candidate Validation can run again."
 
           jq -n \
+            --arg review_source "external-review" \
             --argjson pr "$PR_NUMBER" \
             --arg candidate_sha "$CANDIDATE_SHA" \
             --arg branch "$BRANCH" \
             --arg task_path "$TASK_PATH" \
             --argjson validation_run_id "$GITHUB_RUN_ID" \
             --argjson attempt "$NEXT_ATTEMPT" \
-            '{event_type:"candidate-repair",client_payload:{pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,validation_run_id:$validation_run_id,attempt:$attempt}}' \
+            --arg review_type "$TASK_REVIEW_TYPE" \
+            --arg risk_class "$TASK_RISK" \
+            --arg reviewer_slot "$REVIEWER_SLOT" \
+            '{event_type:"candidate-repair",client_payload:{review_source:$review_source,pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,validation_run_id:$validation_run_id,attempt:$attempt,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot}}' \
             > "$RUNNER_TEMP/repair-dispatch.json"
 
           cat "$RUNNER_TEMP/repair-dispatch.json"
