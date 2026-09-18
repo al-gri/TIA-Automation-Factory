@@ -42,24 +42,29 @@ After the body is frozen, compute SHA-256 over the exact UTF-8 issue-body bytes 
 
 The human operator must then create an **SSH-signed Git commit outside ChatGPT/Codex/project automation** using a human-controlled SSH signing private key that is not available to repository automation. The signed commit must contain a canonical scope-attestation file on a dedicated non-merged branch.
 
-Required canonical payload fields:
+Required canonical payload schema:
 
 ```text
 artifactType: governance-bootstrap-scope-v1
-repository: al-gri/TIA-Automation-Factory
-issue: 31
-task: GOV-BOOT-001
+repository: <exact target repository owner/name>
+issue: <exact frozen bootstrap issue number>
+task: <exact bootstrap task identity stated by the frozen issue>
 purpose: scope-authorization
 issueBodySha256: <exact lowercase SHA-256>
 statement: I authorize implementation and independent review only within the exact bounded scope of this issue body.
 ```
+
+The schema is invocation-generic. The verifier must require exact equality between `repository` and the repository being reviewed, between `issue` and the frozen bootstrap issue, and between `task` and the task identity stated by that live issue body. A future bootstrap invocation must therefore use its own frozen issue/task values; it must not reuse an unrelated historical bootstrap issue merely because that issue once authorized this lane.
+
+Current-instance example only — not a permanent schema constant: GOV-BOOT-001 uses repository `al-gri/TIA-Automation-Factory`, issue `31`, task `GOV-BOOT-001`, and the exact live issue-body hash authorized for that invocation. The already-signed GOV-BOOT-001 scope attestation remains a valid instance of the generic schema while its frozen issue body remains unchanged.
 
 The verifier must fetch the exact commit through the GitHub REST API and require all of the following:
 
 - `commit.verification.verified == true`;
 - `commit.verification.reason == "valid"`;
 - `commit.verification.signature` begins with `-----BEGIN SSH SIGNATURE-----`;
-- GitHub resolves both commit `author.login` and `committer.login` to the authorized repository owner `al-gri`;
+- GitHub resolves both commit `author.login` and `committer.login` to the authorized repository owner for the target repository;
+- the attestation `repository`, `issue` and `task` fields exactly equal the target repository and the current frozen issue/task identity;
 - the attestation file content exactly matches the required payload and current issue-body hash;
 - the live issue body still hashes to that exact value;
 - verification binds the exact signed commit SHA, not merely the mutable attestation-branch head.
@@ -106,13 +111,13 @@ The reviewer must independently verify the live issue-body hash, signed human au
 
 An `APPROVE` can satisfy the bootstrap merge gate only if the exact secondary-review JSON is contained in a **separate SSH-signed review-attestation commit** created outside ChatGPT/Codex/project automation under the same human-controlled signing key rule.
 
-Required review-attestation payload:
+Required review-attestation payload schema:
 
 ```text
 artifactType: governance-bootstrap-review-v1
-repository: al-gri/TIA-Automation-Factory
-issue: 31
-task: GOV-BOOT-001
+repository: <exact target repository owner/name>
+issue: <exact frozen bootstrap issue number>
+task: <exact bootstrap task identity stated by the frozen issue>
 purpose: review-attestation
 reviewRequestId: <exact request id>
 reviewerSlot: chatgpt-secondary
@@ -123,7 +128,7 @@ reviewJson:
 <full exact JSON payload>
 ```
 
-The verifier must require the same GitHub commit verification properties as for scope authorization, recompute the JSON hash, validate schema and identity, and verify the candidate SHA is still current.
+The review-attestation schema is also invocation-generic. The verifier must require exact equality of `repository`, `issue` and `task` with the same current frozen bootstrap authority used for the candidate, then require the same GitHub commit verification properties as for scope authorization, recompute the JSON hash, validate schema and review identity, and verify the candidate SHA is still current.
 
 Primary ChatGPT may persist an unsigned connector-authored copy for traceability, but that copy can never satisfy the authority-bearing APPROVE gate. A non-provenanced `CHANGES_REQUIRED` or `BLOCKED` may be acted on conservatively because it grants no authority.
 
@@ -137,7 +142,7 @@ Default budget: **at most 2 candidate-changing repair rounds after the first rev
 
 Each repair produces a new candidate SHA and requires fresh deterministic CI plus a new isolated `chatgpt-secondary` review round. If repair materially changes the issue-body authority contract, all prior scope attestations are invalid and a fresh signed scope-attestation commit is required.
 
-The human may authorize a lower limit. Increasing the default or allowing any candidate-changing repair after the two-repair budget is exhausted requires a fresh explicit human decision. Without it, state becomes `BLOCKED`; primary ChatGPT may not silently extend the budget.
+The human may authorize a lower limit. Increasing the default or allowing any candidate-changing repair after the two-repair budget is exhausted requires a fresh explicit human decision. A human may authorize a specifically bounded additional repair count for the current bootstrap invocation without changing the permanent default; that decision must be durably recorded with the invocation evidence. Without such a decision, state becomes `BLOCKED`; primary ChatGPT may not silently extend the budget.
 
 ## 6. Automation boundary
 
@@ -176,17 +181,28 @@ After a bootstrap governance merge:
 - keep human attestation branches out of `main`;
 - return subsequent ordinary implementation work to trusted versioned tasks.
 
-## 9. Fail-closed rule
+## 9. Stage-specific fail-closed rule
 
-State is `BLOCKED` if any of these cannot be established from live GitHub evidence:
+Fail-closed checks apply to the evidence that is required at the current bootstrap stage; an artifact that cannot exist yet is not treated as an already-failed gate.
+
+### Before independent review
+
+Before sending a candidate to `chatgpt-secondary`, live GitHub evidence must establish:
 
 - exact frozen issue-body fingerprint;
 - valid human SSH-signed scope attestation;
 - bounded semantic bootstrap eligibility;
+- exact current candidate SHA and candidate scope;
+- exact-SHA deterministic CI evidence required for review;
 - reviewer independence;
-- valid human SSH-signed authority-bearing review attestation;
-- exact-SHA deterministic evidence;
-- candidate scope;
-- remaining repair budget.
+- remaining repair budget or an explicit bounded human extension when the default budget was exhausted.
 
-Do not repair a bootstrap authorization gap by letting the candidate, its author, an author-controlled connector, or an unsigned/weakly attributed owner action manufacture authority.
+The separate review-attestation commit is **not yet applicable** at this stage because no authority-bearing APPROVE JSON exists to attest. Its absence alone must not mark the lane `BLOCKED` before independent review can occur.
+
+### After an independent verdict
+
+- `CHANGES_REQUIRED` grants no authority and does not require a signed review attestation. Repair may proceed only if scope and repair-budget authority permit it; otherwise state is `BLOCKED`.
+- `BLOCKED` remains `BLOCKED` until the external/human condition identified by the reviewer is resolved under the applicable authority rules.
+- `APPROVE` is not merge authority by itself. The exact candidate must remain frozen while the human creates the separate SSH-signed review-attestation commit. While that required human attestation is merely pending, the merge gate is unsatisfied but the lane is not `BLOCKED` solely because the artifact has not yet been created. If the APPROVE is to be consumed as authority or the merge gate is evaluated and the required attestation is missing, invalid, stale, mismatched, or cannot be established, the result is fail-closed `BLOCKED` and merge is forbidden.
+
+At every stage, any required current-stage evidence that is invalid, stale, contradictory, or impossible to establish causes `BLOCKED`. Do not repair a bootstrap authorization gap by letting the candidate, its author, an author-controlled connector, or an unsigned/weakly attributed owner action manufacture authority.
