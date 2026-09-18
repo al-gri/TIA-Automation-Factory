@@ -105,9 +105,9 @@ jobs:
           TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$TASK_PATH")
           test "$TASK_RISK" = "$RISK_CLASS"
           test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
-          if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$TASK_PATH" >/dev/null 2>&1; then
-            jq -e --arg slot "$REVIEWER_SLOT" '.review.reviewerSlots | index($slot) != null' "$TASK_PATH" >/dev/null
-          fi
+          python3 agents/runtime/reviewer-policy.py authorize-slot \
+            --task-file "$TASK_PATH" \
+            --reviewer-slot "$REVIEWER_SLOT"
           ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$TASK_PATH")
           case "$ALLOW_TIA_WORKER" in true|false) ;; *) echo "candidatePolicy.allowTiaV21WorkerChanges must be boolean"; exit 1 ;; esac
 
