@@ -47,11 +47,11 @@ If OpenRouter reaches quota after it already produced useful workspace changes, 
 
 The coding agent must not approve its own work and must not make unreviewed architecture changes across established boundaries.
 
-### ChatGPT — Senior Architect and primary external reviewer
+### ChatGPT — Senior Architect, primary external reviewer, delegated technical merge authority
 
 ChatGPT may operate in either of two modes:
 
-- connected mode: the user asks ChatGPT to inspect pending coding-agent / DeepSeek requests; ChatGPT reads the GitHub source of truth, performs the authorized review, and writes the structured response back to GitHub;
+- connected mode: the user asks ChatGPT to inspect pending coding-agent / DeepSeek requests; ChatGPT reads the GitHub source of truth, performs the authorized review, writes the structured response back to GitHub, and may execute the delegated technical merge when all applicable gates are satisfied;
 - isolated fallback: a self-contained review package is pasted into a clean reviewer chat only when deliberate isolation is useful or a connector is unavailable.
 
 Primary responsibilities:
@@ -60,7 +60,8 @@ Primary responsibilities:
 - code-quality and maintainability review;
 - difficult debugging and root-cause analysis;
 - review of compiler/domain design decisions;
-- arbitration of complex implementation choices.
+- arbitration of complex implementation choices;
+- routine technical merge/no-merge decisions after verifying current exact-SHA gates.
 
 ChatGPT may author architecture or bounded repairs. When it materially authored or co-authored the candidate under review, it must not approve that same candidate as the required independent reviewer.
 
@@ -74,9 +75,9 @@ When Gemini is required, ChatGPT must prepare a complete ready-to-paste Gemini m
 
 ### Human operator
 
-The human remains the merge/approval authority but should not have to manually assemble technical context. In connected ChatGPT mode the normal interaction is simply to ask for pending reviews and read the resulting decision/status. Copy/paste is kept only where an external isolated reviewer is actually required.
+The human remains the strategic/risk authority but has delegated routine technical merge decisions to connected ChatGPT within the accepted gates. Human input is required for strategic or materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions, or unresolved reviewer conflict/ambiguity.
 
-GitHub remains the source of truth for tasks, candidate diffs, review packages, reviewer feedback, and state transitions.
+GitHub remains the source of truth for tasks, candidate diffs, review packages, reviewer feedback, merge evidence, and state transitions.
 
 ## Independence rule
 
@@ -104,12 +105,13 @@ For a general repository/review request ChatGPT should:
 4. read the trusted task, bounded candidate diff/source context, deterministic Linux evidence, generated artifact evidence, prior findings, and TIA evidence when present;
 5. independently decide `APPROVE`, `CHANGES_REQUIRED`, or `BLOCKED` only when ChatGPT is eligible for the required reviewer slot under the independence rule;
 6. write a schema-valid `/external-review` response back to the same PR, preserving request ID, reviewer slot, task ID, candidate SHA, review type, and review round;
-7. persist any durable new blocker/decision in GitHub;
-8. report to the user only the operationally useful result: what was checked, the decision/failure, the next gate, and whether the user must do anything.
+7. when all delegated technical merge gates are satisfied, make the merge/no-merge decision and execute the merge without a separate human confirmation;
+8. persist any durable new blocker/decision in GitHub;
+9. report to the user only the operationally useful result: what was checked, the decision/failure, the next gate, and whether the user must do anything.
 
 If ChatGPT is not independent because it materially authored the candidate, it must prepare the Gemini package instead of creating another mandatory ChatGPT chat.
 
-Connected review never authorizes automatic merge. A final merge remains a distinct human decision.
+Delegated technical merge never permits self-approval or workflow/bot self-merge. It is a separate operator-authorized decision made by connected ChatGPT after exact-SHA verification of all applicable gates.
 
 ## Risk-based review policy
 
@@ -119,7 +121,7 @@ Examples: small mapper changes, simple UDT additions, isolated tests, straightfo
 
 Required path:
 
-`OpenRouter/DeepSeek coder -> deterministic Linux checks -> one independent external review (ChatGPT by default) -> TIA when applicable`
+`OpenRouter/DeepSeek coder -> deterministic Linux checks -> one independent external review (ChatGPT by default) -> TIA when applicable -> delegated technical merge`
 
 ### MEDIUM risk
 
@@ -127,7 +129,7 @@ Examples: PlcCompiler changes, new PLC IR behavior, non-trivial SiemensBackend c
 
 Required path:
 
-`author/implementer -> deterministic checks -> one independent external review -> Gemini escalation only if uncertainty/findings justify it -> TIA when applicable`
+`author/implementer -> deterministic checks -> one independent external review -> Gemini escalation only if uncertainty/findings justify it -> TIA when applicable -> delegated technical merge`
 
 ChatGPT is the default reviewer for coding-agent work. If ChatGPT materially co-authored the candidate, use Gemini instead.
 
@@ -137,7 +139,7 @@ Examples: architecture changes, PLC semantics with safety implications, trust-bo
 
 Required path:
 
-`proposal/candidate -> one independent reviewer distinct from the author -> approved decision -> coding-agent implementation when applicable -> independent implementation review -> deterministic gates -> TIA when applicable -> human merge decision`
+`proposal/candidate -> one independent reviewer distinct from the author -> approved decision -> coding-agent implementation when applicable -> independent implementation review -> deterministic gates -> TIA when applicable or trusted post-merge TIA by explicit task design -> delegated technical merge`
 
 Reviewer selection:
 
@@ -147,6 +149,19 @@ Reviewer selection:
 - second reviewer -> only explicit escalation, not a routine gate.
 
 When dual review is intentionally requested, both reviewers must see the same immutable original package independently before seeing each other's conclusions. If their conclusions conflict, the task enters `REVIEW_CONFLICT`; it must not be automatically accepted.
+
+## Delegated technical merge gate
+
+Connected ChatGPT may merge without a separate human confirmation only when all applicable gates are satisfied for the current exact PR head SHA:
+
+- required independent review is valid and `APPROVE`;
+- deterministic CI/tests are green;
+- required TIA/Openness evidence is green, unless the trusted task explicitly defines trusted Windows/TIA execution as post-merge;
+- no unresolved `critical`/`major` finding, `BLOCKED`, or `REVIEW_CONFLICT` exists;
+- candidate scope still matches the trusted task and accepted architecture;
+- review/evidence is not stale relative to the current head.
+
+ChatGPT must stop for the human on strategic/irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution choices, or unresolved reviewer conflict/ambiguity.
 
 ## External Review Protocol
 
@@ -176,7 +191,7 @@ External reviewer responses are validated against `reviews/schemas/external-revi
 
 The recognized outcomes are:
 
-- `APPROVE` -> next deterministic gate.
+- `APPROVE` -> next deterministic gate or delegated technical merge when all remaining gates are satisfied.
 - `CHANGES_REQUIRED` -> bounded repair on the same candidate.
 - `BLOCKED` -> human/architecture escalation.
 - conflicting intentionally requested independent reviews -> `REVIEW_CONFLICT`.
@@ -241,12 +256,12 @@ This operating model does not change the trusted TIA boundary:
 
 - AI-authored candidate code executes only on disposable Linux runners in the autonomous path;
 - the Windows runner checks out trusted `main`;
-- Windows receives only bounded PLC artifacts;
+- Windows receives only bounded task-approved artifacts/inputs and executes trusted code only;
 - trusted `TiaV21Worker` remains the only TIA Openness execution path;
-- deterministic tests and real TIA compile remain authoritative;
-- external LLM review never replaces TIA compile;
-- no automatic merge;
-- protected infrastructure remains protected from candidate agents.
+- deterministic tests and real TIA compile/Openness evidence remain authoritative;
+- external LLM review never replaces deterministic/TIA acceptance;
+- no coding agent, reviewer, or workflow may self-merge; connected ChatGPT may execute a delegated technical merge only after the explicit gate above;
+- protected infrastructure remains protected from candidate agents except for explicit trusted-task bounded exceptions already defined by policy.
 
 ## Implementation order
 
@@ -256,8 +271,9 @@ This operating model does not change the trusted TIA boundary:
 4. Connected ChatGPT review and bounded repair loop added.
 5. Coding provider order changed to OpenRouter first, DeepSeek `deepseek-flash` second; Gemini reserved for independent review/escalation.
 6. Review policy simplified to one independent reviewer distinct from the author; no standing second-ChatGPT gate.
-7. Ensure trusted task state is always resolved from `main` during Candidate Validation.
-8. Measure real cost/throughput for several tasks.
-9. Add LiteLLM/provider pooling or deeper Cline automation only if measured usage shows clear benefit.
+7. Trusted task state is resolved from `main` during validation/review.
+8. Human delegated routine technical merge decisions to connected ChatGPT within explicit gates.
+9. Measure real cost/throughput for several tasks.
+10. Add LiteLLM/provider pooling or deeper Cline automation only if measured usage shows clear benefit.
 
 Tracking issue: #7.
