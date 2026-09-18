@@ -327,25 +327,47 @@ jobs:
           echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "$PR_URL"
 
-      - name: Dispatch trusted candidate validation
+      - name: Dispatch external review before trusted candidate validation
         if: steps.work.outputs.mode == 'task'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
-          CANDIDATE_SHA: ${{ steps.pr.outputs.candidate_sha }}
-          BRANCH: ${{ steps.branch.outputs.name }}
           TASK_PATH: ${{ steps.work.outputs.task_path }}
         run: |
-          jq -n \
-            --argjson pr "$PR_NUMBER" \
-            --arg candidate_sha "$CANDIDATE_SHA" \
-            --arg branch "$BRANCH" \
-            --arg task_path "$TASK_PATH" \
-            '{event_type:"candidate-validation",client_payload:{pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path}}' \
-            > "$RUNNER_TEMP/candidate-dispatch.json"
-          cat "$RUNNER_TEMP/candidate-dispatch.json"
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/candidate-dispatch.json"
+          set -euo pipefail
+          REVIEW_TYPE=$(jq -r '.review.reviewType // "CODE_REVIEW"' "$TASK_PATH")
+          RISK_CLASS=$(jq -r '.review.riskClass // "LOW"' "$TASK_PATH")
+          case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid review.reviewType=$REVIEW_TYPE"; exit 1 ;; esac
+          case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid review.riskClass=$RISK_CLASS"; exit 1 ;; esac
+
+          if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$TASK_PATH" >/dev/null 2>&1; then
+            jq -r '.review.reviewerSlots[]' "$TASK_PATH" > "$RUNNER_TEMP/reviewer-slots.txt"
+          elif [ "$RISK_CLASS" = "HIGH" ]; then
+            printf '%s\n' chatgpt gemini > "$RUNNER_TEMP/reviewer-slots.txt"
+          else
+            printf '%s\n' chatgpt > "$RUNNER_TEMP/reviewer-slots.txt"
+          fi
+
+          if [ "$RISK_CLASS" = "HIGH" ]; then
+            sort -u "$RUNNER_TEMP/reviewer-slots.txt" > "$RUNNER_TEMP/reviewer-slots.sorted"
+            printf '%s\n' chatgpt gemini | sort > "$RUNNER_TEMP/required-high-slots.txt"
+            diff -u "$RUNNER_TEMP/required-high-slots.txt" "$RUNNER_TEMP/reviewer-slots.sorted"
+          fi
+
+          while IFS= read -r SLOT; do
+            [[ "$SLOT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Invalid reviewer slot: $SLOT"; exit 1; }
+            jq -n \
+              --argjson pr "$PR_NUMBER" \
+              --arg task_path "$TASK_PATH" \
+              --arg review_type "$REVIEW_TYPE" \
+              --arg risk_class "$RISK_CLASS" \
+              --arg reviewer_slot "$SLOT" \
+              '{event_type:"external-review-request",client_payload:{pr_number:$pr,task_path:$task_path,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot,review_round:1}}' \
+              > "$RUNNER_TEMP/external-review-${SLOT}.json"
+            cat "$RUNNER_TEMP/external-review-${SLOT}.json"
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/external-review-${SLOT}.json"
+          done < "$RUNNER_TEMP/reviewer-slots.txt"
 
       - name: Comment on source issue
         if: steps.work.outputs.mode == 'issue'
