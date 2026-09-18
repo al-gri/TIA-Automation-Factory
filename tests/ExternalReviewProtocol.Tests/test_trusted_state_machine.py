@@ -1,20 +1,24 @@
 import json
+import re
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
+CANDIDATE_VALIDATION_DISPATCH = re.compile(
+    r"event_type\s*:\s*['\"]candidate-validation['\"]"
+)
 
 
 class TrustedStateMachineTests(unittest.TestCase):
     def test_candidate_validation_has_only_post_approve_dispatch_source(self):
-        marker = 'event_type:"candidate-validation"'
         sources = []
         occurrences = 0
-        for path in sorted(WORKFLOWS.glob("*.yml")):
+        workflow_paths = sorted(set(WORKFLOWS.glob("*.yml")) | set(WORKFLOWS.glob("*.yaml")))
+        for path in workflow_paths:
             text = path.read_text(encoding="utf-8")
-            count = text.count(marker)
+            count = len(CANDIDATE_VALIDATION_DISPATCH.findall(text))
             if count:
                 sources.append(path.name)
                 occurrences += count
@@ -28,6 +32,7 @@ class TrustedStateMachineTests(unittest.TestCase):
 
     def test_legacy_i5_review_bypass_workflow_is_retired(self):
         self.assertFalse((WORKFLOWS / "i5-repair-smoke.yml").exists())
+        self.assertFalse((WORKFLOWS / "i5-repair-smoke.yaml").exists())
 
     def test_infra_001_is_compatible_with_reviewed_task_state_machine(self):
         task = json.loads((ROOT / "tasks" / "INFRA-001.json").read_text(encoding="utf-8"))
