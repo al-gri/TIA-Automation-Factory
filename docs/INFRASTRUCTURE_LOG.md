@@ -53,13 +53,6 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - Hardened `run-coder.sh` so a late quota/rate-limit with real repository changes preserves the partial candidate for deterministic Linux acceptance and independent reviewers instead of discarding it; audit records `partial_candidate_after_rate_limit`.
 - Added disposable `output/` to `.gitignore` so agent-generated verification artifacts cannot enter candidate PRs.
 
-### CURRENT
-- I6: repeat the final clean end-to-end task run through the production path with late-quota preservation enabled.
-
-### NEXT
-- Run one clean Git-task smoke from current `main` with no intentional fault injection and no manual source-code intervention.
-- After I6, mark infrastructure setup complete and freeze infrastructure changes unless they block generator development.
-
 ## 2026-09-18
 
 ### DONE
@@ -67,14 +60,21 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - Accepted risk-based external review: one reviewer for low-risk changes, ChatGPT-led review for medium risk, and independent ChatGPT + Gemini review for high-risk/architecture/PLC-semantic/security changes.
 - Accepted self-contained review packages designed for brand-new reviewer chats with zero prior context; GitHub remains the source of truth and transfer mechanism.
 - Accepted explicit review states `APPROVE`, `CHANGES_REQUIRED`, `BLOCKED`, plus `REVIEW_CONFLICT` for disagreement between independent reviewers.
-- Documented the operating model in `docs/AI_COLLABORATION_MODEL.md` and opened tracking issue #7 for implementation after I6.
+- Documented the operating model in `docs/AI_COLLABORATION_MODEL.md` and opened tracking issue #7.
+- I6 DONE: clean production `INFRA-001` run `35315016121` started from `main` without fault injection or manual candidate edits; Gemini failed on demand/quota and the trusted fallback successfully completed the candidate through OpenRouter/OpenCode.
+- I6 created PR #10 at candidate `91210d2da2a5a361aebb8f8077d715b9d893553d`; deterministic Linux acceptance passed 2/2 tests, Motor regression generation, and `UDT_Valve.scl` generation.
+- I6 Candidate Validation run `35315441338` passed Requirements Reviewer, candidate packaging, trusted Windows/TIA acceptance, PLC/TIA Reviewer, and final `repair-or-finish` at attempt 0/3.
+- I6 trusted TIA Portal V21 compiled the exact `UDT_Valve.scl` candidate artifact with `success=true`, 0 errors, and 0 warnings; `UDT_Valve (UDT)` and `Main (OB1)` both reported Success.
+- Infrastructure baseline through I6 is now complete and frozen; future baseline changes require a concrete generator/Phase-2 blocker.
+- Phase 2 slice 1 started: added `docs/EXTERNAL_REVIEW_PROTOCOL.md`, standalone code/architecture/PLC review templates, and a versioned machine-readable external review response schema.
 
 ### CURRENT
-- Finish I6 on the existing baseline; do not mix the new provider/review architecture into the final baseline proof.
+- Phase 2 / issue #7: implement trusted self-contained external review packages and explicit external-review states on top of the frozen I6 baseline.
 
 ### NEXT
-- Freeze the I6 baseline, then implement issue #7 in small trusted steps: external-review protocol/templates first, DeepSeek primary coder second, cost/usage telemetry third.
-- Keep LiteLLM/multi-provider routing deferred until measured usage shows it is necessary.
+- Add trusted review-package generation/validation plumbing without changing the Windows/TIA boundary.
+- Add DeepSeek API as the primary bounded coder only after the external-review gate is testable and `DEEPSEEK_API_KEY` is configured.
+- Record per-task calls/tokens/cache/cost before considering LiteLLM or additional provider pooling.
 
 ## Logging rule
-After every meaningful infrastructure change, append one short bullet under DONE/CURRENT/NEXT. Do not turn this file into design documentation; design belongs in `docs/INFRASTRUCTURE_PLAN.md`.
+After every meaningful infrastructure change, append one short bullet under DONE/CURRENT/NEXT. Do not turn this file into design documentation; design belongs in dedicated design docs.
