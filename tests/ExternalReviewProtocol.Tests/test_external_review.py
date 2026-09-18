@@ -255,6 +255,21 @@ class ExternalReviewToolTests(unittest.TestCase):
         self.assertIn("candidate-author-emails.txt", workflow)
         self.assertIn("reviewer eligibility for the current candidate authorship", workflow)
 
+    def test_response_authorizes_current_task_before_publishing_state(self):
+        workflow = (ROOT / ".github" / "workflows" / "external-review-response.yml").read_text(encoding="utf-8")
+        authorize_marker = "- name: Resolve current trusted task authorization and repair bound"
+        publish_marker = "- name: Publish validated review state"
+        authorize_index = workflow.index(authorize_marker)
+        publish_index = workflow.index(publish_marker)
+        terminal_marker_index = workflow.index("external-review-state-v1")
+        self.assertLess(authorize_index, publish_index)
+        self.assertLess(publish_index, terminal_marker_index)
+        authorization_block = workflow[authorize_index:publish_index]
+        self.assertIn("test \"$TASK_RISK\" = \"$RISK_CLASS\"", authorization_block)
+        self.assertIn("test \"$TASK_REVIEW_TYPE\" = \"$REVIEW_TYPE\"", authorization_block)
+        self.assertIn(".review.reviewerSlots | index($slot) != null", authorization_block)
+        self.assertNotIn("external-review-state-v1", authorization_block)
+
     def test_olq_task_authorizes_both_authorship_based_slots_without_dual_requirement(self):
         task = json.loads((ROOT / "tasks" / "OLQ-001.json").read_text(encoding="utf-8"))
         self.assertEqual(["chatgpt", "chatgpt-secondary"], task["review"]["reviewerSlots"])
