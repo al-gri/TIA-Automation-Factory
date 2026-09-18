@@ -35,7 +35,7 @@ The preferred loop is:
 ```text
 problem / hypothesis
   -> versioned bounded task
-  -> trusted context bundle
+  -> structured trusted task/control metadata + bounded context bundle
   -> coding agent on disposable Linux
   -> deterministic Linux acceptance
   -> candidate PR + provider audit
@@ -63,7 +63,7 @@ Implementation agents receive one explicit task with acceptance criteria, risk/r
 
 ### M-003 — Trusted context, not model memory
 
-Coding providers receive a bounded context assembled from trusted Git state before provider selection. Baseline rules/state are always included; tasks may add focused `contextFiles` for design contracts or qualified vendor profiles. Candidate-controlled files cannot redefine trusted context.
+Coding providers receive a bounded context assembled from trusted Git state before provider selection. Baseline rules/state are always included; tasks may add focused `contextFiles` for design contracts or qualified vendor profiles. Candidate-controlled files cannot redefine trusted context. Task identity and task-declared context authority must be resolved separately from free-form model-visible prompt content.
 
 ### M-004 — Deterministic checks and semantic review are different gates
 
@@ -101,6 +101,12 @@ Licenced/vendor payloads such as Siemens Open Library archives stay outside publ
 
 Provider/model, fallback reason, tokens/cache/cost where available, repair count, review findings, CI/TIA outcome and state transitions should be recoverable from GitHub evidence. Meaningful workflow completions and PR lifecycle events are automatically copied to methodology issue #25.
 
+### M-013 — Keep control-plane authority separate from mixed prompt content
+
+Model-visible prompts are a data plane: they may contain issue bodies, diffs, reviewer comments, diagnostics, quoted JSON and even text that resembles control instructions. They must never be parsed to recover authoritative task identity, permission sets, protected-path exceptions, reviewer policy, `contextFiles`, or other control metadata. Authority must arrive through a typed/structured channel whose provenance is independently trusted, and the runtime must resolve authoritative versioned data from trusted Git state before invoking a coding provider.
+
+This rule is fail-closed: a prompt may quote or contradict control metadata without changing it.
+
 ## 5. Rule maturity
 
 Methodology statements should be classified mentally or explicitly as:
@@ -128,6 +134,7 @@ For real tasks, prefer collecting:
 - Windows/TIA result and diagnostics identity;
 - stale-review/review-conflict incidents;
 - trusted context size and included contracts;
+- control/data-plane trust-boundary incidents;
 - candidate changed-file count/scope;
 - merge/blocked outcome.
 
