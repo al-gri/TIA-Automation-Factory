@@ -28,4 +28,28 @@ public sealed class SclDataTypeGeneratorTests
         Assert.Contains("Speed : Real;", scl);
         Assert.Contains("END_TYPE", scl);
     }
+
+    [Fact]
+    public void GeneratesTimeTypeForValveConfig()
+    {
+        var device = new AutomationDevice(
+            "ValveConfig",
+            new[]
+            {
+                new AutomationField("Timeout", AutomationType.Time),
+                new AutomationField("Mode", AutomationType.Int),
+                new AutomationField("Enable", AutomationType.Bool),
+                new AutomationField("CommandWork", AutomationType.Bool)
+            });
+
+        var ir = AutomationCompiler.Compile(device);
+        var scl = SclDataTypeGenerator.Generate(ir);
+
+        Assert.Contains("TYPE \"UDT_ValveConfig\"", scl);
+        Assert.Contains("Timeout : Time;", scl);
+        Assert.Contains("Mode : Int;", scl);
+        Assert.Contains("Enable : Bool;", scl);
+        Assert.Contains("CommandWork : Bool;", scl);
+        Assert.Contains("END_TYPE", scl);
+    }
 }
