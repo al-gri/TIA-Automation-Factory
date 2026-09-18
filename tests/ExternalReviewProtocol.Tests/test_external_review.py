@@ -6,15 +6,33 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "agents" / "runtime" / "external-review.py"
+POLICY_TOOL = ROOT / "agents" / "runtime" / "reviewer-policy.py"
 CODE_TEMPLATE = ROOT / "reviews" / "templates" / "code-review.md"
 SHA = "a" * 40
 REQUEST_ID = "ER-TEST-001-CODE-1-PRIMARY"
+AGENT_EMAIL = "tia-automation-agent@users.noreply.github.com"
 
 
 class ExternalReviewToolTests(unittest.TestCase):
     def run_tool(self, *args, expect=0):
         completed = subprocess.run(
             ["python3", str(TOOL), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(
+            expect,
+            completed.returncode,
+            msg=f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+        )
+        return completed
+
+    def run_policy(self, *args, expect=0):
+        completed = subprocess.run(
+            ["python3", str(POLICY_TOOL), *map(str, args)],
             cwd=ROOT,
             text=True,
             stdout=subprocess.PIPE,
@@ -154,7 +172,7 @@ class ExternalReviewToolTests(unittest.TestCase):
                 "--request-id",
                 REQUEST_ID,
                 "--reviewer-slot",
-                "gemini",
+                "chatgpt-secondary",
                 expect=2,
             )
             self.assertIn("reviewerSlot binding mismatch", completed.stderr)
@@ -176,6 +194,71 @@ class ExternalReviewToolTests(unittest.TestCase):
             response_path = Path(temp) / "response.json"
             response_path.write_text(json.dumps(response), encoding="utf-8")
             self.run_tool("validate-response", "--input", response_path)
+
+    def test_pure_agent_authorship_requires_primary_chatgpt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            emails = Path(temp) / "emails.txt"
+            emails.write_text(f"{AGENT_EMAIL}\n{AGENT_EMAIL}\n", encoding="utf-8")
+            completed = self.run_policy("expected-slot", "--emails-file", emails)
+            self.assertEqual("chatgpt", completed.stdout.strip())
+            self.run_policy(
+                "validate-slot",
+                "--emails-file",
+                emails,
+                "--reviewer-slot",
+                "chatgpt",
+            )
+
+    def test_any_maintainer_authorship_requires_secondary_chatgpt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            emails = Path(temp) / "emails.txt"
+            emails.write_text(f"{AGENT_EMAIL}\nmaintainer@example.com\n", encoding="utf-8")
+            completed = self.run_policy("expected-slot", "--emails-file", emails)
+            self.assertEqual("chatgpt-secondary", completed.stdout.strip())
+            rejected = self.run_policy(
+                "validate-slot",
+                "--emails-file",
+                emails,
+                "--reviewer-slot",
+                "chatgpt",
+                expect=1,
+            )
+            self.assertIn("not independent for current candidate authorship", rejected.stderr)
+            self.run_policy(
+                "validate-slot",
+                "--emails-file",
+                emails,
+                "--reviewer-slot",
+                "chatgpt-secondary",
+            )
+
+    def test_external_review_request_supports_secondary_and_enforces_authorship(self):
+        workflow = (ROOT / ".github" / "workflows" / "external-review-request.yml").read_text(encoding="utf-8")
+        self.assertIn("Reviewer slot (chatgpt or chatgpt-secondary)", workflow)
+        self.assertIn("reviewer-policy.py validate-slot", workflow)
+        self.assertIn("candidate-author-emails.txt", workflow)
+        self.assertIn(".review.reviewerSlots | index($slot) != null", workflow)
+        self.assertNotIn("reviewer_slot=chatgpt or gemini", workflow)
+
+    def test_agent_dispatches_exactly_one_primary_review_for_pure_agent_candidate(self):
+        workflow = (ROOT / ".github" / "workflows" / "agent.yml").read_text(encoding="utf-8")
+        self.assertIn("SLOT=chatgpt", workflow)
+        self.assertIn("Trusted task does not authorize the primary reviewer slot required for a pure coding-agent candidate", workflow)
+        self.assertNotIn(".review.reviewerSlots[]", workflow)
+        self.assertNotIn("while IFS= read -r SLOT", workflow)
+        self.assertEqual(1, workflow.count('event_type:"external-review-request"'))
+
+    def test_external_review_response_rechecks_authorship_independence(self):
+        workflow = (ROOT / ".github" / "workflows" / "external-review-response.yml").read_text(encoding="utf-8")
+        self.assertIn("fetch-depth: 0", workflow)
+        self.assertIn("reviewer-policy.py validate-slot", workflow)
+        self.assertIn("candidate-author-emails.txt", workflow)
+        self.assertIn("reviewer eligibility for the current candidate authorship", workflow)
+
+    def test_olq_task_authorizes_both_authorship_based_slots_without_dual_requirement(self):
+        task = json.loads((ROOT / "tasks" / "OLQ-001.json").read_text(encoding="utf-8"))
+        self.assertEqual(["chatgpt", "chatgpt-secondary"], task["review"]["reviewerSlots"])
+        self.assertEqual(2, task["maxRepairAttempts"])
 
     def test_high_changes_required_uses_bounded_repair_without_dual_aggregate(self):
         workflow = (ROOT / ".github" / "workflows" / "external-review-response.yml").read_text(encoding="utf-8")
