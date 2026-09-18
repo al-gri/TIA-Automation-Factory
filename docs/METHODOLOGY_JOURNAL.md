@@ -217,4 +217,23 @@ GitHub API metadata confirmed that the existing authorization comments were crea
 
 ### Methodology effect
 
-M-014 and the bootstrap protocol now require direct non-app-mediated human GitHub authorization bound to the frozen issue-body hash, plus provenance-separated direct human relay/attestation of any authority-bearing `chatgpt-secondary` APPROVE. Normal task-only automation remains unchanged and fail-closed.
+Round-1 repair initially used non-app-mediated direct owner comments as the provenance mechanism. That mechanism was provisional and is superseded by the F005 lesson below.
+
+## 2026-09-18 — Negative attribution is not positive human authentication
+
+### Evidence
+
+Round-2 independent review of PR #32 candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` accepted the semantic bootstrap repair but returned major F005. The reviewer correctly observed that `performed_via_github_app == null` proves only that GitHub did not attribute an action to a GitHub App. A credentialed non-App API path could still act as the owner.
+
+The current ChatGPT connector's own commits were checked through the raw GitHub commit API and are unsigned (`verification.verified=false`, `reason=unsigned`), which gives the project a stronger separable primitive: a human-controlled SSH signing key unavailable to project automation.
+
+### Lessons
+
+- Negative provenance metadata cannot be promoted into positive identity proof.
+- The root authenticator must require a secret/capability unavailable to the conflicted actor, not merely a metadata pattern the actor usually does not produce.
+- A signed authority artifact should bind the exact semantic payload; mutable branch names and unsigned comments may point to evidence but are not evidence themselves.
+- Review APPROVE provenance needs the same strength as scope authorization because both grant authority.
+
+### Methodology effect
+
+M-014 now requires SSH-signed Git attestation commits for both bootstrap scope authorization and authority-bearing secondary APPROVE. GitHub must report a valid SSH signature, repository-owner author/committer identity, and exact attestation payload. Web-flow signatures, owner comments and `performed_via_github_app` checks are supplementary only. Human signing private material must remain outside ChatGPT/Codex/project automation, CI and runner secrets.
