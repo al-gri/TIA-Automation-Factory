@@ -1,266 +1,186 @@
 # Generator Engineering Rules
 
-Status: **PROPOSED with target architecture**
+Status: **PROPOSED — review round 2 required**
 
-These rules are intended to become the non-negotiable development contract for the generator after architecture review and merge.
+These rules become the development contract only after the architecture proposal is independently approved and merged.
 
-## Rule 1 — GitHub is the source of truth
+## 1. Repository and task discipline
 
-Architecture, current state, versioned tasks, acceptance criteria, review decisions and meaningful evidence must be durable in this repository/GitHub.
+1. GitHub is the durable source of truth.
+2. One versioned task has one bounded objective.
+3. Every task defines scope, protected paths, deterministic acceptance, risk class and bounded repairs.
+4. Do not expand infrastructure without a concrete generator blocker.
+5. No automatic merge; human merge decision remains separate from technical acceptance.
 
-Chat, local notes and agent history are coordination only.
-
-## Rule 2 — One task, one bounded objective
-
-Every autonomous implementation step must have a versioned task with:
-
-- exact goal;
-- bounded scope;
-- explicit protected paths;
-- deterministic requirements;
-- TIA acceptance when Siemens behavior changes;
-- risk class;
-- bounded repair attempts.
-
-Do not combine unrelated refactors, architecture changes and feature work in one coding-agent task.
-
-## Rule 3 — Do not expand infrastructure without a concrete generator blocker
-
-The current autonomous/review/TIA path is frozen.
-
-Infrastructure changes require a demonstrated blocker from a real generator task and separate review. Do not create framework layers, provider routing, workflow features or Windows capabilities merely because they may be useful later.
-
-## Rule 4 — Maintain strict layer boundaries
+## 2. Layer boundaries
 
 ```text
 Frontend adapter
-  -> Domain
-  -> PlcCompiler / PLC IR
-  -> SiemensBackend
-  -> declarative package
-  -> trusted TiaV21Worker
+ -> Domain
+ -> PlcCompiler / PLC IR
+ -> SiemensBackend
+ -> declarative package
+ -> trusted TiaV21Worker
 ```
 
-Forbidden dependencies:
+Forbidden:
 
-- Domain -> React Flow;
-- Domain -> `Siemens.Engineering`;
-- PlcCompiler -> `Siemens.Engineering`;
-- TiaV21Worker -> domain/business semantic decisions;
-- UI layout -> generated PLC semantics.
+- Domain -> React Flow dependency;
+- Domain/PlcCompiler -> `Siemens.Engineering`;
+- UI layout -> PLC semantics;
+- TiaV21Worker -> business/domain semantic decisions;
+- AI-authored executable payloads on the trusted Windows/TIA host.
 
-## Rule 5 — Canonical project model is independent of React Flow
+## 3. Canonical model rules
 
-React Flow nodes/edges are not persisted as the canonical source language.
+- React Flow JSON is not the source language.
+- Canonical model is versioned and migration-controlled.
+- Semantic IDs are stable and independent of canvas/layout IDs.
+- Device ports are typed/directional.
+- Engineering parameters are not disguised as graph wires.
+- Siemens/Open Library names stay outside Domain.
+- Generated/manual project ownership zones are explicit.
 
-The product stores a versioned automation model plus separate layout metadata. React Flow adapts to/from that model.
+## 4. PLC scan-semantic rules
 
-Changing visual position/style must not change generated PLC artifacts.
+The compiler must make PLC scan behavior explicit.
 
-## Rule 6 — Canonical domain is independent of Siemens Open Library
+- single writer by default;
+- no silent coercion/merge/latch;
+- explicit stateful primitives define scan-to-scan boundaries;
+- SCC analysis is mandatory for combinational partitions;
+- combinational cycles/self-loops are compilation errors unless cut by an explicit stateful boundary;
+- after stateful edges are removed, each combinational partition must be a DAG;
+- executable combinational statements are emitted from a **stable topological sort**;
+- scheduling ties use deterministic semantic IDs/order, never UI position or accidental JSON order;
+- same-scan propagation semantics are documented and tested;
+- equivalent semantic models with different layout/order produce equivalent schedules.
 
-Domain concepts are `Motor`, `TwoPositionValve`, `Interlock`, `Permissive`, signals, ports, units, parameters, etc.
+PLC semantic changes are HIGH risk when they establish/change scheduling or state behavior.
 
-Names such as `fbValve_Solenoid`, `udtHMI_ValveControl`, library GUIDs and TIA paths exist only in Siemens-specific mapping/catalog code.
+## 5. Open Library version rules
 
-## Rule 7 — PLC scan semantics must be explicit
+- Never use an unspecified/default/latest Open Library version.
+- Normal generation uses only a **qualified native V21 library profile**.
+- A V19 -> V21 upgrade is a separate HIGH-risk qualification/migration event, never an ordinary generation step.
+- Qualification records source V19 archive SHA, TIA V21 version, resulting qualified V21 identity/hash, exact type versions/dependencies and reference-compile evidence.
+- A new qualified library version requires explicit review/migration, not silent replacement.
 
-No implicit Node-RED/event semantics.
+## 6. Open Library integration rules
 
-For each logical construct define whether it represents level, edge, pulse, memory, timer, state or combinational expression.
+- Object mappings are data-driven through a versioned Siemens catalog.
+- Normal device FBs use multi-instance memory inside bounded unit/application FBs unless documented otherwise.
+- Do not generate one wrapper/instance DB per ordinary physical device by default.
+- Never consume undocumented internal FB instance memory.
+- Do not use `iStatus`/scrolling `iErrorCode` as PLC-control state.
+- Mode and simulation are subsystem contexts.
+- Reuse Open Library constants and documented semantics rather than duplicating magic values/frameworks.
+- Preserve named interlock/permissive semantics.
+- Treat sequencer/shared-instance behavior as a separately designed HIGH-risk feature.
 
-Compiler requirements:
+## 7. DB access-mode rules
 
-- deterministic execution order;
-- single-writer default;
-- type checking;
-- combinational cycle rejection;
-- feedback only through explicit stateful elements;
-- defined same-scan behavior.
+SiemensBackend must model DB access mode explicitly (`Optimized` or `Standard`).
 
-PLC-semantic changes are at least MEDIUM risk; safety-relevant semantics are HIGH risk.
+If the selected Open Library alarm profile uses the legacy alarm-generator workflow, generated Error DBs must be Standard/non-optimized and proven in TIA V21.
 
-## Rule 8 — Stable IDs and deterministic names
+Use the simplest supported representation first: SCL block attributes when sufficient. Do not add SimaticML or Simatic Source Document solely because they exist.
 
-Semantic objects have stable technical IDs and human engineering tags separately.
+Do not place required standard-access Error DBs in a TIA Software Unit context that forces optimized access.
 
-Generated symbols must be deterministic. No random GUID should appear in emitted SCL names. Regeneration from unchanged inputs must not churn source.
+## 8. Target-profile and hardware prerequisite rules
 
-Naming rules must be centralized and tested.
+Target profiles/base projects are versioned and hash-bound.
 
-## Rule 9 — Generated and manual code are separate ownership zones
+Before library/application materialization, ProjectAssembler must preflight the actual target and verify required Open Library CPU prerequisites, including System memory and Clock memory enabled state plus expected addresses.
 
-Generated project groups/files are generator-owned and may be replaced.
+The exact V21 Openness read/validation mechanism must be established by a dedicated trusted TIA test. Missing/mismatched settings are deterministic errors; do not silently guess or mutate semantic assumptions.
 
-Manual extension groups are human-owned and never overwritten.
+## 9. SCL generation rules
 
-Users must not be required to edit generated sources to complete normal engineering work.
+- SCL is the primary application-generation language while it is sufficient.
+- Before non-trivial FB calls, use a minimal structural SCL AST/emitter.
+- Do not grow a compiler from ad-hoc string concatenation for calls/expressions.
+- Golden output tests are mandatory.
+- Add SimaticML/YAML only when a concrete required TIA feature cannot be expressed safely in SCL.
 
-## Rule 10 — Pin Open Library identity and type versions
+## 10. Determinism rules
 
-Never silently use an unspecified/default/latest library version.
+Unchanged canonical project + generator version + target profile + qualified library profile must produce semantically identical output.
 
-A reproducible target records:
+- no random generated symbol names;
+- naming is centralized/tested;
+- layout changes cannot alter PLC output;
+- explicit ordering for maps/collections;
+- manifests record generator/library/target identities;
+- regeneration must not duplicate generated TIA objects.
 
-- source library identity/archive hash;
-- upgraded V21 library identity/cache key;
-- exact released FB/UDT type versions or equivalent stable identifiers;
-- generator/Open-Library catalog version.
+## 11. TIA trust-boundary rules
 
-Library upgrades are explicit migration events.
+Windows/TIA receives only validated/hash-bound declarative inputs and trusted code from `main`.
 
-## Rule 11 — Open Library object mappings are data-driven
+Normal ProjectAssembler:
 
-Do not spread FB parameter names through arbitrary compiler classes.
+1. validates package;
+2. opens/copies trusted target profile;
+3. preflight-validates target prerequisites;
+4. opens qualified native V21 library;
+5. materializes exact objects/dependencies;
+6. imports/generates sources;
+7. compiles full PLC;
+8. saves project;
+9. returns structured diagnostics/evidence.
 
-Use a versioned Siemens/Open-Library descriptor/catalog for interfaces, directions, types, UDTs and dependencies. Handwritten descriptors are acceptable only for a small proof slice and must be replaceable by trusted extraction/verification.
+It does not perform Domain compilation or major-version library upgrade during a normal build.
 
-## Rule 12 — Multi-instance is the default Open Library memory model
+## 12. Diagnostics rules
 
-Generated unit/application FBs should contain normal Open Library FB instances in static/multi-instance memory unless a documented object requires a different memory model.
+- compiler diagnostics reference canonical object/port IDs;
+- backend emits source-map metadata;
+- TIA diagnostics are correlated back to generated symbol and semantic source where possible;
+- errors are not hidden by automatic repair/coercion in the generator itself.
 
-Do not generate one instance DB per ordinary field device by default.
+## 13. Safety boundary
 
-## Rule 13 — Never use library internal instance memory as an API
+The generator may consume an already-engineered E-stop/safety status as a normal input required by standard Open Library logic. It does not generate, validate or certify Siemens F-safety logic.
 
-Only documented block inputs, outputs, HMI UDTs and Error UDTs may be consumed.
+## 14. Test pyramid
 
-`iStatus` and scrolling `iErrorCode` are display information, not PLC-control signals.
+1. Domain/compiler unit tests;
+2. schema/type/graph validation;
+3. SCC/topological scheduler tests;
+4. PLC IR golden tests;
+5. Siemens SCL AST/emitter golden tests;
+6. GeneratorCli/package tests on Linux;
+7. exact candidate artifact/package in real TIA V21;
+8. later HMI/reference-project tests when applicable.
 
-## Rule 14 — Mode and simulation are subsystem contexts
+Use the cheapest authoritative layer, but never omit real TIA acceptance for changed Siemens behavior.
 
-Mode and simulation should be owned at an appropriate system/unit level and propagated to devices.
+## 15. Review risk
 
-Do not create unrelated local copies for each visual node.
+- LOW: isolated scalar/format/data mapping with established semantics.
+- MEDIUM: internal type/AST representation preserving established behavior.
+- HIGH: canonical schema, scan semantics, Open Library qualification/materialization, target preflight, TIA trust boundary, safety scope, major architecture.
 
-Open Library constants should be used rather than duplicating magic integer values in generated SCL.
+HIGH-risk work requires independent ChatGPT and Gemini review of the same exact candidate SHA. Reviewer conflict blocks acceptance.
 
-## Rule 15 — Library/project prerequisites are centralized
+## 16. Definition of Done
 
-CPU System/Clock memory configuration, the Open Library tag-table master copy, required library types and dependency synchronization are TIA assembly concerns.
-
-They must not be repeated manually in every device generator.
-
-## Rule 16 — Keep SCL generation structural
-
-Before non-trivial FB calls, use a minimal SCL AST/structured emitter.
-
-Do not grow a large compiler from arbitrary `StringBuilder.Append`/string interpolation fragments for expressions and block calls.
-
-All emitters require deterministic golden/snapshot tests.
-
-## Rule 17 — Prefer one generated SCL compilation unit until it becomes a blocker
-
-Multiple TIA artifacts can be declared in one source. Keep the candidate package minimal while this is sufficient.
-
-Expand workflow/package infrastructure only when a real feature cannot be represented safely as the bounded source artifact.
-
-## Rule 18 — TIA compilation is authoritative for Siemens syntax/integration
-
-Unit tests and golden SCL are necessary but do not prove TIA correctness.
-
-Any task that changes generated Siemens artifacts or Open Library integration must ultimately pass real TIA Portal V21 compile with zero errors for the exact candidate artifact/package.
-
-Warnings may be allowed only when explicitly accepted by the task; production target is zero generated warnings where practical.
-
-## Rule 19 — Windows/TIA accepts declarative bounded inputs only
-
-AI-authored executables/scripts never run on the trusted TIA machine.
-
-The Windows runner checks out trusted `main` infrastructure and receives only validated/hash-bound generation inputs/artifacts.
-
-`TiaV21Worker` is the single Openness execution path.
-
-## Rule 20 — Diagnostics must retain source identity
-
-Every compiler diagnostic references domain IDs/ports, not only free-text generated names.
-
-As the backend matures, emitted Siemens source must carry a source map so TIA errors can be traced back to the visual engineering object.
-
-## Rule 21 — Do not hide errors through automatic coercion
-
-No silent type conversions, implicit multiple-writer ORs, implicit latches or guessed parameter binding.
-
-If compiler intent is ambiguous, fail with a deterministic diagnostic and require the model to be explicit.
-
-## Rule 22 — Safety has a hard scope boundary
-
-The generator may consume a normal signal representing an already-engineered safety state/E-stop status, but must not claim to generate or validate Siemens F-safety logic until a separate safety architecture, certification/risk process and acceptance strategy are approved.
-
-## Rule 23 — Reuse Open Library semantics instead of duplicating them
-
-When Open Library already defines mode, simulation, error/HMI contracts, interlock/permissive behavior or device control, the Siemens backend should integrate with those contracts rather than reimplementing a parallel Siemens-specific framework.
-
-The vendor-neutral Domain may be richer, but the Siemens lowering should avoid unnecessary wrapper layers.
-
-## Rule 24 — Avoid wrapper explosion
-
-Do not create a unique generated wrapper FB for every physical device instance.
-
-Use reusable unit/application FBs and multi-instances. Semantic wrappers, if required, are per reusable type/pattern.
-
-## Rule 25 — Large plants are hierarchical
-
-Do not design the product around one global canvas or one giant application FB.
-
-Project model, generated FBs, HMI/Error DBs, modes, simulation and visual navigation must support Areas/Units/subsystems.
-
-## Rule 26 — Every architectural abstraction must earn its existence
-
-Add interfaces/layers only when they isolate a real variability axis or enforce a boundary:
-
-- frontend adapter;
-- domain;
-- compiler/IR;
-- target backend;
-- trusted TIA assembler.
-
-Do not add generic plugin frameworks, CQRS/event buses, distributed services or other infrastructure without a measured requirement.
-
-## Rule 27 — Test at the cheapest authoritative layer
-
-Preferred test pyramid:
-
-1. pure Domain/compiler unit tests;
-2. type/graph validation tests;
-3. PLC IR golden tests;
-4. Siemens SCL AST/emitter golden tests;
-5. GeneratorCli/package tests on Linux;
-6. exact artifact/package compile in TIA V21;
-7. later integration tests against reference projects/HMI where required.
-
-Do not use TIA for behavior that can be proven deterministically on Linux, but do not omit TIA for Siemens integration.
-
-## Rule 28 — Schema evolution is explicit
-
-Canonical project JSON has `schemaVersion` and controlled migrations.
-
-Breaking model changes require migration tests and architecture review appropriate to risk. The UI and compiler must not rely on undocumented JSON shapes.
-
-## Rule 29 — Review risk is based on semantics, not line count
-
-Examples:
-
-- LOW: isolated scalar type mapping, small output formatting fix, data descriptor addition with established semantics.
-- MEDIUM: PLC IR behavior, type system, graph validation, Open Library binding for a known object, SCL AST behavior.
-- HIGH: canonical project schema, scan semantics, TIA worker/trust boundary, library upgrade/materialization mechanism, safety behavior, major architecture changes.
-
-Follow `docs/AI_COLLABORATION_MODEL.md` for reviewer requirements.
-
-## Rule 30 — Definition of Done is machine-verifiable
-
-A task is DONE only when all task-specific gates pass. For generated PLC behavior this normally means:
+A Siemens-generating task is done only when all applicable machine-verifiable gates pass:
 
 ```text
-trusted task resolved from main
-protected paths unchanged
-build/tests pass
-requirements pass
-artifact/package generated deterministically
-external review passes
-real TIA V21 compile passes
-PLC/TIA review passes
-human merge decision remains separate
+trusted versioned task
+ -> protected-path checks
+ -> deterministic tests
+ -> generated artifact/package
+ -> required external review
+ -> trusted target preflight
+ -> real TIA V21 assembly/import
+ -> full PLC compile (errors == 0)
+ -> required object/version/access-mode checks
+ -> reproducibility evidence
+ -> human merge decision
 ```
 
-An LLM stating that work is complete is never acceptance evidence.
+An LLM saying `done` is never acceptance evidence.
