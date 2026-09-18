@@ -33,7 +33,7 @@ The secondary reviewer must operate from a fresh chat and a self-contained GitHu
 
 One independent reviewer is the default. A simultaneous second reviewer is optional escalation only.
 
-`review.reviewerSlots` is an authorization allow-list, not a set of mandatory simultaneous reviewers. When the field is absent or an empty array on a legacy task, the only authorized default is `chatgpt`; `chatgpt-secondary` is never authorized implicitly and must be explicitly listed by the current trusted task.
+`review.reviewerSlots` is an authorization allow-list, not a set of mandatory simultaneous reviewers. When the field is absent or an empty array on a legacy task, the only authorized default is `chatgpt`; `chatgpt-secondary` is never authorized implicitly and must be explicitly listed by the current trusted task. The only exception to trusted-task slot authorization is the manual protected-governance bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; that exception is not accepted by task-only review automation.
 
 ## Review risk policy
 
@@ -67,7 +67,7 @@ Required sections:
 
 1. reviewer role and instruction that no prior context exists;
 2. project purpose and relevant architecture/trust boundaries;
-3. exact task and acceptance criteria;
+3. exact trusted task and acceptance criteria, or for the exceptional governance-bootstrap lane the authorized issue, its recorded SHA-256 body fingerprint, the durable human-authorization record, and `docs/GOVERNANCE_BOOTSTRAP.md`;
 4. risk class and review type;
 5. candidate PR and exact SHA;
 6. implementation summary as orientation only;
@@ -96,6 +96,8 @@ An `APPROVE` response must not contain any `critical` or `major` finding.
 
 Trusted automation binds the response to exact request ID, reviewer slot, task ID, candidate SHA, review type and round. Reviewer slot strings are explicit identities such as `chatgpt` and `chatgpt-secondary`, not interchangeable aliases.
 
+For a governance-bootstrap review, primary ChatGPT performs the same identity/exact-SHA validation manually and records the returned JSON as PR evidence; the task-only automation must continue to reject the missing trusted task rather than infer bootstrap authority.
+
 ## State transitions
 
 ```text
@@ -117,7 +119,7 @@ Intentionally requested multi-review disagreement
     -> REVIEW_CONFLICT
 ```
 
-`REVIEW_CONFLICT` and `BLOCKED` require an explicit external decision before implementation continues. Repairs remain bounded by trusted task `maxRepairAttempts`.
+`REVIEW_CONFLICT` and `BLOCKED` require an explicit external decision before implementation continues. Repairs remain bounded by trusted task `maxRepairAttempts`; bootstrap authorization must likewise define a bounded repair allowance or return to the human when further repair would widen the authorized scope.
 
 ## Architecture gate
 
@@ -141,6 +143,16 @@ After external review, trusted Candidate Validation is deterministic: Linux test
 
 Candidate `TiaV21Worker` code is not executed on Windows before independent approval and trusted merge when the task explicitly defines post-merge TIA validation.
 
+## Protected-governance bootstrap review
+
+`docs/GOVERNANCE_BOOTSTRAP.md` defines a narrow manual lane for maintainer/primary-authored protected governance repairs when establishing a trusted task first would create the same authorization recursion being repaired.
+
+The lane is HIGH risk and requires explicit human authorization of a bounded GitHub issue before acceptance. Primary ChatGPT records a SHA-256 fingerprint of the exact authorized issue body. Any material issue-body change invalidates that authorization.
+
+A bootstrap candidate cannot authorize itself. Candidate-branch tasks or policy text do not become trusted authorization for that same candidate. The required independent reviewer is fresh `chatgpt-secondary`, exact-SHA deterministic CI must be green, and no candidate source may execute on trusted Windows/TIA.
+
+Bootstrap evidence is validated and persisted manually by primary ChatGPT. The existing external-review request/response automation remains task-only and fail-closed. This exception must not be implemented by weakening the automation's trusted-task checks.
+
 ## Delegated technical merge gate
 
 Primary connected ChatGPT may execute routine merge without separate human confirmation only when all applicable gates pass for the exact current PR head SHA:
@@ -149,10 +161,10 @@ Primary connected ChatGPT may execute routine merge without separate human confi
 2. deterministic CI/tests are green;
 3. required TIA/Openness evidence is green unless trusted task explicitly defines it as post-merge;
 4. no unresolved `critical`/`major`, `BLOCKED` or `REVIEW_CONFLICT` exists;
-5. candidate still matches trusted task and architecture;
+5. candidate still matches trusted task and architecture, or for the exceptional bootstrap lane the live authorized issue still matches its recorded fingerprint and the diff remains inside that human-authorized scope;
 6. review/evidence is not stale.
 
-Primary ChatGPT stops for human input on strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions or unresolved review conflict/ambiguity.
+Primary ChatGPT stops for human input on strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions, material bootstrap scope widening or unresolved review conflict/ambiguity.
 
 No implementer, coding agent, reviewer or workflow may self-merge automatically.
 
@@ -164,12 +176,14 @@ The intended human involvement is small:
 2. If primary ChatGPT is independent, it reviews directly from GitHub.
 3. If primary ChatGPT is not independent, it prepares a complete ready-to-paste `chatgpt-secondary` package.
 4. The human pastes that package into a fresh ChatGPT chat and returns only the JSON verdict.
-5. Trusted automation validates the response and continues the bounded state machine.
+5. Trusted automation validates normal task-backed responses and continues the bounded state machine. For the exceptional governance-bootstrap lane, primary validates and records the response manually because task-only automation must fail closed.
 6. Primary ChatGPT performs delegated technical merge when gates pass.
+
+Human scope authorization is additionally required before the exceptional governance-bootstrap lane may be used.
 
 ## Acceptance rules for automation
 
-Before any external response affects trusted state or execution, trusted automation must:
+Before any normal task-backed external response affects trusted state or execution, trusted automation must:
 
 - parse JSON;
 - validate against the versioned schema;
@@ -183,5 +197,7 @@ Before any external response affects trusted state or execution, trusted automat
 - preserve only fully authorized/independent validated responses as GitHub review-state evidence;
 - never treat prose outside validated JSON as approval;
 - prevent candidate agents from editing trusted review/orchestration definitions.
+
+Automation must not infer the governance-bootstrap lane from a missing task, issue text, reviewer response, branch naming, or candidate files. Missing trusted-task authorization remains a hard automation failure.
 
 This protocol authorizes primary connected ChatGPT to execute delegated technical merges after gates; it never authorizes workflow/bot self-merge.
