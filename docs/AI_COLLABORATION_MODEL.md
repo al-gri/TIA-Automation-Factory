@@ -6,6 +6,24 @@ Status: accepted and active Phase 2 design. I6 baseline is frozen; external-revi
 
 Run the software factory autonomously for most implementation work while keeping architecture and critical verification under independent review. The system should minimize paid API usage without weakening the deterministic Linux/TIA acceptance path.
 
+## Repository-first context discipline
+
+GitHub is the sole durable source of truth for this project. Chat history, saved memory, and local notes are not authoritative project state.
+
+A brand-new ChatGPT / Gemini / coding-agent session must be able to recover everything needed for its role from the repository plus GitHub issues, PRs, workflow state, and artifacts.
+
+The required clean-session entry points are:
+
+1. root `AGENTS.md`;
+2. `docs/PROJECT_STATE.md`;
+3. this document;
+4. `docs/EXTERNAL_REVIEW_PROTOCOL.md` when review is involved;
+5. the active task under `tasks/` and the relevant PR / workflow evidence.
+
+All architecture decisions, role rules, task requirements, current blockers, review states, and meaningful outcomes must be persisted to GitHub. Chat is only an operator console.
+
+Secret values are never project context and must not be committed; only secret names, purpose, and expected GitHub Actions location may be documented.
+
 ## Roles
 
 ### DeepSeek API — primary implementer
@@ -47,6 +65,8 @@ Gemini is used as an independent second opinion, especially when a change is ris
 
 Its review prompt should intentionally search for missed requirements, edge cases, unsafe assumptions, insufficient tests, and hidden regressions rather than merely confirming the implementer's approach.
 
+When Gemini is required, ChatGPT must prepare a complete ready-to-paste Gemini message from GitHub source of truth. The human must not have to manually collect task context, diffs, evidence, architecture rules, or the response schema.
+
 Target share of AI work: approximately 5-10%.
 
 ### Human operator
@@ -57,18 +77,22 @@ GitHub remains the source of truth for tasks, candidate diffs, review packages, 
 
 ## Connected ChatGPT operator console
 
-When the GitHub connection is available, phrases such as `проверь запросы DeepSeek`, `проверь DeepSeek`, `что ждёт review?`, or `проверь PR #N` are operator commands, not requests for the user to inspect GitHub manually.
+When the GitHub connection is available, phrases such as `проверь запросы DeepSeek`, `проверь DeepSeek`, `что ждёт review?`, `проверь репозиторий`, or `проверь PR #N` are operator commands, not requests for the user to inspect GitHub manually.
 
-For a general pending-review request ChatGPT should:
+For a general repository/review request ChatGPT should:
 
-1. inspect the repository for current `WAITING_FOR_EXTERNAL_REVIEW` requests;
-2. ignore stale requests whose candidate SHA no longer matches the current PR head or which already have a terminal response;
-3. read the trusted task, bounded candidate diff/source context, deterministic Linux evidence, generated artifact evidence, prior findings, and TIA evidence when present;
-4. independently decide `APPROVE`, `CHANGES_REQUIRED`, or `BLOCKED` for the authorized ChatGPT/reviewer slot;
-5. write a schema-valid `/external-review` response back to the same PR, preserving `reviewRequestId`, `reviewerSlot`, task ID, candidate SHA, review type, and review round;
-6. report to the user what was reviewed, the decision, the important findings, and which automated gate was triggered next.
+1. read `AGENTS.md` and `docs/PROJECT_STATE.md` if this is a fresh session;
+2. inspect the repository for current active tasks, open candidate PRs, pending `WAITING_FOR_EXTERNAL_REVIEW` requests, and failing/running trusted workflows;
+3. ignore stale requests whose candidate SHA no longer matches the current PR head or which already have a terminal response;
+4. read the trusted task, bounded candidate diff/source context, deterministic Linux evidence, generated artifact evidence, prior findings, and TIA evidence when present;
+5. independently decide `APPROVE`, `CHANGES_REQUIRED`, or `BLOCKED` for the authorized ChatGPT/reviewer slot;
+6. write a schema-valid `/external-review` response back to the same PR, preserving `reviewRequestId`, `reviewerSlot`, task ID, candidate SHA, review type, and review round;
+7. persist any durable new blocker/decision in GitHub;
+8. report to the user only the operationally useful result: what was checked, the decision/failure, the next gate, and whether the user must do anything.
 
 ChatGPT must not answer the independent `gemini` slot. For HIGH-risk work it may complete only the ChatGPT slot; the Gemini slot must remain independently reviewed before aggregate acceptance.
+
+If Gemini is required, the ChatGPT response to the human must include the full ready-to-paste Gemini message. Do not merely tell the user to "ask Gemini to review the PR".
 
 Connected review never authorizes automatic merge. A final merge remains a distinct human decision.
 
