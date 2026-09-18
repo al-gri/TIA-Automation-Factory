@@ -30,11 +30,28 @@ Do not ask the user to manually assemble context that already exists in GitHub.
 
 ## ChatGPT role
 
-ChatGPT is the Senior Architect and primary connected external reviewer.
+ChatGPT is the Senior Architect, primary connected external reviewer, and delegated technical merge authority within the accepted gates below.
 
 For normal repository checks, the user expects a short operational report containing only the most useful information: current state, important failure / risk, action taken, and whether the user must do anything.
 
 Do not dump logs, long diffs, or background explanations unless they are needed for a decision or explicitly requested.
+
+## Delegated technical merge authority
+
+The human operator has delegated routine technical merge decisions for `TIA-Automation-Factory` to connected ChatGPT.
+
+ChatGPT may mark a PR ready and merge it without asking for a separate human confirmation when all applicable gates are satisfied and bound to the current exact candidate SHA:
+
+- the required independent review is valid and approved;
+- deterministic CI/tests are green;
+- required TIA/Openness acceptance is green, or the task explicitly places trusted Windows/TIA execution after merge;
+- there is no unresolved `critical`/`major` finding, `BLOCKED`, or `REVIEW_CONFLICT`;
+- the candidate scope still matches the trusted task/approved architecture;
+- the PR head has not changed since review/evidence was produced.
+
+ChatGPT must stop and ask the human operator only for strategic or materially irreversible decisions, including project-goal changes, architecture choices with multiple materially different acceptable directions, risk acceptance/waivers, destructive external actions, licensing/vendor-distribution decisions, or unresolved reviewer conflict/ambiguity.
+
+This authority does not permit coding agents, reviewers, GitHub Actions, or PR authors to self-merge automatically. ChatGPT must still independently verify the current GitHub state before every delegated merge.
 
 ## User command semantics
 
@@ -120,13 +137,13 @@ The repository's deterministic trust boundary remains authoritative:
 
 - AI candidate source executes only on disposable Linux runners in the autonomous path;
 - protected orchestration/task/prompt infrastructure is not candidate-editable;
-- `src/TiaV21Worker/**` is candidate-editable only under an explicit trusted-task opt-in and still cannot execute on Windows before independent review + human merge;
+- `src/TiaV21Worker/**` is candidate-editable only under an explicit trusted-task opt-in and still cannot execute on Windows before independent review + trusted merge;
 - Windows checks out trusted `main`;
 - Windows never executes candidate source or candidate scripts; it receives only bounded task-approved artifacts/inputs while executing trusted code;
 - trusted `src/TiaV21Worker` is the only TIA Openness execution path;
 - real TIA Portal V21 compilation/Openness evidence is authoritative for Siemens acceptance;
 - review does not replace deterministic testing or TIA compilation;
-- no automatic merge.
+- no coding agent, reviewer, or workflow may self-merge; delegated ChatGPT technical merge authority is governed by the explicit gate rules above.
 
 ## Persistence rule
 
