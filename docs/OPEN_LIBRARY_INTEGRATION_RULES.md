@@ -1,6 +1,6 @@
 # Siemens Open Library Integration Rules
 
-Status: **PROPOSED — review round 2 required**
+Status: **PROPOSED — review round 3 required**
 
 Date: 2026-09-18
 
@@ -85,6 +85,8 @@ FB_WaterSystem
 ```
 
 Each unit/application FB normally has its own instance DB. Do not create one ordinary device instance DB per field object, and do not recursively fold the entire plant into one giant root instance DB.
+
+These unit/application boundaries are memory/ownership boundaries, not implicit scan-delay boundaries. Same-controller dependencies that cross them remain visible to PlcCompiler scheduling and determine deterministic orchestration order.
 
 Documented exceptions such as technology/PID-specific memory requirements are metadata on the Open Library descriptor rather than compiler special cases.
 
@@ -185,10 +187,10 @@ Exact names, directions, types, versions and helper dependencies must be verifie
 Owns semantic devices, typed ports, hierarchy, parameters, connections, named condition sets, mode/simulation concepts.
 
 ### PlcCompiler / PLC IR
-Owns type checking, scan semantics, SCC/cycle validation, stable topological scheduling, state and target-independent executable/data representation.
+Owns type checking, explicit `SameScan` versus `PreviousState` dependency semantics, controller-global SCC/cycle validation, stable topological scheduling across unit/area ownership boundaries, state and target-independent executable/data representation. Ordinary cross-controller runtime connections are rejected until represented by an explicit communication primitive/profile with defined latency.
 
 ### SiemensBackend
-Owns qualified Open Library catalog/bindings, Siemens lowering, multi-instance model, HMI/Error DB model including `DbAccessMode`, constants references, SCL AST/emission and source maps.
+Owns qualified Open Library catalog/bindings, Siemens lowering, multi-instance model, HMI/Error DB model including `DbAccessMode`, constants references, SCL AST/emission and source maps. It consumes compiler-resolved execution order rather than deriving scheduling from generated object order.
 
 ### Library qualification operation
 Owns explicit V19 -> V21 migration/qualification, reference compile and qualification manifest. It is not a normal build operation.
