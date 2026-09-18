@@ -91,7 +91,7 @@ The compiler is multi-pass:
 5. connection/cardinality/single-writer validation
 6. temporal-dependency resolution for stateful primitives
 7. controller-level same-scan dependency graph construction
-8. SCC validation + stable same-scan scheduling
+8. SCC validation + executable-container scheduling
 9. ownership partitioning / normalization by controller / area / unit
 10. lower to PlcProgramIr
 ```
@@ -121,7 +121,7 @@ Example: a rising-edge primitive can read its remembered input from the previous
 
 This contract prevents a stateful FB with current-input feed-through from accidentally hiding an algebraic loop.
 
-### 4.2 Controller-global scheduling and hierarchy boundaries
+### 4.2 Controller-global scheduling and executable boundaries
 
 Deterministic scheduling is a formal compiler invariant, not an implementation detail.
 
@@ -130,16 +130,21 @@ For each controller:
 1. Build one logical dependency graph containing all `SameScan` dependencies, including dependencies that cross area or unit ownership boundaries.
 2. Compute strongly connected components on that controller-level same-scan graph.
 3. Any SCC containing more than one node, or a self-loop, is a compilation error unless the cycle is actually cut by an explicit `PreviousState` dependency.
-4. After delayed/previous-state dependencies are excluded, the remaining graph must be a DAG.
-5. Perform a stable topological sort before emitting executable PLC statements or orchestration calls.
-6. When several nodes are simultaneously schedulable, use a deterministic semantic tie-breaker (stable semantic ID/order), never UI position or accidental JSON array order.
-7. Same-scan propagation is the default for `SameScan` dependencies: a downstream expression sees the value produced earlier in the same deterministic schedule.
+4. After delayed/previous-state dependencies are excluded, the remaining semantic graph must be a DAG.
+5. Map scheduled semantic nodes into their generated executable containers. In the initial modular architecture, each generated unit/application FB is an **atomic once-per-scan invocation boundary**.
+6. Build a quotient/dependency graph between those atomic executable containers: an edge `UnitA -> UnitB` exists when any `SameScan` value produced inside `UnitA` is required by `UnitB` in the same scan.
+7. The executable-container graph must also be a DAG. A container-level cycle is a compilation error even if the finer semantic-node graph is acyclic, because realizing `UnitA(part) -> UnitB -> UnitA(part)` would require splitting/interleaving an atomic FB invocation.
+8. Perform stable topological scheduling at both levels: deterministic order inside each container and deterministic order of container invocations.
+9. When several nodes or containers are simultaneously schedulable, use deterministic semantic IDs/order, never UI position, declaration order or accidental JSON array order.
+10. Same-scan propagation means a downstream consumer observes the value produced earlier in that realizable deterministic schedule.
 
-`area` and `unit` are ownership, naming and memory boundaries. They are **not implicit scan-delay or scheduling boundaries**. If `UnitB` consumes a same-scan value produced by `UnitA` on the same controller, the controller-global schedule must order the generated unit/application invocations consistently with that dependency. A same-controller cycle across units is rejected unless an explicit `PreviousState` dependency breaks it.
+`area` and `unit` are ownership, naming and memory boundaries. A unit becomes a scheduling boundary only because the generated architecture emits it as one atomic application-FB invocation. Areas are organizational by default; if a future design emits an area as another atomic callable container, the same quotient-DAG rule applies.
+
+Cross-unit same-scan data crosses explicit generated unit/application interfaces or orchestration signals. Generated code must not wire directly into another unit FB's private multi-instance memory. A future multi-phase/split-unit execution contract is possible only as a separate HIGH-risk design; it is not inferred automatically to make an otherwise unrealizable graph compile.
 
 A normal canonical connection must not claim same-scan semantics across different controllers. Cross-controller data flow requires an explicit communication primitive/profile with defined transport, buffering, stale-data/error behavior and update latency. Until such a primitive is implemented, ordinary cross-controller runtime connections are compilation errors.
 
-Equivalent canonical models with different UI layout, JSON order or unit declaration order must produce the same semantic schedule.
+Equivalent canonical models with different UI layout, JSON order or unit declaration order must produce the same realizable semantic and container schedules.
 
 ### 4.3 PLC IR owns its own type system
 
@@ -153,7 +158,7 @@ PlcTypeRef
   Struct(...)
 ```
 
-PLC IR also retains the compiler-resolved execution/dependency semantics needed by the backend; SiemensBackend must not rediscover graph scheduling from source/UI order.
+PLC IR also retains the compiler-resolved execution/dependency semantics and container invocation order needed by the backend; SiemensBackend must not rediscover graph scheduling from source/UI order.
 
 ## 5. Siemens/Open Library backend
 
@@ -272,7 +277,7 @@ FB_WaterSystem
 
 Do not generate one wrapper FB or one instance DB per ordinary physical device by default. Reusable unit types may share code while each physical unit has separate state/instance DB.
 
-These bounded memory domains do not imply independent scan schedules. Same-controller cross-unit dependencies are scheduled by the controller-global dependency graph and reflected in deterministic orchestration order.
+A generated unit/application FB is called atomically once per scan in the initial architecture. Same-controller cross-unit dependencies must therefore form an acyclic unit-invocation graph and are passed through explicit unit interfaces/orchestration signals; bounded memory domains never authorize direct access to another unit's private multi-instance state.
 
 ## 9. Open Library runtime contracts
 
@@ -387,6 +392,7 @@ Not in the first production slice:
 - generic multi-vendor plugin framework;
 - arbitrary hardware-from-scratch generation;
 - wrapper hierarchy per device;
+- multi-phase/interleaved execution of one unit FB within a scan;
 - SimaticML/YAML backend without a demonstrated SCL blocker.
 
 ## 16. Architecture acceptance criteria
@@ -396,7 +402,9 @@ This proposal is acceptable only when independent review agrees that:
 - Domain is independent of React Flow and Siemens;
 - dependency latency is explicit: only `PreviousState` dependencies cut same-scan cycles;
 - stateful primitives declare current-input/output and previous-state dependencies rather than acting as generic cycle breakers;
-- same-controller scheduling is controller-global across unit/area ownership boundaries and uses stable DAG/topological ordering;
+- same-controller semantic scheduling includes dependencies across unit/area ownership boundaries;
+- generated unit/application FBs are atomic once-per-scan execution containers whose cross-unit dependency quotient graph is also a stable DAG;
+- cross-unit data uses explicit public interfaces/orchestration signals rather than private multi-instance memory;
 - ordinary cross-controller runtime connections are rejected unless represented by an explicit communication primitive with defined latency;
 - library upgrade is a separate qualification event, not normal build behavior;
 - normal builds consume an exact qualified native V21 library profile;
