@@ -1,6 +1,6 @@
 # Generator Roadmap
 
-Status: **PROPOSED — review round 2 required**
+Status: **PROPOSED — review round 3 required**
 
 Goal: reach a production-capable `React Flow -> canonical model -> PLC compiler -> Siemens Open Library -> TIA Openness -> ready TIA Portal V21 project` through small versioned tasks.
 
@@ -39,7 +39,13 @@ Documents:
 - `ENGINEERING_RULES.md`
 - this roadmap
 
-Round 1 Gemini review returned `CHANGES_REQUIRED`; the proposal must be reviewed again at its new SHA after all findings are resolved.
+Review history:
+
+- Round 1 Gemini returned `CHANGES_REQUIRED`; its four findings were incorporated into the proposal.
+- Round 2 ChatGPT returned `CHANGES_REQUIRED` for exact candidate `7367a0bbc22987bc68275feab59e7f198b73b314`, requiring explicit temporal-dependency semantics for stateful primitives, controller-global handling of cross-unit same-scan dependencies and roadmap clarification around target-profile ownership.
+- Round 2 Gemini attempts that could not inspect the exact GitHub candidate or did not satisfy the external-review schema are evidence only and do not fill the independent reviewer slot.
+
+Any architecture change creates a new candidate SHA and requires fresh independent ChatGPT + Gemini reviews bound to that exact SHA.
 
 Gate: no architecture-dependent implementation task starts until ARCH-001 is accepted.
 
@@ -84,23 +90,25 @@ Acceptance:
 - machine-readable valve catalog seed produced;
 - documentation-derived interface is reconciled with actual qualified V21 evidence.
 
-### OL-002 — Target-profile preflight + clean valve materialization
+### OL-002 — Initial target profile + preflight + clean valve materialization
 
 Risk: **HIGH**
 
-Goal: prove a trusted/reference V21 target can receive the qualified valve dependencies before generated application logic exists.
+Goal: introduce the minimum production target-profile/preflight mechanism needed to prove that one trusted/reference V21 target can receive the qualified valve dependencies before generated application logic exists.
 
 Acceptance:
 
-- target/base project identity/hash pinned;
-- target profile declares System memory enabled/address requirement;
-- target profile declares Clock memory enabled/address requirement;
+- one target/base project identity/hash pinned;
+- one target profile declares System memory enabled/address requirement;
+- one target profile declares Clock memory enabled/address requirement;
 - ProjectAssembler validates actual CPU settings before materialization;
 - mismatch produces deterministic failure;
 - Open Library constants/tag-table present;
 - exact valve dependencies materialized from qualified native V21 library;
 - clean PLC compile has 0 errors;
 - diagnostics record exact target/library identities.
+
+This task **introduces** target profiles and CPU prerequisite preflight for the first trusted V21 target. Later `TIA-001` generalizes/hardens this already-proven mechanism; it does not introduce it for the first time.
 
 ---
 
@@ -254,6 +262,8 @@ Acceptance:
 
 Generate at least two units. Each unit/application FB has its own instance DB and ordinary device FBs are multi-instances inside it. No plant-wide giant instance DB.
 
+This task establishes memory/ownership scaling only; unit boundaries must not be treated as implicit scan-delay boundaries.
+
 ### GEN-003 — HMI/Error/config grouping
 
 Formalize deterministic per-unit global data layout and access-mode policy.
@@ -272,25 +282,44 @@ Acceptance for Phase 6 includes deterministic regeneration, no duplicate objects
 
 Validate direction, type compatibility, required ports and multiple-writer conflicts.
 
-### GRAPH-002 — Combinational scheduling
+### GRAPH-002 — Temporal dependency and stateful primitive contract
 
 Risk: **HIGH**
 
+Goal: define scan-accurate state semantics before allowing stateful elements to participate in graph scheduling.
+
 Acceptance:
 
-- explicit stateful boundaries;
-- SCC analysis;
-- combinational SCC/self-loop rejection;
-- remaining combinational graph proven DAG;
-- stable topological sort;
-- deterministic semantic tie-breaker;
+- scheduling dependencies explicitly distinguish `SameScan` from `PreviousState`;
+- only `PreviousState` dependencies cut same-scan cycles;
+- stateful nodes are not treated as generic one-scan registers;
+- edge primitive contract identifies current-input and remembered-state dependencies;
+- timer contract identifies current-input, elapsed/state and current-output dependencies;
+- latch/reset contract defines deterministic set/reset priority and state commit behavior;
+- explicit feedback/state primitive defines what is read from the previous scan;
+- lowering follows observable `read previous state -> compute current outputs -> commit next state` semantics;
+- unit tests cover current-input feed-through plus previous-state behavior;
+- equivalent semantic input order/layout produces equivalent temporal IR.
+
+### GRAPH-003 — Controller-global combinational scheduling
+
+Risk: **HIGH**
+
+Goal: deterministically schedule all same-controller `SameScan` dependencies without allowing area/unit ownership partitions to change scan behavior.
+
+Acceptance:
+
+- build a controller-level graph of all `SameScan` dependencies;
+- SCC analysis runs on that controller-level graph;
+- same-scan SCC/self-loop is rejected unless actually cut by `PreviousState`;
+- remaining controller same-scan graph is proven DAG;
+- stable topological sort with deterministic semantic tie-breaker;
 - same-scan propagation documented/tested;
-- UI/layout/input ordering does not alter semantic schedule;
+- cross-unit same-controller dependency determines deterministic unit/application invocation order;
+- cross-unit same-scan cycles are rejected unless explicitly delayed;
+- ordinary cross-controller runtime connections are rejected until an explicit communication primitive/profile defines transport and latency;
+- UI/layout/input/unit declaration ordering does not alter semantic schedule;
 - TIA reference scenarios compile.
-
-### GRAPH-003 — Stateful primitives
-
-Add explicit edge, timer, latch/reset and feedback/state boundaries. No generic event/message semantics.
 
 ### GRAPH-004 — Interlock/permissive condition sets
 
@@ -326,9 +355,11 @@ Engineering MVP = valve + motor + analog + I/O -> saved modular compile-clean V2
 
 Add only when real output can no longer be safely represented by current bounded artifact flow. No executable payload.
 
-### TIA-001 — Target profiles/base projects
+### TIA-001 — Target-profile generalization and delivery hardening
 
-Replace hard-coded smoke CPU with versioned trusted profiles and preflight requirements.
+Build on the minimal profile/preflight mechanism proven by `OL-002`.
+
+Generalize from one trusted valve reference target to versioned production profiles/base projects with explicit hardware/profile identities, reusable validation rules and migration/version policy. Do not reintroduce target profiles as a new concept here.
 
 ### TIA-002 — Idempotent project assembly
 
