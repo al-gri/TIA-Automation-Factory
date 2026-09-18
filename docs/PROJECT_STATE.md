@@ -39,7 +39,7 @@ Domain/compiler/backend must not reference `Siemens.Engineering`; Openness remai
 - One independent external reviewer is required by default for LOW/MEDIUM/HIGH work.
 - Real TIA Portal V21 compile/Openness evidence is authoritative Siemens acceptance.
 - Normal implementation/review authorization comes from trusted versioned tasks on `main`.
-- Rare protected-governance authorization recursion uses only the human-authorized manual bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; task-only automation remains fail-closed.
+- Rare governance-authority recursion uses only the manual bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; task-only automation remains fail-closed and bootstrap authority must have provenance separated from the conflicted primary.
 
 ## Accepted architecture — ARCH-001
 
@@ -63,23 +63,36 @@ Current trusted context behavior now keeps task/control authority separate from 
 
 ## GOV-BOOT-001 / issue #31 — active governance blocker
 
-Issue #31 tracks the bootstrap ambiguity exposed by PR #30: protected maintainer governance work may need to repair the very task/review mechanism that would normally authorize it.
+Issue #31 tracks the authorization recursion exposed by PR #30. PR #32 is the primary-authored candidate for the permanent bootstrap lane.
 
-The human operator explicitly authorized the bounded issue #31 scope after PR #30 merged. Primary recorded issue-body SHA-256 `6ef39216ad77793837a1184323a6b70d0e19edaf47300d0966fc962122b7c9ee` before authoring the permanent policy candidate.
+The first independent review of PR #32 at exact candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` returned `CHANGES_REQUIRED` with major findings F001-F004:
+
+- human root authority was only primary/connector asserted;
+- the issue body did not contain all mandatory bounded-authorization fields;
+- eligibility incorrectly depended on coding-agent protected paths;
+- primary-persisted secondary JSON lacked provenance separated from the candidate author.
+
+The findings were accepted. Issue #31 was rewritten as the frozen bounded scope contract. Its current exact UTF-8 body SHA-256 is:
+
+`28abdc7a5837c8c93049f5b6ed668cafdd0c7de8275e02e6e14e55296b8cd47a`
+
+The issue edit itself was performed through the ChatGPT connector, so it is **not** human authorization. Before the repaired candidate can be accepted, the repository owner/human operator must create a direct GitHub comment outside ChatGPT/Codex/GitHub-App execution that explicitly authorizes issue #31 / task `GOV-BOOT-001` at that exact body hash. The verifier must require the direct human author and `performed_via_github_app` absent or `null`.
 
 Current candidate branch: `chatgpt/gov-boot-001-bootstrap-lane`.
 
-Proposed permanent rule:
+Repaired permanent rule:
 
 - normal task-backed automation remains unchanged and fail-closed;
-- bootstrap is manual and limited to genuine protected-governance authorization recursion;
-- human authorization binds a GitHub issue scope plus exact issue-body SHA-256;
-- primary-authored candidate requires HIGH-risk exact-SHA CI and fresh isolated `chatgpt-secondary` review;
+- bootstrap eligibility is semantic and limited to genuine recursion in the repository's normative authority/review-control model, not path-name membership or a merely missing task;
+- the frozen issue body contains the bounded task/risk/reviewer/Windows/repository/scope contract;
+- human authorization must be a direct non-app-mediated GitHub artifact bound to the exact issue-body SHA-256;
 - candidate files cannot authorize the same candidate;
+- primary-authored candidate requires HIGH-risk exact-SHA deterministic CI and fresh isolated `chatgpt-secondary` review;
+- an authority-bearing secondary `APPROVE` must also enter GitHub through provenance-separated direct human relay/attestation of the exact JSON payload;
 - no candidate Windows/TIA execution and no `IndustrialMDE` scope;
-- material scope change invalidates human authorization.
+- material issue-body/scope change invalidates prior human authorization.
 
-This candidate itself is primary-authored under the human-authorized #31 bootstrap scope and therefore requires fresh independent `chatgpt-secondary` review before merge.
+Round 1 is invalid for any repaired head. After the repaired exact head is stable and CI is green, a fresh round-2 secondary review is required. The direct human scope authorization must exist before that review can satisfy the bootstrap gate.
 
 ## OLQ-001 — implementation merged; real qualification pending
 
@@ -108,11 +121,11 @@ PR #27 is primary-ChatGPT-authored. It must be re-read against the current `main
 Current new rules:
 
 - **M-013** — control-plane authority must remain separate from mixed model-visible prompt content.
-- **M-014** — bootstrap governance explicitly; never let a candidate self-authorize.
+- **M-014** — bootstrap governance explicitly; a candidate/author-controlled connector must never manufacture its own authority.
 
 ## Required order of work
 
-1. **ACTIVE:** finish GOV-BOOT-001 / issue #31: policy candidate -> exact-SHA CI -> fresh `chatgpt-secondary` -> delegated merge if gates pass.
+1. **ACTIVE:** finish GOV-BOOT-001 / issue #31: repaired policy candidate -> direct human scope authorization for frozen issue hash -> exact-SHA CI -> fresh `chatgpt-secondary` round 2 -> provenance-separated direct human relay/attestation of an APPROVE -> delegated merge if all gates pass.
 2. Re-check PR #27 against the resulting trusted `main`; refresh exact-SHA independent review as required, then delegated merge if gates pass.
 3. From trusted `main`, run the OLQ-001 Windows/TIA qualification harness.
 4. Build `TiaV21Worker` against installed TIA V21 net48 Openness assemblies.
@@ -135,4 +148,4 @@ Current new rules:
 
 ## Fresh-chat rule
 
-Connected primary ChatGPT inspects GitHub itself, processes authorized review/orchestration work, maintains methodology checkpoints, and applies delegated technical merge authority when gates pass. When primary ChatGPT is not independent, it prepares a complete fresh `chatgpt-secondary` package and never self-approves. If a protected-governance bootstrap is active, it must also verify the authorized issue-body fingerprint and `docs/GOVERNANCE_BOOTSTRAP.md` before acting.
+Connected primary ChatGPT inspects GitHub itself, processes authorized review/orchestration work, maintains methodology checkpoints, and applies delegated technical merge authority when gates pass. When primary ChatGPT is not independent, it prepares a complete fresh `chatgpt-secondary` package and never self-approves. If governance bootstrap is active, it must verify semantic eligibility, the frozen issue-body fingerprint, direct-human authorization provenance and `docs/GOVERNANCE_BOOTSTRAP.md` before accepting authority-bearing review evidence or merge.
