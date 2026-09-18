@@ -237,3 +237,23 @@ The current ChatGPT connector's own commits were checked through the raw GitHub 
 ### Methodology effect
 
 M-014 now requires SSH-signed Git attestation commits for both bootstrap scope authorization and authority-bearing secondary APPROVE. GitHub must report a valid SSH signature, repository-owner author/committer identity, and exact attestation payload. Web-flow signatures, owner comments and `performed_via_github_app` checks are supplementary only. Human signing private material must remain outside ChatGPT/Codex/project automation, CI and runner secrets.
+
+## 2026-09-19 — Permanent authority protocols must separate schema from invocation and gates from stages
+
+### Evidence
+
+Round-3 independent review of PR #32 candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` confirmed F001-F005 repaired but found two new major defects. F006 showed that the supposedly permanent scope/review attestation payloads hard-coded the current invocation's issue/task values. F007 showed that a global fail-closed list required a signed review attestation before the reviewer could produce the APPROVE JSON that the attestation must contain.
+
+The default bootstrap repair budget was already exhausted. The human explicitly authorized exactly one additional candidate-changing repair round limited to F006/F007 without widening scope, and issue #31 was updated to bind that decision into the exact signed authority contract.
+
+### Lessons
+
+- A permanent governance schema must define field relationships, not bake in one incident's identifiers. Current issue/task values belong in an instance, example or signed evidence artifact.
+- Fail-closed does not mean requiring future-stage evidence before that evidence can exist. Gates must fail closed at the stage where the evidence is applicable.
+- A missing precondition and a not-yet-applicable artifact are different states; conflating them can deadlock an otherwise conservative state machine.
+- Human repair-budget extensions should remain bounded, explicit and invocation-local; they must not silently mutate the permanent default.
+- When durable human authority data changes, the exact issue-body fingerprint changes too, so prior signatures must become stale rather than being informally carried forward.
+
+### Methodology effect
+
+The bootstrap policy now uses invocation-generic scope/review attestation schemas with verifier equality to the current repository/frozen issue/task identity, and stage-specific fail-closed semantics for pre-review, CHANGES_REQUIRED/BLOCKED, and post-APPROVE signed evidence. The one additional F006/F007 repair remains an exception for this invocation only; it does not change the default two-repair budget.
