@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a bounded, trusted coding-agent context bundle from Git source of truth."""
+"""Build a bounded coding-agent context bundle from trusted Git state."""
 
 from __future__ import annotations
 
@@ -18,9 +18,11 @@ BASELINE_FILES = (
     ("engineering-rules", "docs/ENGINEERING_RULES.md"),
     ("ai-collaboration-model", "docs/AI_COLLABORATION_MODEL.md"),
 )
+TASK_HEADINGS = ("# Current versioned task", "# Trusted task specification")
 MAX_CONTEXT_FILES = 12
 MAX_FILE_BYTES = 128 * 1024
-MAX_BUNDLE_SOURCE_BYTES = 512 * 1024
+MAX_WORK_PROMPT_BYTES = 768 * 1024
+MAX_BUNDLE_SOURCE_BYTES = 1024 * 1024
 
 
 def fail(message: str) -> None:
@@ -62,7 +64,7 @@ def read_git_text(ref: str, path: str) -> tuple[str, bytes]:
     if b"\x00" in data:
         fail(f"trusted context file is not plain text: {normalized}")
     try:
-        text = data.decode("utf-8")
+        data.decode("utf-8")
     except UnicodeDecodeError as exc:
         fail(f"trusted context file is not UTF-8: {normalized}: {exc}")
     return normalized, data
@@ -102,6 +104,30 @@ def task_context_files(task: dict[str, Any]) -> list[str]:
     return result
 
 
+def extract_task_from_prompt(prompt: str) -> dict[str, Any] | None:
+    candidates = [(prompt.find(heading), heading) for heading in TASK_HEADINGS]
+    candidates = [(index, heading) for index, heading in candidates if index >= 0]
+    if not candidates:
+        return None
+    index, heading = min(candidates, key=lambda item: item[0])
+    segment = prompt[index + len(heading) :]
+    fence_start = segment.find("```json")
+    if fence_start < 0:
+        fail(f"trusted task heading has no JSON fence: {heading}")
+    payload_start = fence_start + len("```json")
+    fence_end = segment.find("```", payload_start)
+    if fence_end < 0:
+        fail(f"trusted task JSON fence is not closed: {heading}")
+    payload = segment[payload_start:fence_end].strip()
+    try:
+        task = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        fail(f"trusted task JSON embedded in work prompt is invalid: {exc}")
+    if not isinstance(task, dict):
+        fail("trusted task JSON embedded in work prompt must be an object")
+    return task
+
+
 def append_trusted_file(parts: list[str], title: str, path: str, text: str) -> None:
     parts.extend(
         [
@@ -125,12 +151,14 @@ def main() -> int:
     parser.add_argument("--task-json", type=Path)
     parser.add_argument("--task-source-path")
     parser.add_argument("--issue-json", type=Path)
+    parser.add_argument("--prompt-input", type=Path)
     args = parser.parse_args()
 
-    if not args.instruction_file:
-        fail("at least one --instruction-file is required")
-    if bool(args.task_json) == bool(args.issue_json):
-        fail("exactly one of --task-json or --issue-json is required")
+    source_modes = sum(bool(value) for value in (args.task_json, args.issue_json, args.prompt_input))
+    if source_modes != 1:
+        fail("exactly one of --task-json, --issue-json or --prompt-input is required")
+    if not args.prompt_input and not args.instruction_file:
+        fail("at least one --instruction-file is required outside --prompt-input mode")
 
     resolved_commit = git_output(["rev-parse", args.git_ref]).decode("ascii").strip()
     if len(resolved_commit) != 40:
@@ -176,11 +204,36 @@ def main() -> int:
         append_trusted_file(parts, role.replace("-", " ").title(), normalized, data.decode("utf-8"))
         manifest["baselineFiles"].append({"role": role, "path": normalized, "bytes": len(data), "sha256": sha256(data)})
 
-    if args.task_json:
-        task, task_bytes = load_json(args.task_json, "task JSON")
-        if not isinstance(task, dict):
+    task: dict[str, Any] | None = None
+    if args.prompt_input:
+        prompt_data = args.prompt_input.read_bytes()
+        if len(prompt_data) > MAX_WORK_PROMPT_BYTES:
+            fail(f"work prompt exceeds {MAX_WORK_PROMPT_BYTES} bytes")
+        try:
+            prompt_text = prompt_data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            fail(f"work prompt is not UTF-8: {exc}")
+        source_bytes += len(prompt_data)
+        task = extract_task_from_prompt(prompt_text)
+        parts.extend(
+            [
+                "",
+                "## Current bounded work request",
+                "This section was assembled by the trusted workflow before provider selection.",
+                "",
+                "<!-- BEGIN TRUSTED WORK PROMPT -->",
+                prompt_text.rstrip(),
+                "<!-- END TRUSTED WORK PROMPT -->",
+            ]
+        )
+        manifest["workPrompt"] = {"bytes": len(prompt_data), "sha256": sha256(prompt_data)}
+        if task is not None:
+            manifest["task"] = {"id": task.get("id"), "embeddedInWorkPrompt": True}
+    elif args.task_json:
+        loaded, task_bytes = load_json(args.task_json, "task JSON")
+        if not isinstance(loaded, dict):
             fail("task JSON root must be an object")
-        context_files = task_context_files(task)
+        task = loaded
         source_bytes += len(task_bytes)
         parts.extend(
             [
@@ -199,14 +252,6 @@ def main() -> int:
             "bytes": len(task_bytes),
             "sha256": sha256(task_bytes),
         }
-        for context_path in context_files:
-            normalized, data = read_git_text(args.git_ref, context_path)
-            if normalized in included_paths:
-                continue
-            included_paths.add(normalized)
-            source_bytes += len(data)
-            append_trusted_file(parts, "Task-declared design/context reference", normalized, data.decode("utf-8"))
-            manifest["taskContextFiles"].append({"path": normalized, "bytes": len(data), "sha256": sha256(data)})
     else:
         issue, issue_bytes = load_json(args.issue_json, "issue JSON")
         if not isinstance(issue, dict):
@@ -228,11 +273,20 @@ def main() -> int:
             "sha256": sha256(issue_bytes),
         }
 
+    if task is not None:
+        for context_path in task_context_files(task):
+            normalized, data = read_git_text(args.git_ref, context_path)
+            if normalized in included_paths:
+                continue
+            included_paths.add(normalized)
+            source_bytes += len(data)
+            append_trusted_file(parts, "Task-declared design/context reference", normalized, data.decode("utf-8"))
+            manifest["taskContextFiles"].append({"path": normalized, "bytes": len(data), "sha256": sha256(data)})
+
     if source_bytes > MAX_BUNDLE_SOURCE_BYTES:
         fail(f"trusted context source exceeds {MAX_BUNDLE_SOURCE_BYTES} bytes: {source_bytes}")
 
     manifest["sourceBytes"] = source_bytes
-    manifest["outputSha256"] = None
     output = ("\n".join(parts).rstrip() + "\n").encode("utf-8")
     manifest["outputSha256"] = sha256(output)
 
