@@ -5,7 +5,7 @@ on:
     types: [created]
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
   issues: write
 
@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" > "$RUNNER_TEMP/pr-comments.json"
-          gh pr view "$PR_NUMBER" --json state,baseRefName,headRefOid > "$RUNNER_TEMP/pr.json"
+          gh pr view "$PR_NUMBER" --json state,baseRefName,headRefOid,headRefName > "$RUNNER_TEMP/pr.json"
           test "$(jq -r .state "$RUNNER_TEMP/pr.json")" = "OPEN"
           test "$(jq -r .baseRefName "$RUNNER_TEMP/pr.json")" = "main"
 
@@ -97,9 +97,13 @@ jobs:
               if key not in state:
                   raise SystemExit(f'Missing trusted state field: {key}')
 
-          current_sha = json.loads(Path(os.environ['RUNNER_TEMP'], 'pr.json').read_text(encoding='utf-8'))['headRefOid']
+          pr = json.loads(Path(os.environ['RUNNER_TEMP'], 'pr.json').read_text(encoding='utf-8'))
+          current_sha = pr['headRefOid']
           if state['candidateSha'].lower() != current_sha.lower():
               raise SystemExit('Stale external review: PR head changed after package generation')
+          branch = pr['headRefName']
+          if not isinstance(branch, str) or not branch.startswith('agent/'):
+              raise SystemExit('External review automation only resumes trusted agent/* candidate branches')
 
           out = Path(os.environ['GITHUB_OUTPUT'])
           with out.open('a', encoding='utf-8') as fh:
@@ -107,6 +111,7 @@ jobs:
                   ('taskId','task_id'), ('candidateSha','candidate_sha'), ('reviewType','review_type'),
                   ('reviewRound','review_round'), ('reviewerSlot','reviewer_slot'), ('riskClass','risk_class')]:
                   fh.write(f'{output_name}={state[key]}\n')
+              fh.write(f'branch={branch}\n')
           PY
 
       - name: Validate and bind reviewer response
@@ -175,6 +180,105 @@ jobs:
           PY
           gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/review-result-comment.md"
           echo "state=$NEW_STATE" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve trusted task and repair bound
+        if: steps.state.outputs.risk_class != 'HIGH' && steps.publish.outputs.state != 'BLOCKED'
+        id: task
+        shell: bash
+        env:
+          TASK_ID: ${{ steps.state.outputs.task_id }}
+          REVIEW_ROUND: ${{ steps.state.outputs.review_round }}
+        run: |
+          set -euo pipefail
+          : > "$RUNNER_TEMP/task-matches.txt"
+          while IFS= read -r path; do
+            if [ "$(jq -r '.id // empty' "$path")" = "$TASK_ID" ]; then
+              echo "$path" >> "$RUNNER_TEMP/task-matches.txt"
+            fi
+          done < <(find tasks -maxdepth 1 -type f -name '*.json' | sort)
+
+          COUNT=$(wc -l < "$RUNNER_TEMP/task-matches.txt")
+          if [ "$COUNT" -ne 1 ]; then
+            echo "Expected exactly one trusted task for id=$TASK_ID; found $COUNT"
+            cat "$RUNNER_TEMP/task-matches.txt"
+            exit 1
+          fi
+          TASK_PATH=$(cat "$RUNNER_TEMP/task-matches.txt")
+          MAX_REPAIRS=$(jq -r '.maxRepairAttempts // 0' "$TASK_PATH")
+          [[ "$MAX_REPAIRS" =~ ^[0-9]+$ ]]
+          [[ "$REVIEW_ROUND" =~ ^[1-9][0-9]*$ ]]
+          echo "task_path=$TASK_PATH" >> "$GITHUB_OUTPUT"
+          echo "max_repairs=$MAX_REPAIRS" >> "$GITHUB_OUTPUT"
+
+      - name: Continue approved LOW/MEDIUM candidate to trusted validation
+        if: steps.state.outputs.risk_class != 'HIGH' && steps.publish.outputs.state == 'APPROVED_EXTERNAL_REVIEW'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          CANDIDATE_SHA: ${{ steps.state.outputs.candidate_sha }}
+          BRANCH: ${{ steps.state.outputs.branch }}
+          TASK_PATH: ${{ steps.task.outputs.task_path }}
+          REVIEW_ROUND: ${{ steps.state.outputs.review_round }}
+        run: |
+          set -euo pipefail
+          ATTEMPT=$((REVIEW_ROUND - 1))
+          jq -n \
+            --argjson pr "$PR_NUMBER" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg branch "$BRANCH" \
+            --arg task_path "$TASK_PATH" \
+            --argjson attempt "$ATTEMPT" \
+            '{event_type:"candidate-validation",client_payload:{pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,attempt:$attempt}}' \
+            > "$RUNNER_TEMP/approved-dispatch.json"
+          cat "$RUNNER_TEMP/approved-dispatch.json"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/approved-dispatch.json"
+          gh pr comment "$PR_NUMBER" --body "External review is **APPROVED**. Dispatched trusted Candidate Validation for candidate \`${CANDIDATE_SHA}\` at repair attempt ${ATTEMPT}."
+
+      - name: Dispatch bounded DeepSeek repair after LOW/MEDIUM changes required
+        if: steps.state.outputs.risk_class != 'HIGH' && steps.publish.outputs.state == 'REVIEW_CHANGES_REQUIRED'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          CANDIDATE_SHA: ${{ steps.state.outputs.candidate_sha }}
+          BRANCH: ${{ steps.state.outputs.branch }}
+          TASK_PATH: ${{ steps.task.outputs.task_path }}
+          REVIEW_TYPE: ${{ steps.state.outputs.review_type }}
+          RISK_CLASS: ${{ steps.state.outputs.risk_class }}
+          REVIEWER_SLOT: ${{ steps.state.outputs.reviewer_slot }}
+          REVIEW_ROUND: ${{ steps.state.outputs.review_round }}
+          MAX_REPAIRS: ${{ steps.task.outputs.max_repairs }}
+        run: |
+          set -euo pipefail
+          REPAIR_ATTEMPT="$REVIEW_ROUND"
+          if [ "$REPAIR_ATTEMPT" -gt "$MAX_REPAIRS" ]; then
+            echo "External review requested repair $REPAIR_ATTEMPT but maxRepairAttempts=$MAX_REPAIRS"
+            cat > "$RUNNER_TEMP/repair-blocked.md" <<EOF
+          ### External review repair limit
+
+          State: **BLOCKED**
+
+          Requested repair attempt **${REPAIR_ATTEMPT}** exceeds trusted task limit **${MAX_REPAIRS}**. No repair was dispatched.
+          EOF
+            gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/repair-blocked.md"
+            exit 0
+          fi
+
+          jq -n \
+            --argjson pr "$PR_NUMBER" \
+            --arg candidate_sha "$CANDIDATE_SHA" \
+            --arg branch "$BRANCH" \
+            --arg task_path "$TASK_PATH" \
+            --arg review_type "$REVIEW_TYPE" \
+            --arg risk_class "$RISK_CLASS" \
+            --arg reviewer_slot "$REVIEWER_SLOT" \
+            --argjson attempt "$REPAIR_ATTEMPT" \
+            '{event_type:"candidate-repair",client_payload:{review_source:"external-review",pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,validation_run_id:0,attempt:$attempt,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot}}' \
+            > "$RUNNER_TEMP/repair-dispatch.json"
+          cat "$RUNNER_TEMP/repair-dispatch.json"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/repair-dispatch.json"
+          gh pr comment "$PR_NUMBER" --body "External review requires changes. Dispatched bounded DeepSeek repair attempt **${REPAIR_ATTEMPT}/${MAX_REPAIRS}** on the same candidate PR."
 
       - name: Resolve HIGH-risk dual-review aggregate
         if: steps.state.outputs.risk_class == 'HIGH'
