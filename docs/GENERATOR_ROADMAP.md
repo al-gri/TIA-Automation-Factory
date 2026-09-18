@@ -11,8 +11,8 @@ The roadmap deliberately prioritizes the real PLC/Open-Library vertical slice be
 A production milestone is reached when an engineer can model a multi-unit automation project, generate it deterministically, and obtain a saved TIA Portal V21 project that:
 
 - uses pinned Siemens Open Library objects and dependencies;
-- is organized hierarchically into reusable/unit FBs;
-- uses multi-instance device memory where appropriate;
+- is organized hierarchically into subsystem/unit application FBs;
+- uses multi-instance device memory inside bounded unit instance DBs;
 - has explicit HMI/Error structures;
 - has deterministic mode/simulation propagation;
 - compiles with zero errors;
@@ -55,12 +55,13 @@ Purpose: remove smoke-test shortcuts before real FB generation while preserving 
 
 ## PLC-001 — TIME scalar support
 
-Status: **IN REVIEW / TIA VALIDATION** at time of proposal.
+Status at current architecture proposal: **trusted TIA V21 PASS; candidate PR #16 remains a human merge decision**.
 
-Outcome:
+Outcome proven by candidate validation:
 
-- `Time` exists in the vendor-neutral scalar vocabulary;
-- Valve configuration UDT generation is proven through TIA V21.
+- `Time` exists in the proposed vendor-neutral scalar vocabulary change;
+- ValveConfig UDT generation passed deterministic Linux checks;
+- the exact generated `UDT_ValveConfig.scl` compiled in TIA Portal V21 with 0 errors / 0 warnings.
 
 Acceptance remains defined by `tasks/PLC-001.json`.
 
@@ -71,6 +72,7 @@ Risk: **HIGH**
 Scope:
 
 - review `docs/TARGET_ARCHITECTURE.md`;
+- review `docs/OPEN_LIBRARY_INTEGRATION_RULES.md`;
 - review `docs/ENGINEERING_RULES.md`;
 - review this roadmap;
 - independent ChatGPT + Gemini review;
@@ -81,6 +83,7 @@ Acceptance:
 - architecture boundaries are explicit;
 - Open Library rules are reflected correctly;
 - modular TIA project strategy is accepted;
+- subsystem/unit memory boundaries scale without one giant root instance DB;
 - first vertical slice and non-goals are agreed;
 - no production code changes hidden in the architecture PR.
 
@@ -99,7 +102,7 @@ Small scope:
 
 Acceptance:
 
-- PlcCompiler IR has no direct need to expose Domain enum as the backend contract;
+- PlcCompiler IR no longer exposes Domain enum as the Siemens backend's type contract;
 - existing examples generate byte-for-byte or semantically equivalent SCL;
 - TIA V21 regression remains green for the task artifact.
 
@@ -213,6 +216,7 @@ Acceptance:
 - exact parameter names/directions/types match inspected V21 library version;
 - named HMI/Error UDTs represented only in Siemens layer;
 - required/default mappings explicit;
+- memory-model metadata can represent documented exceptions without compiler special cases;
 - no arbitrary reflection/string lookup spread through compiler code;
 - descriptor validation test catches a missing/duplicate binding.
 
@@ -235,7 +239,9 @@ Generated structure target:
 ```text
 FB_WaterSystem
   VAR_STATIC
-    V101 : fbValve_Solenoid   # multi-instance
+    V101 : fbValve_Solenoid   # device multi-instance
+
+DB_WaterSystem                # one instance DB for FB_WaterSystem
 
 DB_HMI_WaterSystem
   V101 : udtHMI_ValveControl
@@ -243,19 +249,21 @@ DB_HMI_WaterSystem
 DB_Errors_WaterSystem
   V101 : udtError_Valve
 
-FB_GeneratedRoot / OB entry
+OB_Main / optional stateless FC_GeneratedRoot
+  calls DB_WaterSystem
 ```
 
 Acceptance:
 
-- valve is called as a multi-instance;
+- valve is called as a multi-instance inside `FB_WaterSystem`;
+- `FB_WaterSystem` has a bounded subsystem instance DB rather than being recursively folded into one plant-wide root DB;
 - all required parameters are bound explicitly;
 - mode uses documented Open Library constants/semantics;
 - simulation is passed from system context;
 - no reads of internal instance memory;
 - PLC logic does not use `iStatus` or `iErrorCode` as control state;
 - exact generated artifact compiles in TIA V21 with zero errors;
-- final saved project contains the expected library objects/UDTs/application blocks;
+- final saved project contains the expected library objects/UDTs/application blocks/DBs;
 - diagnostics can identify V101 if generation/TIA fails.
 
 **Gate:** do not start broad React Flow UI before GEN-001 is green.
@@ -264,19 +272,21 @@ Acceptance:
 
 # Phase 4 — Modular plant/project structure
 
-Purpose: prove scale by hierarchy, not by duplicating code.
+Purpose: prove scale by hierarchy, bounded memory ownership and deterministic partitioning.
 
-## GEN-002 — Units/areas and root multi-instance composition
+## GEN-002 — Multiple units/areas with bounded unit instance DBs
 
 Risk: **MEDIUM/HIGH**
 
-Goal: model at least two units and generate a root application hierarchy.
+Goal: model at least two units and generate an application hierarchy without a single recursively nested plant-wide instance DB.
 
 Acceptance:
 
 - OB remains minimal;
-- root FB contains unit FB multi-instances;
-- unit FBs contain device multi-instances;
+- orchestration is direct or through a stateless/small generated root FC;
+- each unit/application FB has its own instance DB;
+- each unit FB contains ordinary Open Library device FBs as multi-instances;
+- identical reusable unit FB types may have multiple separate instance DBs;
 - stable deterministic names;
 - regeneration does not create duplicate generated objects;
 - TIA project compiles with zero errors.
@@ -289,7 +299,7 @@ Goal: formalize unit-level HMI/Error data layout and deterministic field naming.
 
 Acceptance:
 
-- one structured HMI/Error DB per unit or accepted grouping policy;
+- one structured HMI/Error DB per unit or accepted bounded grouping policy;
 - Open Library UDT versions pinned;
 - no instance-memory aliases;
 - deterministic regeneration tests.
@@ -417,6 +427,7 @@ Acceptance:
 
 - same project input can be regenerated without duplicate generated objects;
 - generated/manual groups are respected;
+- unit/application memory remains partitioned according to target/profile limits;
 - full PLC compile zero errors;
 - project saved as deliverable `.ap21`/TIA project directory;
 - deterministic manifest records generator/library/target versions.
@@ -504,7 +515,7 @@ This is the most important near-term milestone.
 
 ## M4 — Modular multi-unit generator
 
-Done when GEN-002/003/004 support hierarchical project structure, grouped HMI/Error data and traceable diagnostics.
+Done when GEN-002/003/004 support hierarchical project structure, bounded unit instance DBs, grouped HMI/Error data and traceable diagnostics.
 
 ## M5 — Visual logic compiler
 
