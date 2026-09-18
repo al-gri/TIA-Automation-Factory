@@ -1,6 +1,6 @@
 # AI Collaboration Model
 
-Status: accepted design decision for Phase 2, to be implemented after I6 freezes the current infrastructure baseline.
+Status: accepted and active Phase 2 design. I6 baseline is frozen; external-review protocol implementation is in progress under issue #7.
 
 ## Goal
 
@@ -91,6 +91,8 @@ If their conclusions conflict, the task enters `REVIEW_CONFLICT`; it must not be
 
 ## External Review Protocol
 
+The normative protocol is versioned in `docs/EXTERNAL_REVIEW_PROTOCOL.md`.
+
 Every external review request must be self-contained so it can be pasted into a brand-new chat with zero previous context.
 
 A review package must contain:
@@ -111,42 +113,9 @@ The package must avoid dumping the entire repository or a long agent conversatio
 
 ## Reviewer response contract
 
-External reviewers should return a structure equivalent to:
+External reviewer responses are validated against `reviews/schemas/external-review-response.schema.json` and bound to the expected task, candidate SHA, review type, and round by trusted automation.
 
-```text
-REVIEW_STATUS: APPROVE | CHANGES_REQUIRED | BLOCKED
-
-SUMMARY:
-...
-
-REQUIREMENTS:
-- R1: PASS|FAIL - explanation
-
-ARCHITECTURE:
-PASS|FAIL
-...
-
-CODE_QUALITY:
-PASS|FAIL
-...
-
-TESTS:
-PASS|FAIL
-...
-
-FINDINGS:
-- ID: F001
-  SEVERITY: critical|major|minor
-  FILE: path
-  LOCATION: symbol/line if known
-  PROBLEM: ...
-  REQUIRED_CHANGE: ...
-
-RECOMMENDATION:
-...
-```
-
-The automation may continue only from an explicit recognized status.
+The recognized outcomes are:
 
 - `APPROVE` -> next deterministic gate.
 - `CHANGES_REQUIRED` -> bounded repair on the same candidate.
@@ -155,14 +124,16 @@ The automation may continue only from an explicit recognized status.
 
 ## Target states
 
-The post-I6 supervisor should support at least:
+The Phase 2 supervisor should support at least:
 
 ```text
 READY
 AGENT_RUNNING
 TESTING
+WAITING_FOR_EXTERNAL_REVIEW
 WAITING_FOR_CODE_REVIEW
 WAITING_FOR_ARCH_REVIEW
+APPROVED_EXTERNAL_REVIEW
 REVIEW_CHANGES_REQUIRED
 REVIEW_CONFLICT
 REPAIRING
@@ -176,7 +147,7 @@ No unbounded retry loop is allowed. Existing task-level `maxRepairAttempts` rema
 
 ## Cost and provider strategy
 
-The first Phase 2 implementation should remain intentionally simple:
+The first Phase 2 implementation remains intentionally simple:
 
 - DeepSeek API as the primary paid autonomous coder with hard budget/turn limits;
 - ChatGPT and Gemini used manually as external reviewers through their chat products;
@@ -200,13 +171,12 @@ This operating model does not change the trusted TIA boundary:
 
 ## Implementation order
 
-1. Complete I6 using the current proven production path.
-2. Freeze the current infrastructure baseline.
-3. Implement versioned external-review templates and review states.
+1. I6 baseline completed and frozen.
+2. Versioned external-review protocol, templates, response schema, trusted renderer/validator, and CI tests added.
+3. Add explicit GitHub external-review state transitions and automatic self-contained package generation from task + diff + evidence.
 4. Add DeepSeek API as the primary coding provider with hard budgets and provider audit.
-5. Generate self-contained review packages automatically from task + diff + evidence.
-6. Resume bounded repairs from pasted external review results.
-7. Measure real cost/throughput for several days.
-8. Add LiteLLM/provider pooling only if actual measurements justify the complexity.
+5. Resume bounded repairs from pasted external review results.
+6. Measure real cost/throughput for several days.
+7. Add LiteLLM/provider pooling only if actual measurements justify the complexity.
 
 Tracking issue: #7.
