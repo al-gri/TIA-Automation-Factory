@@ -58,27 +58,41 @@ The compiler must make PLC scan behavior explicit.
 
 A stateful FB with current-input feed-through must retain those current-input dependencies in the same-scan graph.
 
-### 4.2 Same-controller scheduling
+### 4.2 Same-controller semantic scheduling
 
 - build one controller-level graph containing all `SameScan` dependencies;
-- area/unit ownership boundaries do not cut scheduling dependencies;
+- area/unit ownership boundaries do not erase semantic dependencies;
 - SCC analysis is mandatory on the controller-level same-scan graph;
 - SCCs with more than one node and self-loops are compilation errors unless the cycle is actually cut by `PreviousState`;
-- after previous-state dependencies are excluded, the controller same-scan graph must be a DAG;
-- executable statements and unit/application invocations are emitted from a **stable topological sort**;
-- scheduling ties use deterministic semantic IDs/order, never UI position, unit declaration order or accidental JSON order;
-- same-scan propagation means a downstream consumer observes the value produced earlier in that deterministic schedule;
-- same-controller cross-unit dependencies determine orchestration call order; a cycle across units is rejected unless explicitly delayed.
+- after previous-state dependencies are excluded, the controller semantic graph must be a DAG;
+- scheduling ties use deterministic semantic IDs/order, never UI position or accidental JSON order;
+- same-scan propagation means a downstream consumer observes the value produced earlier in the deterministic schedule.
 
-Equivalent semantic models with different layout, input order or unit declaration order must produce equivalent schedules.
+### 4.3 Atomic executable-container scheduling
 
-### 4.3 Cross-controller semantics
+The initial modular architecture emits each unit/application FB as one atomic once-per-scan invocation.
+
+Therefore:
+
+- map semantic nodes to generated executable containers after semantic dependency validation;
+- derive a quotient/container graph where `UnitA -> UnitB` means a `SameScan` value produced in `UnitA` is required by `UnitB`;
+- the container graph must be a DAG independently of the finer semantic-node DAG;
+- reject a container-level cycle even when the underlying node graph is acyclic, because `UnitA(part) -> UnitB -> UnitA(part)` cannot be realized by one atomic call per unit;
+- emit unit/application FB invocations from a stable topological order of the container graph;
+- schedule internal statements deterministically inside each container;
+- cross-unit data passes through explicit unit/application interfaces or orchestration signals, never another unit's private multi-instance memory;
+- area grouping is organizational unless an area is itself emitted as an atomic callable container; if so, the same quotient-DAG rule applies;
+- multi-phase/split-unit execution is not inferred as an automatic repair and requires a separate HIGH-risk design.
+
+Equivalent semantic models with different layout, input order or unit declaration order must produce equivalent semantic and container schedules.
+
+### 4.4 Cross-controller semantics
 
 Ordinary runtime connections do not have same-scan semantics across controllers.
 
 A cross-controller dependency requires an explicit communication primitive/profile defining transport, buffering, stale/error behavior and update latency. Until such a primitive exists, ordinary cross-controller runtime connections are compilation errors.
 
-PLC semantic changes are HIGH risk when they establish/change scheduling, state behavior or communication latency.
+PLC semantic changes are HIGH risk when they establish/change scheduling, state behavior, execution-container boundaries or communication latency.
 
 ## 5. Open Library version rules
 
@@ -134,7 +148,7 @@ Unchanged canonical project + generator version + target profile + qualified lib
 - naming is centralized/tested;
 - layout changes cannot alter PLC output;
 - explicit ordering for maps/collections;
-- unit/area declaration order cannot change scan semantics;
+- unit/area declaration order cannot change scan semantics or generated invocation order;
 - manifests record generator/library/target identities;
 - regeneration must not duplicate generated TIA objects.
 
@@ -172,12 +186,13 @@ The generator may consume an already-engineered E-stop/safety status as a normal
 1. Domain/compiler unit tests;
 2. schema/type/graph validation;
 3. temporal-dependency tests for edge/timer/latch/reset/feedback primitives;
-4. controller-global SCC/topological scheduler tests, including cross-unit ordering and cycles;
-5. PLC IR golden tests;
-6. Siemens SCL AST/emitter golden tests;
-7. GeneratorCli/package tests on Linux;
-8. exact candidate artifact/package in real TIA V21;
-9. later HMI/reference-project tests when applicable.
+4. controller-level SCC/DAG tests;
+5. executable-container quotient-DAG tests, including an acyclic semantic graph that would require `UnitA(part) -> UnitB -> UnitA(part)` and therefore must be rejected;
+6. PLC IR golden tests;
+7. Siemens SCL AST/emitter golden tests;
+8. GeneratorCli/package tests on Linux;
+9. exact candidate artifact/package in real TIA V21;
+10. later HMI/reference-project tests when applicable.
 
 Use the cheapest authoritative layer, but never omit real TIA acceptance for changed Siemens behavior.
 
@@ -185,7 +200,7 @@ Use the cheapest authoritative layer, but never omit real TIA acceptance for cha
 
 - LOW: isolated scalar/format/data mapping with established semantics.
 - MEDIUM: internal type/AST representation preserving established behavior.
-- HIGH: canonical schema, scan semantics, Open Library qualification/materialization, target preflight, TIA trust boundary, safety scope, cross-controller communication semantics, major architecture.
+- HIGH: canonical schema, scan semantics, executable-container scheduling, Open Library qualification/materialization, target preflight, TIA trust boundary, safety scope, cross-controller communication semantics, major architecture.
 
 HIGH-risk work requires independent ChatGPT and Gemini review of the same exact candidate SHA. Reviewer conflict blocks acceptance.
 
