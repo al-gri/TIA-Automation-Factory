@@ -14,7 +14,6 @@ The bundle includes trusted versions of:
 - `docs/PROJECT_STATE.md`;
 - `docs/ENGINEERING_RULES.md`;
 - `docs/AI_COLLABORATION_MODEL.md`;
-- this document;
 - the bounded work prompt already assembled by the trusted workflow.
 
 The work prompt contains the current versioned task or GitHub issue. Repair prompts also contain the trusted task, current diff and bounded review/validation evidence.
