@@ -60,5 +60,21 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - Run one clean Git-task smoke from current `main` with no intentional fault injection and no manual source-code intervention.
 - After I6, mark infrastructure setup complete and freeze infrastructure changes unless they block generator development.
 
+## 2026-09-18
+
+### DONE
+- Accepted the Phase 2 hybrid AI operating model: DeepSeek API as primary autonomous implementer, ChatGPT as Senior Architect / primary external reviewer, and Gemini as independent verification/red-team reviewer.
+- Accepted risk-based external review: one reviewer for low-risk changes, ChatGPT-led review for medium risk, and independent ChatGPT + Gemini review for high-risk/architecture/PLC-semantic/security changes.
+- Accepted self-contained review packages designed for brand-new reviewer chats with zero prior context; GitHub remains the source of truth and transfer mechanism.
+- Accepted explicit review states `APPROVE`, `CHANGES_REQUIRED`, `BLOCKED`, plus `REVIEW_CONFLICT` for disagreement between independent reviewers.
+- Documented the operating model in `docs/AI_COLLABORATION_MODEL.md` and opened tracking issue #7 for implementation after I6.
+
+### CURRENT
+- Finish I6 on the existing baseline; do not mix the new provider/review architecture into the final baseline proof.
+
+### NEXT
+- Freeze the I6 baseline, then implement issue #7 in small trusted steps: external-review protocol/templates first, DeepSeek primary coder second, cost/usage telemetry third.
+- Keep LiteLLM/multi-provider routing deferred until measured usage shows it is necessary.
+
 ## Logging rule
 After every meaningful infrastructure change, append one short bullet under DONE/CURRENT/NEXT. Do not turn this file into design documentation; design belongs in `docs/INFRASTRUCTURE_PLAN.md`.
