@@ -1,0 +1,40 @@
+artifactType: governance-bootstrap-review-v1
+repository: al-gri/TIA-Automation-Factory
+issue: 31
+task: GOV-BOOT-001
+purpose: review-attestation
+reviewRequestId: GOV-BOOT-001-PR32-DDAE98F-CHATGPT2-4
+reviewerSlot: chatgpt-secondary
+candidateSha: ddae98f17c04f323fa4e54c3ab872c1dfcc63647
+reviewRound: 4
+reviewJsonSha256: bc418d276a3256a253f86d59bcaeef142f5d096949a178d572d256c27aaed4ea
+reviewJson:
+{
+  "protocolVersion": "1.0",
+  "reviewRequestId": "GOV-BOOT-001-PR32-DDAE98F-CHATGPT2-4",
+  "reviewerSlot": "chatgpt-secondary",
+  "taskId": "GOV-BOOT-001",
+  "candidateSha": "ddae98f17c04f323fa4e54c3ab872c1dfcc63647",
+  "reviewType": "CODE_REVIEW",
+  "reviewRound": 4,
+  "reviewStatus": "APPROVE",
+  "summary": "Independent live-GitHub review of exact PR #32 head ddae98f17c04f323fa4e54c3ab872c1dfcc63647 found the candidate within the frozen nine-file governance scope, with exact-SHA CI PASS, valid current SSH-signed human scope provenance, and no unauthorized Windows/TIA execution. F001-F005 remain repaired, F006 is resolved by invocation-generic attestation schemas bound to the current repository/frozen issue/task identity, and F007 is resolved by stage-specific fail-closed semantics. No new critical or major trust-boundary, recursion, stale-state, ambiguity, repair-budget, or governance defect was found.",
+  "requirements": {
+    "status": "PASS",
+    "notes": "Live PR #32 still has exact head ddae98f17c04f323fa4e54c3ab872c1dfcc63647 and expected base 0260117391abf5f0a8375699dca12caa06bafb8b. The complete PR diff contains exactly AGENTS.md plus the eight authorized docs files and no .github/**, agents/**, tasks/**, product/generator source, TIA-worker source, runner configuration, secrets, vendor payloads, or IndustrialMDE. Live issue #31 contains the required task/risk/reviewer/Windows/repository/scope/provenance/repair-budget contract and the bounded one-extra-repair authorization. Independently hashing its exact UTF-8 body produced f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b. Exact scope commit 233abd7d55bf0c9f83e4b16da65bf5c73304a602 is GitHub-verified valid, uses an SSH signature, resolves both author and committer to al-gri, changes only attestations/GOV-BOOT-001-scope.txt, and replaces only the prior issue-body hash with the current hash. Historical commit 4ac2b16c2b1ea81d225779ece58df3131fb18fd6 binds c037d2a568644813cbeaa0c626761c845c2ca046c8a6d7ba557573491ae49099 and is therefore stale. The human-attestation branch currently points to the exact fresh signed commit and remains separate from the PR diff. The permanent default remains two candidate-changing repairs after the first reviewed candidate; the current round is the specifically authorized one additional F006/F007 repair, and any further candidate change requires another fresh explicit human decision."
+  },
+  "architecture": {
+    "status": "PASS",
+    "notes": "F001-F005 remain fully resolved: bootstrap eligibility is semantic rather than path based; candidate self-authorization is forbidden; task-backed automation remains task-only and fail-closed; comments, owner attribution, performed_via_github_app metadata, unsigned API commits, and GitHub web-flow signatures are insufficient authority; and authority-bearing APPROVE requires provenance separate from the primary through a human SSH-signed review-attestation commit. F006 is resolved: both scope and review attestation schemas use generic repository/issue/task fields, verifier semantics require exact equality to the target repository and current frozen issue/task identity, a future invocation can use a different issue/task without editing normative policy, and unrelated historical bootstrap issues are explicitly non-reusable. F007 is resolved: before review, review-attestation is explicitly not yet applicable; CHANGES_REQUIRED grants no authority and requires no signed review attestation; BLOCKED remains blocked; after APPROVE the candidate freezes while signature evidence is pending; pending evidence does not retroactively prevent review; and missing/invalid/stale/mismatched evidence fails closed when APPROVE is consumed as authority or merge is evaluated. No contradictory unconditional rule recreates the sequencing deadlock."
+  },
+  "codeQuality": {
+    "status": "PASS",
+    "notes": "All nine changed governance/methodology/state surfaces were inspected. The normative bootstrap document clearly separates permanent schema rules from current-instance examples, defines verifier equality and trust-root boundaries explicitly, preserves exact-SHA and reviewer-independence invariants, and states the repair-budget and merge gates consistently. Supporting AGENTS, collaboration, methodology, external-review, infrastructure, journal, handoff, and project-state changes align with the same model without widening candidate authority."
+  },
+  "tests": {
+    "status": "PASS",
+    "notes": "Exact candidate ddae98f17c04f323fa4e54c3ab872c1dfcc63647 has exactly one GitHub Actions run: CI run #249, ID 35401929267, pull_request event, conclusion success, with base 0260117391abf5f0a8375699dca12caa06bafb8b and matching head SHA. Its sole job is build-test-generate on ubuntu-latest. Validate trusted agent runtime scripts, Test coding-agent context bundle, Test external review protocol, Test Siemens backend, Generate first Siemens artifact, Show generated SCL, and artifact upload all completed successfully. No Windows/TIA candidate workflow or job ran."
+  },
+  "findings": [],
+  "recommendation": "APPROVE exact candidate ddae98f17c04f323fa4e54c3ab872c1dfcc63647. This JSON is not merge authority by itself. The human operator must place this exact returned JSON into the separate SSH-signed review-attestation commit required by the bootstrap policy. Before delegated merge, primary must verify that signed commit's exact JSON hash/request identity/candidate SHA/round and positive SSH provenance, re-confirm the PR head and exact-SHA CI remain current, and ensure no critical/major, BLOCKED, REVIEW_CONFLICT, scope change, unauthorized Windows/TIA execution, or other stale gate has appeared. Any candidate change invalidates this review and, because the specifically authorized extra repair has been consumed, requires another fresh explicit human decision before repair."
+}
