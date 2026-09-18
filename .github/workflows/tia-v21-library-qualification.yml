@@ -14,13 +14,55 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorize-trigger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      EVENT_NAME: ${{ github.event_name }}
+      EVENT_REF: ${{ github.ref }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      COMMENT_BODY: ${{ github.event.comment.body }}
+      COMMENT_LOGIN: ${{ github.event.comment.user.login }}
+      REPOSITORY_OWNER: ${{ github.repository_owner }}
+    steps:
+      - name: Authorize trusted qualification trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            [[ "$EVENT_REF" == "refs/heads/main" ]] || {
+              echo "Qualification dispatch is allowed only from main." >&2
+              exit 1
+            }
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            [[ "$EVENT_REF" == "refs/heads/main" ]] || {
+              echo "Issue-comment qualification trigger is allowed only on the default main ref." >&2
+              exit 1
+            }
+            [[ "$ISSUE_NUMBER" == "19" ]] || {
+              echo "Qualification issue mismatch." >&2
+              exit 1
+            }
+            [[ "$COMMENT_BODY" == "/run-olq-001" ]] || {
+              echo "Comment is not the qualification command." >&2
+              exit 1
+            }
+            [[ "$COMMENT_LOGIN" == "$REPOSITORY_OWNER" ]] || {
+              echo "Qualification command is not authorized for this actor." >&2
+              exit 1
+            }
+            exit 0
+          fi
+
+          echo "Unsupported qualification trigger." >&2
+          exit 1
+
   qualify-library:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'issue_comment' &&
-       github.event.issue.number == 19 &&
-       github.event.comment.body == '/run-olq-001' &&
-       github.event.comment.user.login == github.repository_owner)
+    needs: authorize-trigger
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Windows, X64, tia-v21]
     timeout-minutes: 45
 
