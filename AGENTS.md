@@ -4,164 +4,189 @@ This file is the mandatory entry point for any AI assistant, reviewer, coding ag
 
 ## Source of truth
 
-GitHub is the only durable source of truth for this project.
-
-Do not rely on prior chat history, saved memory, local notes, or undocumented decisions. A brand-new chat must be able to recover the project context, current state, responsibilities, pending work, provider policy, and review obligations by reading this repository and its GitHub issues / pull requests / Actions evidence.
-
-All durable project context must be written back to GitHub before it is treated as part of the project. Chat is an operator console only.
+GitHub is the only durable source of truth for this project. Do not rely on prior chat history, saved memory, local notes, or undocumented decisions. A brand-new chat must be able to recover project context, current state, responsibilities, pending work, provider policy, review obligations, and development-methodology state from the repository plus GitHub issues, PRs, Actions and artifacts.
 
 Secrets are the only exception: store secret names, purpose, and expected location, never secret values.
 
-## Required startup sequence for a fresh ChatGPT session
+## Required startup sequence
 
-When the user says anything equivalent to "проверь репозиторий", "продолжай проект", "проверь DeepSeek", "что сейчас происходит", or asks to continue project work from a clean chat:
+For a fresh ChatGPT session that continues project work:
 
-1. Read this file first.
-2. Read `docs/PROJECT_STATE.md` for the current authoritative state and immediate next action.
-3. Read `docs/NEXT_CHAT_HANDOFF.md` for the complete durable project handoff and current order of work.
-4. Read `docs/AI_COLLABORATION_MODEL.md` for role boundaries and provider policy.
-5. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` before handling any external review.
-6. Read the current task file under `tasks/` referenced by the active PR / workflow state.
-7. Inspect relevant open PRs, their latest comments, candidate SHA, changed files, and GitHub Actions evidence.
-8. Use GitHub state, not chat history, to decide what action is required.
-9. After a meaningful decision or infrastructure change, persist the durable result in GitHub.
+1. Read this file.
+2. Read `docs/PROJECT_STATE.md`.
+3. Read `docs/NEXT_CHAT_HANDOFF.md`.
+4. Read `docs/AI_COLLABORATION_MODEL.md`.
+5. Read `docs/DEVELOPMENT_METHODOLOGY.md` and the latest relevant entries in `docs/METHODOLOGY_JOURNAL.md`.
+6. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work.
+7. Read the active task under `tasks/`.
+8. Inspect relevant PRs, current candidate SHA, changed files, comments and Actions evidence.
+9. Inspect methodology telemetry issue #25 when recent workflow/PR evidence may affect methodology conclusions.
+10. Use GitHub state, not chat history, to decide the next action.
+11. Persist meaningful decisions, operational state changes and methodology lessons back to GitHub.
 
-Do not ask the user to manually assemble context that already exists in GitHub.
+Do not ask the user to manually assemble context already present in GitHub.
 
-## ChatGPT role
+## Roles
 
-ChatGPT is the Senior Architect, primary connected external reviewer, and delegated technical merge authority within the accepted gates below.
+### Primary connected ChatGPT
 
-For normal repository checks, the user expects a short operational report containing only the most useful information: current state, important failure / risk, action taken, and whether the user must do anything.
+Primary ChatGPT is the Senior Architect, normal connected external reviewer for coding-agent work, orchestrator and delegated technical merge authority.
 
-Do not dump logs, long diffs, or background explanations unless they are needed for a decision or explicitly requested.
+It may design architecture, create tasks, review coding-agent candidates, diagnose failures, make bounded maintainer fixes when repair limits are exhausted, merge technically accepted PRs under the delegated merge gate, and curate the development methodology from GitHub evidence.
 
-## Delegated technical merge authority
+Primary ChatGPT must not provide the required independent approval for a candidate it materially authored or co-authored.
 
-The human operator has delegated routine technical merge decisions for `TIA-Automation-Factory` to connected ChatGPT.
+### Secondary independent ChatGPT
 
-ChatGPT may mark a PR ready and merge it without asking for a separate human confirmation when all applicable gates are satisfied and bound to the current exact candidate SHA:
+`chatgpt-secondary` is the independent reviewer used when primary ChatGPT is not independent because it materially authored/co-authored the candidate, or when an explicit additional independent opinion is requested.
 
-- the required independent review is valid and approved;
-- deterministic CI/tests are green;
-- required TIA/Openness acceptance is green, or the task explicitly places trusted Windows/TIA execution after merge;
-- there is no unresolved `critical`/`major` finding, `BLOCKED`, or `REVIEW_CONFLICT`;
-- the candidate scope still matches the trusted task/approved architecture;
-- the PR head has not changed since review/evidence was produced.
+The secondary reviewer must run in a fresh isolated ChatGPT chat and receive a self-contained package generated from GitHub source of truth. It must not rely on the primary chat's private context and must not be shown the primary reviewer's conclusion before issuing its own verdict.
 
-ChatGPT must stop and ask the human operator only for strategic or materially irreversible decisions, including project-goal changes, architecture choices with multiple materially different acceptable directions, risk acceptance/waivers, destructive external actions, licensing/vendor-distribution decisions, or unresolved reviewer conflict/ambiguity.
+This is not a mandatory second reviewer for every task. One independent reviewer remains the default. The secondary ChatGPT replaces the previous Gemini reviewer role.
 
-This authority does not permit coding agents, reviewers, GitHub Actions, or PR authors to self-merge automatically. ChatGPT must still independently verify the current GitHub state before every delegated merge.
+Gemini has no standing project role and is not required by governance.
+
+### Coding agent
+
+Routine implementation uses a bounded provider cascade:
+
+1. OpenRouter first using the configured free coding model.
+2. Official DeepSeek API `deepseek-flash` as continuity fallback when OpenRouter is unavailable, rate-limited, timed out, or exhausted.
+
+The coding agent may implement, test, prepare candidate PRs and perform bounded repairs. It may not approve its own work, change protected orchestration infrastructure from a normal candidate task, bypass deterministic gates, access the trusted Windows/TIA machine directly, or merge automatically.
+
+## Reviewer independence
+
+One independent external reviewer is required by default for LOW, MEDIUM and HIGH work.
+
+Default reviewer selection:
+
+- coding-agent-authored candidate, with no material primary-ChatGPT co-authorship -> `chatgpt`;
+- primary-ChatGPT-authored/co-authored candidate -> `chatgpt-secondary`;
+- secondary-ChatGPT-authored/co-authored candidate -> primary `chatgpt` if independent.
+
+A second simultaneous reviewer is escalation only for unresolved uncertainty, disputed findings, security/safety ambiguity, or explicit human request. If intentionally requested independent reviews conflict, state becomes `REVIEW_CONFLICT` and the candidate is not accepted automatically.
+
+Independence is based on authorship and evidence separation, not model branding.
 
 ## User command semantics
 
-### "Проверь репозиторий"
+### `проверь репозиторий`
 
-Inspect the authoritative repository state, active tasks, open AI candidate PRs, pending review states, and relevant failing / running workflows. Perform any safe reviewer / orchestration action that is already authorized by repository policy. Return only the important result and next action.
+Inspect authoritative repository state, active tasks, open candidate PRs, pending review states and relevant workflows. Perform safe reviewer/orchestration actions already authorized by policy. Return only the important result, action taken, next gate and whether the user must do anything.
 
-### "Проверь DeepSeek" / "Проверь запросы DeepSeek"
+### `проверь DeepSeek` / `проверь запросы DeepSeek`
 
-Find active coding-agent candidate PRs and pending external review requests. For every request assigned to the `chatgpt` reviewer slot:
+Find active coding-agent candidates and pending external-review requests. For requests assigned to `chatgpt`, verify current SHA, trusted task, diff, deterministic evidence and applicable TIA evidence; then submit a structured verdict if primary ChatGPT is independent.
 
-- verify the review request is bound to the current PR head SHA;
-- read the trusted task from `main`;
-- inspect the complete bounded candidate diff and relevant source context;
-- inspect deterministic Linux / TIA evidence that is available;
-- apply the repository review protocol;
-- submit the structured ChatGPT review response back to GitHub;
-- report only the important result to the user.
+If primary ChatGPT is not independent, prepare a ready-to-paste `chatgpt-secondary` package instead of self-approving.
 
-Possible outcomes are `APPROVE`, `CHANGES_REQUIRED`, or `BLOCKED` as defined by the versioned protocol.
+Possible verdicts are `APPROVE`, `CHANGES_REQUIRED` and `BLOCKED`.
 
-Never approve AI-authored work merely because tests are green. Verify the task and acceptance criteria independently.
+## Delegated technical merge authority
+
+The human operator has delegated routine technical merge/no-merge decisions for `TIA-Automation-Factory` to connected primary ChatGPT.
+
+Primary ChatGPT may merge without separate human confirmation only when all applicable gates are satisfied for the exact current PR head SHA:
+
+- required independent review is valid and `APPROVE`;
+- deterministic CI/tests are green;
+- required TIA/Openness acceptance is green, or the trusted task explicitly defines Windows/TIA execution as post-merge;
+- no unresolved `critical`/`major` finding, `BLOCKED` or `REVIEW_CONFLICT` exists;
+- scope still matches the trusted task and accepted architecture;
+- review/evidence is not stale relative to the current head.
+
+Primary ChatGPT must stop for the human on strategic or materially irreversible decisions, project-goal changes, risk waivers, destructive external actions, licensing/vendor-distribution decisions, or unresolved reviewer conflict/ambiguity.
+
+No coding agent, reviewer, GitHub Action, or PR author may self-merge automatically.
 
 ## Coding provider policy
 
-Routine coding uses a cost-first bounded cascade:
+- OpenRouter free coding model first.
+- DeepSeek `deepseek-flash` second.
+- If OpenRouter exhausts allowance after useful workspace changes, DeepSeek continues the same bounded task rather than restarting.
+- Provider success is never acceptance; deterministic gates and independent review are authoritative.
+- Secondary ChatGPT is review-only and never part of the coding provider cascade.
 
-1. **OpenRouter first** using the configured free coding model while its daily allowance is available.
-2. **DeepSeek second** using the official API model `deepseek-flash` when OpenRouter is unavailable, rate-limited, timed out, or daily quota is exhausted.
-3. If OpenRouter exhausts its allowance after already changing the disposable workspace, DeepSeek continues from that partial candidate instead of throwing away useful work.
-4. If the paid DeepSeek fallback also fails late after producing real repository changes, deterministic acceptance may evaluate the preserved candidate; provider success alone is never the DONE criterion.
-5. **Gemini is not a routine coding fallback.** It is reserved for independent review / red-team escalation so it remains independent from the implementer path.
+Provider/model, token/cost usage, fallback reason and outcome must be recorded in candidate evidence.
 
-Provider selection, model, token/cost usage, fallback reason, and outcome must be recorded in the provider audit attached to the candidate PR / workflow evidence.
+Coding providers receive a bounded trusted context assembled from Git source of truth before provider selection. Task-specific qualified contracts/profiles may be supplied through trusted `contextFiles`; candidate files may not redefine trusted context.
 
-## Gemini escalation
+## Protected infrastructure and TIA boundary
 
-ChatGPT must never impersonate the independent Gemini reviewer.
+The coding agent must not modify:
 
-When repository policy requires Gemini, ChatGPT must return to the user a complete, ready-to-paste Gemini message. The user must not have to collect context manually.
+- `.github/**`
+- `agents/**`
+- `tasks/**`
+- `.gemini/**`
+- `.openhands/**`
+- `.gitignore`
+- `opencode.json`
 
-That Gemini message must be self-contained and generated from GitHub source of truth, including as applicable:
+`src/TiaV21Worker/**` is candidate-protected by default. A trusted versioned task may explicitly allow bounded worker-source changes with:
 
-- project / architecture boundaries;
-- exact task and acceptance criteria;
-- risk class and requested review type;
-- candidate SHA and PR identity;
-- bounded diff and relevant source context;
-- Linux test / generator evidence;
-- TIA diagnostics / artifact evidence when available;
-- prior reviewer findings when relevant;
-- explicit red-team objectives;
-- exact required structured response format.
+```json
+"candidatePolicy": {
+  "allowTiaV21WorkerChanges": true
+}
+```
 
-For HIGH-risk work, required reviewers remain independent. Do not show one reviewer's conclusion to another before all intentionally requested independent reviews are complete.
+That exception never authorizes workflow/task/prompt changes, secrets, runner configuration or direct candidate execution on Windows/TIA.
 
-## Coding agent role
+Trust boundary:
 
-The coding agent may implement, test, prepare PRs, and perform bounded repairs through the OpenRouter -> DeepSeek provider cascade. It may not approve its own work, change protected orchestration infrastructure from a candidate task, bypass deterministic gates, or merge automatically.
+- AI candidate source executes only on disposable Linux runners in the autonomous path;
+- Windows checks out trusted `main`;
+- self-hosted Windows/TIA manual workflows must fail closed to the `main` ref and explicitly check out `main`;
+- Windows never executes candidate source/scripts before independent review + trusted merge;
+- trusted `src/TiaV21Worker` is the only TIA Openness execution path;
+- real TIA Portal V21 compile/Openness evidence is authoritative Siemens acceptance;
+- external review never replaces deterministic testing or TIA acceptance.
 
-`src/TiaV21Worker/**` is candidate-protected by default. A trusted versioned task may explicitly opt in to bounded worker-source changes with `candidatePolicy.allowTiaV21WorkerChanges=true` when the accepted architecture requires an Openness-boundary implementation task. That exception never authorizes `.github/**`, `agents/**`, `tasks/**`, secrets, runner configuration, or direct candidate execution on Windows/TIA.
+## Secondary ChatGPT handoff
 
-DeepSeek `deepseek-flash` is the paid fallback and continuity provider when the OpenRouter daily allowance is exhausted.
+When `chatgpt-secondary` is required, primary ChatGPT must prepare the complete review request. The user should only have to paste it into a fresh ChatGPT chat and return the JSON response.
+
+The package must contain the exact task, candidate SHA/PR, bounded diff/source context, deterministic evidence, TIA evidence when available, prior findings relevant to the round, explicit objectives and the exact response schema/identity.
+
+The secondary chat must be instructed that GitHub is the sole source of truth and that it has no prior conversation context.
+
+## Methodology capture
+
+The project develops a reusable AI-assisted software-development methodology in parallel with the PLC generator.
+
+Durable methodology surfaces:
+
+- `docs/DEVELOPMENT_METHODOLOGY.md` — curated reusable rules and active experiments;
+- `docs/METHODOLOGY_JOURNAL.md` — milestone-level chronological lessons;
+- GitHub issue #25 — append-only automated raw methodology telemetry;
+- `docs/INFRASTRUCTURE_LOG.md` — concise chronological infrastructure record.
+
+`.github/workflows/methodology-telemetry.yml` automatically records selected workflow completions and PR closure/merge events to issue #25. Raw telemetry is evidence, not policy.
+
+At every logical milestone, primary connected ChatGPT must perform a methodology checkpoint without waiting for a user reminder:
+
+1. inspect relevant raw telemetry, PR/review/CI/TIA evidence;
+2. append a factual milestone lesson to `docs/METHODOLOGY_JOURNAL.md` when material;
+3. update `docs/DEVELOPMENT_METHODOLOGY.md` when evidence adds, changes or deprecates a reusable rule;
+4. update `docs/PROJECT_STATE.md`, `docs/NEXT_CHAT_HANDOFF.md` and `docs/INFRASTRUCTURE_LOG.md` when their state changed;
+5. never copy secrets, vendor payloads or unnecessary raw logs into versioned docs.
+
+The methodology is a first-class project artifact. Documentation of material lessons is part of completion, not optional cleanup.
 
 ## Cline / interactive agent policy
 
-Cline or a similar editor/terminal agent may be used as an **optional human-in-the-loop development interface**, not as a new source of truth and not as a replacement for the trusted GitHub pipeline.
-
-If used, it must:
-
-- start from this repository and read `AGENTS.md`, `docs/PROJECT_STATE.md`, `docs/NEXT_CHAT_HANDOFF.md`, the active `tasks/*.json`, and relevant architecture docs;
-- work on a branch, never directly on `main`;
-- obey the same protected paths, task-gated `TiaV21Worker` exception, review requirements, and deterministic tests as the cloud coding agent;
-- never receive unrestricted authority over the trusted Windows/TIA machine;
-- never bypass external review or TIA acceptance;
-- write durable decisions/results back to GitHub.
-
-Cline is most useful for interactive prototyping, local debugging, and fast edit/test loops when a human is actively supervising. The autonomous production path remains GitHub Actions + bounded coding providers + external review + deterministic TIA acceptance.
-
-## Trust and acceptance boundaries
-
-The repository's deterministic trust boundary remains authoritative:
-
-- AI candidate source executes only on disposable Linux runners in the autonomous path;
-- protected orchestration/task/prompt infrastructure is not candidate-editable;
-- `src/TiaV21Worker/**` is candidate-editable only under an explicit trusted-task opt-in and still cannot execute on Windows before independent review + trusted merge;
-- Windows checks out trusted `main`;
-- Windows never executes candidate source or candidate scripts; it receives only bounded task-approved artifacts/inputs while executing trusted code;
-- trusted `src/TiaV21Worker` is the only TIA Openness execution path;
-- real TIA Portal V21 compilation/Openness evidence is authoritative for Siemens acceptance;
-- review does not replace deterministic testing or TIA compilation;
-- no coding agent, reviewer, or workflow may self-merge; delegated ChatGPT technical merge authority is governed by the explicit gate rules above.
+Cline or another editor/terminal agent is optional human-supervised tooling, not a production orchestrator or source of truth. It must use the same GitHub context, branch discipline, protected paths, task-gated TIA-worker exception, review requirements and deterministic gates. It never receives unrestricted trusted Windows/TIA access.
 
 ## Persistence rule
 
-A fact or decision that matters to future work is not considered durable until it exists in GitHub in one of these forms:
-
-- versioned docs / architecture decision;
-- versioned task specification;
-- issue / milestone state;
-- PR discussion or structured external-review state;
-- workflow / artifact / diagnostics evidence;
-- `docs/PROJECT_STATE.md` for the current operational snapshot;
-- `docs/NEXT_CHAT_HANDOFF.md` for complete clean-chat continuation context;
-- `docs/INFRASTRUCTURE_LOG.md` for chronological infrastructure history.
+A durable fact or decision must exist in GitHub as versioned docs/tasks, issue/PR state, structured review evidence, workflow/artifact evidence, `docs/PROJECT_STATE.md`, `docs/NEXT_CHAT_HANDOFF.md`, `docs/INFRASTRUCTURE_LOG.md`, the methodology documents, or methodology telemetry issue #25.
 
 Chat messages are disposable coordination only.
 
-## Repository boundaries
+## Repository boundary
 
-This repository is `al-gri/TIA-Automation-Factory`.
+Repository: `al-gri/TIA-Automation-Factory`.
 
 Do not modify `IndustrialMDE` as part of this project.

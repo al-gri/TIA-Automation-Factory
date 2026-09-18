@@ -1,0 +1,114 @@
+name: Methodology Telemetry
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - Autonomous Agent
+      - Autonomous Repair
+      - External Review Request
+      - External Review Response
+      - Candidate Validation
+      - TIA V21 End-to-End
+      - TIA V21 Verification
+    types: [completed]
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  workflow-run-event:
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Append workflow event to methodology diary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          METHODOLOGY_ISSUE: '25'
+        run: |
+          set -euo pipefail
+          EVENT_JSON=$(jq -c '{
+            schema: "methodology-event-v1",
+            kind: "workflow_run",
+            recordedAt: (.workflow_run.updated_at // .workflow_run.created_at),
+            workflow: {
+              name: .workflow_run.name,
+              runId: .workflow_run.id,
+              runNumber: .workflow_run.run_number,
+              event: .workflow_run.event,
+              conclusion: .workflow_run.conclusion,
+              headBranch: .workflow_run.head_branch,
+              headSha: .workflow_run.head_sha,
+              url: .workflow_run.html_url,
+              actor: (.workflow_run.actor.login // null),
+              triggeringActor: (.workflow_run.triggering_actor.login // null),
+              pullRequests: [(.workflow_run.pull_requests // [])[] | {number, url: .html_url}]
+            }
+          }' "$GITHUB_EVENT_PATH")
+
+          {
+            echo '<!-- methodology-event-v1 -->'
+            echo '### Automated workflow event'
+            echo
+            echo '```json'
+            printf '%s\n' "$EVENT_JSON" | jq .
+            echo '```'
+          } > "$RUNNER_TEMP/methodology-event.md"
+
+          gh issue comment "$METHODOLOGY_ISSUE" --repo "$GH_REPO" --body-file "$RUNNER_TEMP/methodology-event.md"
+
+  pull-request-event:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Append PR lifecycle event to methodology diary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          METHODOLOGY_ISSUE: '25'
+        run: |
+          set -euo pipefail
+          EVENT_JSON=$(jq -c '{
+            schema: "methodology-event-v1",
+            kind: "pull_request_closed",
+            recordedAt: (.pull_request.closed_at // now | tostring),
+            pullRequest: {
+              number: .pull_request.number,
+              title: .pull_request.title,
+              url: .pull_request.html_url,
+              author: (.pull_request.user.login // null),
+              merged: .pull_request.merged,
+              mergedAt: .pull_request.merged_at,
+              mergeCommitSha: .pull_request.merge_commit_sha,
+              baseRef: .pull_request.base.ref,
+              baseSha: .pull_request.base.sha,
+              headRef: .pull_request.head.ref,
+              headSha: .pull_request.head.sha,
+              additions: .pull_request.additions,
+              deletions: .pull_request.deletions,
+              changedFiles: .pull_request.changed_files,
+              commits: .pull_request.commits,
+              labels: [(.pull_request.labels // [])[] | .name]
+            }
+          }' "$GITHUB_EVENT_PATH")
+
+          {
+            echo '<!-- methodology-event-v1 -->'
+            echo '### Automated PR lifecycle event'
+            echo
+            echo '```json'
+            printf '%s\n' "$EVENT_JSON" | jq .
+            echo '```'
+          } > "$RUNNER_TEMP/methodology-event.md"
+
+          gh issue comment "$METHODOLOGY_ISSUE" --repo "$GH_REPO" --body-file "$RUNNER_TEMP/methodology-event.md"

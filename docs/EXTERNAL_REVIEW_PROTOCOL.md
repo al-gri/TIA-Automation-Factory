@@ -2,101 +2,99 @@
 
 Status: Phase 2 baseline protocol.
 
-This protocol defines how an autonomous implementation agent requests independent review from ChatGPT and/or Gemini without relying on previous chat context.
+This protocol defines independent review without relying on previous chat context. GitHub is the source of truth for task, candidate SHA, review package, reviewer response and state transition.
 
 ## Purpose
 
-External review is an approval gate, not a replacement for deterministic tests or TIA Portal compilation. The implementer or author may prepare evidence and review packages, but must never approve the same candidate as its required independent reviewer.
-
-GitHub is the source of truth for the task, candidate commit, review package, reviewer response, and state transition.
+External review is an approval gate, not a replacement for deterministic tests or TIA Portal compilation. The implementer/author may prepare evidence and review packages but must never approve the same candidate as its required independent reviewer.
 
 ## Roles
 
 - **Implementer:** OpenRouter first, official DeepSeek API / `deepseek-flash` as continuity fallback.
-- **Primary external reviewer:** ChatGPT, especially for architecture, API boundaries, maintainability, root-cause analysis, and difficult implementation choices when ChatGPT is independent of the candidate authorship.
-- **Independent verification reviewer:** Gemini, especially for red-team review, missed requirements, edge cases, PLC semantics, security, disputed work, and candidates materially authored by ChatGPT.
-- **Human operator:** strategic/risk authority and escalation point; has delegated routine technical merge decisions to connected ChatGPT when all accepted gates are satisfied.
-- **Deterministic authorities:** Linux build/tests/generator checks and, where applicable, the trusted TIA Portal V21 acceptance gate.
+- **Primary external reviewer (`chatgpt`):** connected primary ChatGPT when independent of candidate authorship.
+- **Secondary independent reviewer (`chatgpt-secondary`):** a fresh isolated ChatGPT session used when primary ChatGPT materially authored/co-authored the candidate or when an explicit extra independent opinion is requested.
+- **Human operator:** strategic/risk authority; routine technical merge decisions are delegated to primary connected ChatGPT when all gates are satisfied.
+- **Deterministic authorities:** Linux build/tests/generator checks and, where applicable, trusted TIA Portal V21 acceptance.
+
+Gemini has no standing role in this protocol. `chatgpt-secondary` replaces the previous Gemini reviewer role.
 
 ## Reviewer independence
 
 The required reviewer must be independent of the candidate author/implementer.
 
 - An implementer cannot approve its own work.
-- ChatGPT cannot provide the required independent approval for a candidate it materially authored or repaired.
-- Gemini cannot provide the required independent approval for a candidate it materially authored.
-- A fresh second ChatGPT chat is not a standing reviewer role and is not required merely to create another ChatGPT identity.
-- If ChatGPT authored/co-authored a HIGH-risk candidate, Gemini is the normal independent reviewer.
-- If the coding agent authored the candidate and ChatGPT did not materially co-author it, ChatGPT is the normal independent reviewer.
+- Primary ChatGPT cannot provide the required independent approval for a candidate it materially authored or repaired.
+- Secondary ChatGPT cannot provide the required independent approval for a candidate it materially authored or repaired.
+- Coding-agent-authored candidate with primary ChatGPT independent -> `chatgpt`.
+- Primary-ChatGPT-authored/co-authored candidate -> `chatgpt-secondary`.
+- Secondary-ChatGPT-authored/co-authored candidate -> primary `chatgpt` if independent.
 
-Independence is determined by authorship and evidence separation, not by the number of chats.
+The secondary reviewer must operate from a fresh chat and a self-contained GitHub-grounded package. It must not rely on the primary chat's context and must not be shown the primary reviewer's conclusion before issuing its own verdict.
+
+One independent reviewer is the default. A simultaneous second reviewer is optional escalation only.
+
+`review.reviewerSlots` is an authorization allow-list, not a set of mandatory simultaneous reviewers. When the field is absent or an empty array on a legacy task, the only authorized default is `chatgpt`; `chatgpt-secondary` is never authorized implicitly and must be explicitly listed by the current trusted task.
 
 ## Review risk policy
 
 ### LOW
 
-Typical examples: isolated tests, simple UDT additions, small mappings, narrow bug fixes.
-
-Required review: one independent external reviewer. ChatGPT is the default for coding-agent candidates.
+One independent external reviewer. Primary ChatGPT normally reviews coding-agent candidates.
 
 ### MEDIUM
 
-Typical examples: PLC compiler behavior, PLC IR changes, non-trivial Siemens backend generation, interlocks, state-machine logic, cross-layer contracts.
-
-Required review: one independent external reviewer. ChatGPT is the default for coding-agent candidates; use Gemini instead when ChatGPT materially co-authored the candidate. Add a second reviewer only when findings, uncertainty, size, security/safety ambiguity, or a human request justifies escalation.
+One independent reviewer distinct from the author. Use `chatgpt-secondary` when primary ChatGPT materially co-authored the candidate. Add another reviewer only for explicit escalation.
 
 ### HIGH
 
-Typical examples: architecture changes, PLC semantics with safety implications, trust-boundary changes, TIA worker changes, new DSL/project formats, major compiler redesign.
+Examples: architecture changes, PLC semantics with safety implications, trust-boundary changes, TIA worker changes, new DSL/project formats and major compiler redesign.
 
 Required review: one independent external reviewer distinct from the author/implementer.
 
 Default reviewer selection:
 
-- ChatGPT-authored/co-authored candidate -> Gemini;
-- coding-agent-authored candidate with ChatGPT independent -> ChatGPT;
-- Gemini-authored candidate -> ChatGPT.
+- primary-ChatGPT-authored/co-authored -> `chatgpt-secondary`;
+- coding-agent-authored with primary ChatGPT independent -> `chatgpt`;
+- secondary-ChatGPT-authored/co-authored -> primary `chatgpt` if independent.
 
-A second independent reviewer is optional escalation, not a routine gate.
-
-If dual review is intentionally requested, reviewers receive the same immutable original package and must not see each other's conclusions until both reviews exist. If their conclusions disagree, state becomes `REVIEW_CONFLICT`; the candidate is not accepted automatically.
+No standing dual-review gate exists. If multiple independent reviews are intentionally requested, reviewers receive the same immutable package and must not see each other's conclusions until both exist. Disagreement becomes `REVIEW_CONFLICT` and blocks automatic acceptance.
 
 ## Review package requirements
 
-Every package must be self-contained and safe to give to a reviewer with no prior conversation context. It must include only bounded, relevant evidence rather than an entire repository or a long agent conversation.
+Every package must be self-contained and safe for a reviewer with no prior conversation context. Include only bounded relevant evidence.
 
 Required sections:
 
-1. Reviewer role and explicit instruction that no prior context exists.
-2. Project purpose and relevant architecture/trust boundaries.
-3. Exact task, requirements, and acceptance criteria.
-4. Risk class and requested review type.
-5. Candidate commit/PR identifiers.
-6. Implementation summary supplied only as orientation, never as proof.
-7. Complete candidate diff when reasonably bounded; otherwise the full changed symbols plus enough unchanged adjacent context to review them correctly.
-8. Deterministic Linux evidence: build/tests/generator output relevant to the task.
-9. Generated PLC artifact and TIA diagnostics when the review occurs after TIA acceptance or concerns PLC semantics.
-10. Previous review findings and repair attempts only when they materially affect the current round.
-11. Explicit review objectives.
-12. The exact machine-readable response contract.
+1. reviewer role and instruction that no prior context exists;
+2. project purpose and relevant architecture/trust boundaries;
+3. exact task and acceptance criteria;
+4. risk class and review type;
+5. candidate PR and exact SHA;
+6. implementation summary as orientation only;
+7. complete bounded diff or changed symbols plus enough unchanged context;
+8. deterministic Linux evidence;
+9. generated artifact/TIA evidence when available and applicable;
+10. previous findings/repair attempts when relevant;
+11. explicit review objectives;
+12. exact machine-readable response contract.
 
-Do not include secrets, API keys, unrelated logs, full repository dumps, or hidden chain-of-thought. The reviewer evaluates requirements, code, evidence, and architecture constraints only.
-
-The package must not steer the reviewer toward approval. Statements such as "all requirements are satisfied" are implementation claims and must not be treated as evidence.
+Do not include secrets, unrelated logs, full repository dumps or hidden chain-of-thought. Do not steer the reviewer toward approval.
 
 ## Response contract
 
-The reviewer must return exactly one JSON object conforming to:
+The reviewer returns exactly one JSON object conforming to:
 
 `reviews/schemas/external-review-response.schema.json`
 
-Top-level status values:
+Top-level outcomes:
 
-- `APPROVE` — no critical or major issue blocks the requested gate.
-- `CHANGES_REQUIRED` — actionable candidate changes are required.
-- `BLOCKED` — the reviewer cannot safely approve or specify a bounded repair because a human/architecture decision or missing evidence is required.
+- `APPROVE` — no critical or major finding blocks the requested gate;
+- `CHANGES_REQUIRED` — bounded candidate changes are required;
+- `BLOCKED` — safe approval/repair cannot proceed because evidence or an external decision is missing.
 
-Findings use severity `critical`, `major`, or `minor`. A response with `APPROVE` must not contain any `critical` or `major` finding.
+An `APPROVE` response must not contain any `critical` or `major` finding.
+
+Trusted automation binds the response to exact request ID, reviewer slot, task ID, candidate SHA, review type and round. Reviewer slot strings are explicit identities such as `chatgpt` and `chatgpt-secondary`, not interchangeable aliases.
 
 ## State transitions
 
@@ -115,70 +113,75 @@ REVIEW_CHANGES_REQUIRED
     -> TESTING
     -> WAITING_FOR_EXTERNAL_REVIEW
 
-Intentionally requested dual-review disagreement
+Intentionally requested multi-review disagreement
     -> REVIEW_CONFLICT
 ```
 
-`REVIEW_CONFLICT` and `BLOCKED` require an explicit external decision before implementation continues.
-
-All repairs remain bounded by the task-level `maxRepairAttempts`. No external review path may create an unbounded retry loop.
+`REVIEW_CONFLICT` and `BLOCKED` require an explicit external decision before implementation continues. Repairs remain bounded by trusted task `maxRepairAttempts`.
 
 ## Architecture gate
 
-If a proposed implementation crosses an established architecture boundary, changes a public compiler/domain contract, modifies the trusted Windows/TIA boundary, or introduces a new persistent project/DSL format, an architecture review occurs before implementation.
+If a proposal crosses an established architecture boundary, changes a public compiler/domain contract, modifies the trusted Windows/TIA boundary or introduces a persistent project/DSL format, architecture review occurs before implementation.
 
-The architecture package must present the problem, constraints, alternatives, recommendation, consequences, and exact decision requested. Approval authorizes implementation within the approved constraints; it does not waive the later code-review gate.
+For HIGH-risk architecture work, one reviewer independent of the proposal author is required. If primary ChatGPT authored/co-authored the proposal, `chatgpt-secondary` fills that slot.
 
-For a HIGH-risk architecture proposal, one reviewer independent of the proposal author is required. If ChatGPT authored/co-authored the proposal, Gemini fills that independent slot; do not create a mandatory second ChatGPT chat.
+Architecture approval authorizes implementation within approved constraints; it does not waive later code review.
 
 ## Code-review gate
 
-After deterministic Linux checks pass, the candidate code-review package is generated from the current task and candidate state. `CHANGES_REQUIRED` returns the same candidate branch to bounded repair. The next review package must describe the new candidate SHA and prior finding IDs so the reviewer can verify that repairs actually address them.
+After deterministic Linux checks pass, the code-review package is generated from current trusted task/candidate state. `CHANGES_REQUIRED` returns the same candidate branch to bounded repair. The next review package must carry the new candidate SHA and relevant prior finding IDs.
 
-The implementation reviewer must be independent of the implementation candidate. Architecture approval does not allow an implementation author to self-approve code.
+The implementation reviewer must be independent of the implementation candidate. If primary ChatGPT makes a material maintainer repair after reviewing a coding-agent candidate, reviewer ownership transitions to `chatgpt-secondary` for the resulting exact SHA.
 
 ## PLC/TIA review
 
-Real TIA V21 diagnostics remain authoritative for import/compile status. External PLC review may assess generated semantics, naming, interfaces, and adequacy of PLC-specific tests, but it must not claim successful TIA compilation without trusted `tia-diagnostics.json` evidence.
+Real TIA V21 diagnostics remain authoritative for import/compile/Openness status. External review may assess semantics, naming, interfaces and test adequacy, but must not claim successful TIA execution without trusted evidence.
+
+After external review, trusted Candidate Validation is deterministic: Linux tests/package generation plus machine validation of TIA V21 diagnostics. It must not invoke Gemini, OpenRouter, or any other hidden LLM reviewer provider. The external `chatgpt`/`chatgpt-secondary` gate is the independent LLM review; trusted TIA diagnostics are the target authority.
+
+Candidate `TiaV21Worker` code is not executed on Windows before independent approval and trusted merge when the task explicitly defines post-merge TIA validation.
 
 ## Delegated technical merge gate
 
-Connected ChatGPT may make and execute the routine technical merge decision without a separate human confirmation only when all applicable gates are satisfied for the current exact PR head SHA:
+Primary connected ChatGPT may execute routine merge without separate human confirmation only when all applicable gates pass for the exact current PR head SHA:
 
 1. required independent review is valid and `APPROVE`;
 2. deterministic CI/tests are green;
-3. required TIA/Openness evidence is green, unless the trusted task explicitly defines Windows/TIA execution as a post-merge trusted-main step;
-4. there is no unresolved `critical`/`major` finding, `BLOCKED`, or `REVIEW_CONFLICT`;
-5. the candidate still matches the trusted task and approved architecture;
-6. review/evidence is not stale relative to the PR head.
+3. required TIA/Openness evidence is green unless trusted task explicitly defines it as post-merge;
+4. no unresolved `critical`/`major`, `BLOCKED` or `REVIEW_CONFLICT` exists;
+5. candidate still matches trusted task and architecture;
+6. review/evidence is not stale.
 
-ChatGPT must stop for human input on strategic or materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions, or unresolved review conflict/ambiguity.
+Primary ChatGPT stops for human input on strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions or unresolved review conflict/ambiguity.
 
-No implementer, coding agent, reviewer, or workflow may self-merge. Delegated ChatGPT technical merge is an operator-authorized decision after verification of gates, not an automatic workflow transition.
+No implementer, coding agent, reviewer or workflow may self-merge automatically.
 
 ## Human workflow
 
-The intended human action is deliberately small:
+The intended human involvement is small:
 
-1. Ask the connected ChatGPT operator to inspect pending work.
-2. If ChatGPT is eligible and independent, it performs the review directly from GitHub.
-3. If ChatGPT is not independent or an explicit red-team is required, ChatGPT prepares a complete Gemini package; the human only pastes it and returns the resulting JSON.
-4. Trusted automation validates the JSON schema and resumes the next bounded state.
-5. When the delegated technical merge gate is satisfied, ChatGPT may merge and continue automatically; the human is consulted only for strategic/irreversible decisions or explicit escalation conditions.
+1. Ask primary connected ChatGPT to inspect pending work.
+2. If primary ChatGPT is independent, it reviews directly from GitHub.
+3. If primary ChatGPT is not independent, it prepares a complete ready-to-paste `chatgpt-secondary` package.
+4. The human pastes that package into a fresh ChatGPT chat and returns only the JSON verdict.
+5. Trusted automation validates the response and continues the bounded state machine.
+6. Primary ChatGPT performs delegated technical merge when gates pass.
 
-A fresh second ChatGPT chat is optional only when intentionally requested, not part of the normal workflow.
+## Acceptance rules for automation
 
-## Acceptance rules for the future automation
+Before any external response affects trusted state or execution, trusted automation must:
 
-Before an external response may influence execution, trusted automation must:
+- parse JSON;
+- validate against the versioned schema;
+- bind request ID, reviewer slot, task, candidate SHA, review type and round;
+- reject stale candidate SHA;
+- re-resolve the current trusted task and verify risk class, review type and requested reviewer-slot authorization;
+- derive reviewer eligibility from exact-candidate authorship and verify the reviewer is independent for that SHA;
+- require both trusted-task slot authorization **and** exact-candidate authorship-based independence before publishing any `APPROVED_EXTERNAL_REVIEW`, `REVIEW_CHANGES_REQUIRED` or `BLOCKED` review-state marker;
+- apply the legacy missing/empty-slot default only to `chatgpt`; never infer authorization for `chatgpt-secondary`;
+- reject malformed statuses/findings;
+- preserve only fully authorized/independent validated responses as GitHub review-state evidence;
+- never treat prose outside validated JSON as approval;
+- prevent candidate agents from editing trusted review/orchestration definitions.
 
-- parse it as JSON;
-- validate it against the versioned schema;
-- bind it to the expected task, candidate SHA, review type, reviewer slot, and round;
-- verify the reviewer slot is eligible under the authorship/independence rule;
-- reject unknown statuses or malformed findings;
-- never treat prose outside the validated JSON as an approval signal;
-- preserve the response as GitHub evidence;
-- prevent a candidate agent from editing trusted review/orchestration definitions without appropriate independent review.
-
-The protocol does not authorize workflow/bot self-merge. It authorizes connected ChatGPT to execute a delegated technical merge only after the explicit gate above is satisfied.
+This protocol authorizes primary connected ChatGPT to execute delegated technical merges after gates; it never authorizes workflow/bot self-merge.

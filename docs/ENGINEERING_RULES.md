@@ -1,8 +1,8 @@
 # Generator Engineering Rules
 
-Status: **PROPOSED — review round 3 required**
+Status: **ACCEPTED**
 
-These rules become the development contract only after the architecture proposal is independently approved and merged.
+These rules are the development contract for the generator architecture.
 
 ## 1. Repository and task discipline
 
@@ -10,7 +10,7 @@ These rules become the development contract only after the architecture proposal
 2. One versioned task has one bounded objective.
 3. Every task defines scope, protected paths, deterministic acceptance, risk class and bounded repairs.
 4. Do not expand infrastructure without a concrete generator blocker.
-5. No automatic merge; human merge decision remains separate from technical acceptance.
+5. No workflow/bot self-merge. Primary connected ChatGPT may execute a delegated technical merge only after all exact-SHA gates defined by governance are satisfied.
 
 ## 2. Layer boundaries
 
@@ -202,7 +202,15 @@ Use the cheapest authoritative layer, but never omit real TIA acceptance for cha
 - MEDIUM: internal type/AST representation preserving established behavior.
 - HIGH: canonical schema, scan semantics, executable-container scheduling, Open Library qualification/materialization, target preflight, TIA trust boundary, safety scope, cross-controller communication semantics, major architecture.
 
-HIGH-risk work requires one independent reviewer distinct from the candidate author/implementer. ChatGPT is the default reviewer for coding-agent work; Gemini is the default independent reviewer when ChatGPT materially authored/co-authored the candidate. A second reviewer is escalation only, not a standing gate. Reviewer conflict blocks acceptance when dual review is intentionally requested.
+HIGH-risk work requires one independent reviewer distinct from the candidate author/implementer.
+
+Default reviewer selection:
+
+- coding-agent-authored candidate with primary ChatGPT independent -> `chatgpt`;
+- primary-ChatGPT-authored/co-authored candidate -> `chatgpt-secondary` in a fresh isolated ChatGPT session;
+- secondary-ChatGPT-authored/co-authored candidate -> primary `chatgpt` if independent.
+
+Gemini has no standing project role. A simultaneous second reviewer is escalation only, not a standing gate. Reviewer conflict blocks acceptance when multiple independent reviews are intentionally requested.
 
 ## 16. Definition of Done
 
@@ -219,7 +227,9 @@ trusted versioned task
  -> full PLC compile (errors == 0)
  -> required object/version/access-mode checks
  -> reproducibility evidence
- -> human merge decision
+ -> delegated technical merge decision
 ```
+
+If the trusted task explicitly defines real Windows/TIA execution as a post-merge trusted-main qualification step, the pre-merge gate is independent source/API review plus deterministic candidate evidence, followed by delegated merge and then authoritative trusted-main TIA acceptance.
 
 An LLM saying `done` is never acceptance evidence.

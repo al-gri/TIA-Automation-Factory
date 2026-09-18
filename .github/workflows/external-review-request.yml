@@ -25,9 +25,9 @@ on:
         type: choice
         options: [LOW, MEDIUM, HIGH]
       reviewer_slot:
-        description: Reviewer slot (primary, chatgpt, gemini)
+        description: Reviewer slot (chatgpt or chatgpt-secondary)
         required: true
-        default: primary
+        default: chatgpt
         type: string
       review_round:
         description: Review round
@@ -100,17 +100,14 @@ jobs:
           case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Unsupported review type"; exit 1 ;; esac
           case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid risk class"; exit 1 ;; esac
           [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Invalid reviewer slot"; exit 1; }
-          if [ "$RISK_CLASS" = "HIGH" ]; then
-            case "$REVIEWER_SLOT" in chatgpt|gemini) ;; *) echo "HIGH risk requires reviewer_slot=chatgpt or gemini"; exit 1 ;; esac
-          fi
 
           TASK_RISK=$(jq -r '.review.riskClass' "$TASK_PATH")
           TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$TASK_PATH")
           test "$TASK_RISK" = "$RISK_CLASS"
           test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
-          if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$TASK_PATH" >/dev/null 2>&1; then
-            jq -e --arg slot "$REVIEWER_SLOT" '.review.reviewerSlots | index($slot) != null' "$TASK_PATH" >/dev/null
-          fi
+          python3 agents/runtime/reviewer-policy.py authorize-slot \
+            --task-file "$TASK_PATH" \
+            --reviewer-slot "$REVIEWER_SLOT"
           ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$TASK_PATH")
           case "$ALLOW_TIA_WORKER" in true|false) ;; *) echo "candidatePolicy.allowTiaV21WorkerChanges must be boolean"; exit 1 ;; esac
 
@@ -119,6 +116,14 @@ jobs:
           test "$(jq -r .baseRefName "$RUNNER_TEMP/pr.json")" = "main"
           CANDIDATE_SHA=$(jq -r .headRefOid "$RUNNER_TEMP/pr.json")
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          git fetch --no-tags origin "$CANDIDATE_SHA"
+          git log --format='%ae' "main..$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate-author-emails.txt"
+          test -s "$RUNNER_TEMP/candidate-author-emails.txt"
+          python3 agents/runtime/reviewer-policy.py validate-slot \
+            --emails-file "$RUNNER_TEMP/candidate-author-emails.txt" \
+            --reviewer-slot "$REVIEWER_SLOT"
+
           TASK_ID=$(jq -r .id "$TASK_PATH")
           SHORT_SHA=${CANDIDATE_SHA:0:12}
           REQUEST_ID="ER-${PR_NUMBER}-${SHORT_SHA}-${REVIEW_TYPE}-${REVIEW_ROUND}-${REVIEWER_SLOT}-${GITHUB_RUN_ID}"

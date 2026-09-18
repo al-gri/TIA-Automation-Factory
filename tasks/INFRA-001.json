@@ -31,6 +31,14 @@
       "TIA Portal V21 imports/generates the tested UDT_Valve.scl artifact and compiles with zero errors."
     ]
   },
+  "review": {
+    "riskClass": "MEDIUM",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt",
+      "chatgpt-secondary"
+    ]
+  },
   "protectedPaths": [
     ".github/**",
     "agents/**",
