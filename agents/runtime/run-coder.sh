@@ -9,6 +9,7 @@ OPENROUTER_TIMEOUT_MINUTES="${OPENROUTER_TIMEOUT_MINUTES:-30}"
 DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-flash}"
 DEEPSEEK_TIMEOUT_MINUTES="${DEEPSEEK_TIMEOUT_MINUTES:-30}"
 CODER_TRUSTED_GIT_REF="${CODER_TRUSTED_GIT_REF:-origin/main}"
+CODER_TRUSTED_TASK_PATH="${CODER_TRUSTED_TASK_PATH:-}"
 
 OPENROUTER_OUTPUT="${RUNNER_TEMP:-/tmp}/coder-openrouter.jsonl"
 OPENROUTER_ERROR="${RUNNER_TEMP:-/tmp}/coder-openrouter.stderr.log"
@@ -22,11 +23,36 @@ if [[ ! -f "$PROMPT_PATH" ]]; then
   exit 2
 fi
 
-python3 agents/runtime/build-coder-context.py \
-  --git-ref "$CODER_TRUSTED_GIT_REF" \
-  --prompt-input "$PROMPT_PATH" \
-  --output "$TRUSTED_CONTEXT_PROMPT" \
+# Task authority is resolved only from structured workflow/event metadata or an
+# explicit trusted caller override. Free-form prompt text is never parsed for it.
+if [[ -z "$CODER_TRUSTED_TASK_PATH" && -n "${GITHUB_EVENT_PATH:-}" && -f "${GITHUB_EVENT_PATH:-}" ]]; then
+  case "${GITHUB_EVENT_NAME:-}" in
+    workflow_dispatch)
+      if [[ "$(jq -r '.inputs.source // "task"' "$GITHUB_EVENT_PATH")" == "task" ]]; then
+        CODER_TRUSTED_TASK_PATH=$(jq -r '.inputs.task_path // empty' "$GITHUB_EVENT_PATH")
+      fi
+      ;;
+    repository_dispatch)
+      CODER_TRUSTED_TASK_PATH=$(jq -r '.client_payload.task_path // empty' "$GITHUB_EVENT_PATH")
+      ;;
+    issues)
+      # Issue-mode work is intentionally incapable of declaring task contextFiles.
+      CODER_TRUSTED_TASK_PATH=""
+      ;;
+  esac
+fi
+
+CONTEXT_ARGS=(
+  --git-ref "$CODER_TRUSTED_GIT_REF"
+  --prompt-input "$PROMPT_PATH"
+  --output "$TRUSTED_CONTEXT_PROMPT"
   --manifest "$TRUSTED_CONTEXT_MANIFEST"
+)
+if [[ -n "$CODER_TRUSTED_TASK_PATH" ]]; then
+  CONTEXT_ARGS+=(--trusted-task-path "$CODER_TRUSTED_TASK_PATH")
+fi
+
+python3 agents/runtime/build-coder-context.py "${CONTEXT_ARGS[@]}"
 PROMPT_PATH="$TRUSTED_CONTEXT_PROMPT"
 
 echo "Trusted coding context manifest:"
