@@ -47,6 +47,9 @@ jobs:
           VALIDATION_RUN_ID: ${{ github.event.client_payload.validation_run_id }}
           ATTEMPT: ${{ github.event.client_payload.attempt }}
           REVIEW_SOURCE: ${{ github.event.client_payload.review_source }}
+          REVIEW_TYPE: ${{ github.event.client_payload.review_type }}
+          RISK_CLASS: ${{ github.event.client_payload.risk_class }}
+          REVIEWER_SLOT: ${{ github.event.client_payload.reviewer_slot }}
         run: |
           set -euo pipefail
           VALIDATION_RUN_ID="${VALIDATION_RUN_ID:-0}"
@@ -61,7 +64,27 @@ jobs:
           git fetch origin main "$BRANCH"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           git show "origin/main:$TASK_PATH" > "$RUNNER_TEMP/task.json"
-          jq -e '.id and .acceptance.requirements and .acceptance.tia and .generator.input and .generator.expectedArtifact and .maxRepairAttempts' "$RUNNER_TEMP/task.json" >/dev/null
+          jq -e '.id and .acceptance.requirements and .acceptance.tia and .review.riskClass and .review.reviewType and .maxRepairAttempts' "$RUNNER_TEMP/task.json" >/dev/null
+          if jq -e 'has("generator") and ((.generator.input // "") == "" or (.generator.expectedArtifact // "") == "")' "$RUNNER_TEMP/task.json" >/dev/null; then
+            echo "generator, when present, requires both input and expectedArtifact"
+            exit 1
+          fi
+
+          TASK_RISK=$(jq -r '.review.riskClass' "$RUNNER_TEMP/task.json")
+          TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$RUNNER_TEMP/task.json")
+          case "$TASK_RISK" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid trusted task risk class: $TASK_RISK"; exit 1 ;; esac
+          case "$TASK_REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid trusted task review type: $TASK_REVIEW_TYPE"; exit 1 ;; esac
+          if [ "$REVIEW_SOURCE" = "external-review" ]; then
+            test "$TASK_RISK" = "$RISK_CLASS"
+            test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
+            [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
+            if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$RUNNER_TEMP/task.json" >/dev/null 2>&1; then
+              jq -e --arg slot "$REVIEWER_SLOT" '.review.reviewerSlots | index($slot) != null' "$RUNNER_TEMP/task.json" >/dev/null
+            fi
+          fi
+
+          ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$RUNNER_TEMP/task.json")
+          case "$ALLOW_TIA_WORKER" in true|false) ;; *) echo "candidatePolicy.allowTiaV21WorkerChanges must be boolean"; exit 1 ;; esac
 
           MAX_ATTEMPTS=$(jq -r '.maxRepairAttempts' "$RUNNER_TEMP/task.json")
           [[ "$MAX_ATTEMPTS" =~ ^[0-9]+$ ]]
@@ -71,8 +94,12 @@ jobs:
           fi
 
           git diff --name-only origin/main...HEAD | sort -u > "$RUNNER_TEMP/current-candidate-files.txt"
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/current-candidate-files.txt"; then
-            echo "Existing candidate contains protected-path changes. Refusing repair."
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/current-candidate-files.txt"; then
+            echo "Existing candidate contains protected infrastructure changes. Refusing repair."
+            exit 1
+          fi
+          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/current-candidate-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
+            echo "Existing candidate changes src/TiaV21Worker without trusted task opt-in."
             exit 1
           fi
 
@@ -80,6 +107,7 @@ jobs:
           echo "max_attempts=$MAX_ATTEMPTS" >> "$GITHUB_OUTPUT"
           echo "validation_run_id=$VALIDATION_RUN_ID" >> "$GITHUB_OUTPUT"
           echo "review_source=$REVIEW_SOURCE" >> "$GITHUB_OUTPUT"
+          echo "allow_tia_worker=$ALLOW_TIA_WORKER" >> "$GITHUB_OUTPUT"
 
       - name: Require at least one coding provider
         shell: bash
@@ -181,6 +209,7 @@ jobs:
         shell: bash
         env:
           BEFORE_SHA: ${{ steps.context.outputs.before_sha }}
+          ALLOW_TIA_WORKER: ${{ steps.context.outputs.allow_tia_worker }}
         run: |
           {
             git diff --name-only "$BEFORE_SHA"
@@ -195,8 +224,12 @@ jobs:
             exit 1
           fi
 
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/repair-changed-files.txt"; then
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/repair-changed-files.txt"; then
             echo "Repair agent changed protected infrastructure."
+            exit 1
+          fi
+          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/repair-changed-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
+            echo "Repair agent changed src/TiaV21Worker without trusted task opt-in."
             exit 1
           fi
 
@@ -210,12 +243,16 @@ jobs:
           dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-generated"
           test -f "$RUNNER_TEMP/motor-generated/UDT_Motor.scl"
 
-          INPUT=$(jq -r '.generator.input' "$RUNNER_TEMP/task.json")
-          EXPECTED=$(jq -r '.generator.expectedArtifact' "$RUNNER_TEMP/task.json")
-          test -f "$INPUT"
-          rm -rf "$RUNNER_TEMP/repaired-generated"
-          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/repaired-generated"
-          test -f "$RUNNER_TEMP/repaired-generated/$EXPECTED"
+          INPUT=$(jq -r '.generator.input // empty' "$RUNNER_TEMP/task.json")
+          EXPECTED=$(jq -r '.generator.expectedArtifact // empty' "$RUNNER_TEMP/task.json")
+          if [ -n "$INPUT" ] && [ -n "$EXPECTED" ]; then
+            test -f "$INPUT"
+            rm -rf "$RUNNER_TEMP/repaired-generated"
+            dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/repaired-generated"
+            test -f "$RUNNER_TEMP/repaired-generated/$EXPECTED"
+          else
+            echo "No GeneratorCli task artifact declared; source/diff plus baseline Linux regression evidence is authoritative pre-merge evidence for this task."
+          fi
 
       - name: Commit and push repair to same candidate branch
         id: push
@@ -273,7 +310,7 @@ jobs:
           if [ "$REVIEW_SOURCE" = "external-review" ]; then
             NEXT_ROUND=$((ATTEMPT + 1))
             case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid external review type"; exit 1 ;; esac
-            case "$RISK_CLASS" in LOW|MEDIUM) ;; *) echo "Automatic external repair resume supports LOW/MEDIUM only"; exit 1 ;; esac
+            case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid external review risk class"; exit 1 ;; esac
             [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
             jq -n \
               --argjson pr "$PR_NUMBER" \
