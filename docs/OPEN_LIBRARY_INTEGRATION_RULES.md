@@ -86,7 +86,9 @@ FB_WaterSystem
 
 Each unit/application FB normally has its own instance DB. Do not create one ordinary device instance DB per field object, and do not recursively fold the entire plant into one giant root instance DB.
 
-These unit/application boundaries are memory/ownership boundaries, not implicit scan-delay boundaries. Same-controller dependencies that cross them remain visible to PlcCompiler scheduling and determine deterministic orchestration order.
+These unit/application boundaries are memory/ownership boundaries and, in the initial generated architecture, each unit/application FB is one atomic once-per-scan invocation. Same-controller cross-unit dependencies therefore must form an acyclic unit-invocation graph in addition to the finer semantic graph.
+
+Cross-unit values pass through explicit unit/application interfaces or orchestration signals. Generated code must never reach into another unit's private Open Library multi-instance memory to satisfy a dependency.
 
 Documented exceptions such as technology/PID-specific memory requirements are metadata on the Open Library descriptor rather than compiler special cases.
 
@@ -187,10 +189,10 @@ Exact names, directions, types, versions and helper dependencies must be verifie
 Owns semantic devices, typed ports, hierarchy, parameters, connections, named condition sets, mode/simulation concepts.
 
 ### PlcCompiler / PLC IR
-Owns type checking, explicit `SameScan` versus `PreviousState` dependency semantics, controller-global SCC/cycle validation, stable topological scheduling across unit/area ownership boundaries, state and target-independent executable/data representation. Ordinary cross-controller runtime connections are rejected until represented by an explicit communication primitive/profile with defined latency.
+Owns type checking, explicit `SameScan` versus `PreviousState` dependency semantics, controller-global SCC/cycle validation, stable scheduling of semantic dependencies, mapping to atomic generated unit/application execution containers, quotient-DAG validation/order across those containers, state and target-independent executable/data representation. Ordinary cross-controller runtime connections are rejected until represented by an explicit communication primitive/profile with defined latency.
 
 ### SiemensBackend
-Owns qualified Open Library catalog/bindings, Siemens lowering, multi-instance model, HMI/Error DB model including `DbAccessMode`, constants references, SCL AST/emission and source maps. It consumes compiler-resolved execution order rather than deriving scheduling from generated object order.
+Owns qualified Open Library catalog/bindings, Siemens lowering, multi-instance model, HMI/Error DB model including `DbAccessMode`, constants references, SCL AST/emission and source maps. It consumes compiler-resolved internal and unit/application invocation order rather than deriving scheduling from generated object order.
 
 ### Library qualification operation
 Owns explicit V19 -> V21 migration/qualification, reference compile and qualification manifest. It is not a normal build operation.
