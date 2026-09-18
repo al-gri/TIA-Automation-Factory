@@ -89,11 +89,13 @@ That Gemini message must be self-contained and generated from GitHub source of t
 - explicit red-team objectives;
 - exact required structured response format.
 
-For HIGH-risk work, ChatGPT and Gemini remain independent. Do not show one reviewer's conclusion to the other before both independent reviews are complete.
+For HIGH-risk work, required reviewers remain independent. Do not show one reviewer's conclusion to another before all intentionally requested independent reviews are complete.
 
 ## Coding agent role
 
-The coding agent may implement, test, prepare PRs, and perform bounded repairs through the OpenRouter -> DeepSeek provider cascade. It may not approve its own work, change protected infrastructure from a candidate task, bypass deterministic gates, or merge automatically.
+The coding agent may implement, test, prepare PRs, and perform bounded repairs through the OpenRouter -> DeepSeek provider cascade. It may not approve its own work, change protected orchestration infrastructure from a candidate task, bypass deterministic gates, or merge automatically.
+
+`src/TiaV21Worker/**` is candidate-protected by default. A trusted versioned task may explicitly opt in to bounded worker-source changes with `candidatePolicy.allowTiaV21WorkerChanges=true` when the accepted architecture requires an Openness-boundary implementation task. That exception never authorizes `.github/**`, `agents/**`, `tasks/**`, secrets, runner configuration, or direct candidate execution on Windows/TIA.
 
 DeepSeek `deepseek-flash` is the paid fallback and continuity provider when the OpenRouter daily allowance is exhausted.
 
@@ -105,7 +107,7 @@ If used, it must:
 
 - start from this repository and read `AGENTS.md`, `docs/PROJECT_STATE.md`, `docs/NEXT_CHAT_HANDOFF.md`, the active `tasks/*.json`, and relevant architecture docs;
 - work on a branch, never directly on `main`;
-- obey the same protected paths, review requirements, and deterministic tests as the cloud coding agent;
+- obey the same protected paths, task-gated `TiaV21Worker` exception, review requirements, and deterministic tests as the cloud coding agent;
 - never receive unrestricted authority over the trusted Windows/TIA machine;
 - never bypass external review or TIA acceptance;
 - write durable decisions/results back to GitHub.
@@ -114,14 +116,15 @@ Cline is most useful for interactive prototyping, local debugging, and fast edit
 
 ## Trust and acceptance boundaries
 
-The repository's existing deterministic trust boundary remains authoritative:
+The repository's deterministic trust boundary remains authoritative:
 
 - AI candidate source executes only on disposable Linux runners in the autonomous path;
-- protected infrastructure is not candidate-editable;
+- protected orchestration/task/prompt infrastructure is not candidate-editable;
+- `src/TiaV21Worker/**` is candidate-editable only under an explicit trusted-task opt-in and still cannot execute on Windows before independent review + human merge;
 - Windows checks out trusted `main`;
-- Windows receives only bounded PLC artifacts;
+- Windows never executes candidate source or candidate scripts; it receives only bounded task-approved artifacts/inputs while executing trusted code;
 - trusted `src/TiaV21Worker` is the only TIA Openness execution path;
-- real TIA Portal V21 compilation is authoritative for Siemens acceptance;
+- real TIA Portal V21 compilation/Openness evidence is authoritative for Siemens acceptance;
 - review does not replace deterministic testing or TIA compilation;
 - no automatic merge.
 
