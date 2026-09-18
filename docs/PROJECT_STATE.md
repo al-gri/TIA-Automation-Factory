@@ -6,6 +6,8 @@ This is the first operational state document to read after root `AGENTS.md`.
 
 GitHub is the only durable source of truth. A fresh ChatGPT / Gemini / coding-agent session must recover the project from this repository, issues, pull requests, Actions evidence, and versioned tasks without relying on any previous chat.
 
+For a clean continuation, also read `docs/NEXT_CHAT_HANDOFF.md`.
+
 ## Project
 
 Repository: `al-gri/TIA-Automation-Factory`
@@ -30,7 +32,7 @@ Modern Domain / compiler / backend code must not depend on `Siemens.Engineering`
 
 ## Current operating model
 
-Infrastructure through I6 is complete and frozen. Phase 2 repository-first AI orchestration is now active.
+Infrastructure through I6 is complete and frozen. Phase 2 repository-first AI orchestration is active and proven end to end.
 
 Coding provider order is authoritative and implemented in `agents/runtime/run-coder.sh` plus the agent/repair workflows:
 
@@ -43,7 +45,7 @@ ChatGPT is the Senior Architect and primary connected external reviewer. TIA Por
 
 ## Fresh-chat operator contract
 
-Root `AGENTS.md` is mandatory. It defines the commands a clean ChatGPT session must understand.
+Root `AGENTS.md` is mandatory. `docs/NEXT_CHAT_HANDOFF.md` contains the full durable handoff.
 
 When the user says `проверь репозиторий`, `проверь DeepSeek`, `проверь запросы DeepSeek`, `что ждёт review?`, or equivalent, connected ChatGPT must inspect GitHub itself, perform any authorized ChatGPT review/orchestration action, write durable results back to GitHub, and report only the operationally important result to the user.
 
@@ -53,7 +55,7 @@ If Gemini is required by risk policy, ChatGPT must not impersonate Gemini. It mu
 
 ## Provider implementation proof
 
-OpenRouter is already a proven working coding provider from the earlier I6 path. DeepSeek official API is also proven independently.
+OpenRouter is a proven working coding provider from the earlier autonomous/I6 path. DeepSeek official API is also proven independently.
 
 DeepSeek proof run `35318239703`:
 
@@ -66,11 +68,11 @@ DeepSeek proof run `35318239703`:
 - cache read tokens: 187,264
 - reported cost: `$0.005266992`
 
-Repository-first / OpenRouter-first policy implementation was merged in PR #15. Main implementation commit: `77d383a8073fb04286f54d47a3fa87b2653dbf83`.
+Repository-first / OpenRouter-first policy implementation was merged in PR #15. Main implementation commit for that infrastructure slice: `77d383a8073fb04286f54d47a3fa87b2653dbf83`.
 
 That change also fixed Candidate Validation so trusted task JSON is always resolved from `main` rather than from the candidate checkout.
 
-The exact new OpenRouter -> DeepSeek continuation path is configured and ready; the next normal coding task should be used as the live audit of this ordering rather than creating another artificial infrastructure-only smoke unless needed.
+The exact OpenRouter -> DeepSeek continuation path is configured and ready. The next normal generator-development tasks should be used to collect live provider-order/fallback metrics rather than adding infrastructure-only smoke tests without a concrete need.
 
 ## Connected ChatGPT -> TIA proof
 
@@ -126,7 +128,7 @@ HIGH risk / architecture / PLC semantics / security: independent ChatGPT and Gem
 
 ## Current phase and next work
 
-Core Phase 2 plumbing is operational. The project can now move from infrastructure work to actual generator development.
+Core Phase 2 plumbing is operational. The project should now move from infrastructure work to actual PLC generator development.
 
 For normal work:
 
@@ -136,20 +138,27 @@ For normal work:
 4. connected ChatGPT external review is required according to risk policy;
 5. `CHANGES_REQUIRED` resumes bounded repair on the same PR;
 6. `APPROVE` continues the unchanged candidate through trusted Candidate Validation / TIA;
-7. no automatic merge.
+7. Gemini is invoked only when risk policy requires an independent second reviewer;
+8. no automatic merge.
 
-Near-term measurement goal: record provider/model, calls/steps, tokens/cache, fallback reason, cost, duration, and repair count over several real generator tasks before considering LiteLLM or additional routing complexity.
+Immediate engineering focus:
+
+- return to generator/domain/compiler design;
+- analyze how Siemens Open Library concepts should map into the vendor-neutral model and Siemens backend;
+- define the first real small generator task with explicit deterministic and TIA acceptance criteria;
+- collect provider/model/token/cache/cost/duration/repair metrics over several real tasks before considering LiteLLM or more complex provider pooling.
 
 ## Required documents
 
 - `AGENTS.md` — mandatory clean-chat / agent entry point and user-command semantics.
 - `README.md` — repository overview and mandatory start links.
 - `docs/PROJECT_STATE.md` — current authoritative operational snapshot.
+- `docs/NEXT_CHAT_HANDOFF.md` — full fresh-chat project handoff and work order.
 - `docs/AI_COLLABORATION_MODEL.md` — roles, provider cascade, risk policy.
 - `docs/EXTERNAL_REVIEW_PROTOCOL.md` — normative external-review protocol.
 - `docs/PHASE2_PROOF_2026-09-18.md` — completed connected-review/TIA proof.
 - `docs/INFRASTRUCTURE_LOG.md` — chronological infrastructure history.
-- `docs/GENERATOR_CHAT_HANDOFF.md` — technical architecture / workflow background.
+- `docs/GENERATOR_CHAT_HANDOFF.md` — generator/domain/compiler focused handoff.
 - `tasks/*.json` — trusted executable task specifications.
 - `reviews/` — review templates and machine-readable response schema.
 - `.github/workflows/` — trusted orchestration implementation.
