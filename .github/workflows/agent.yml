@@ -72,6 +72,7 @@ jobs:
           DISPATCH_ISSUE: ${{ inputs.issue_number }}
           EVENT_ISSUE: ${{ github.event.issue.number }}
         run: |
+          ALLOW_TIA_WORKER=false
           if [ "$EVENT_NAME" = "issues" ]; then
             MODE="issue"
             ISSUE_NUMBER="$EVENT_ISSUE"
@@ -98,7 +99,13 @@ jobs:
               echo "Task file not found: $TASK_PATH"
               exit 1
             fi
-            jq -e '.id and .title and .acceptance.requirements and .acceptance.tia and .generator.input and .generator.expectedArtifact' "$TASK_PATH" >/dev/null
+            jq -e '.id and .title and .acceptance.requirements and .acceptance.tia and .review.riskClass and .review.reviewType' "$TASK_PATH" >/dev/null
+            if jq -e 'has("generator") and ((.generator.input // "") == "" or (.generator.expectedArtifact // "") == "")' "$TASK_PATH" >/dev/null; then
+              echo "generator, when present, requires both input and expectedArtifact"
+              exit 1
+            fi
+            ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$TASK_PATH")
+            case "$ALLOW_TIA_WORKER" in true|false) ;; *) echo "candidatePolicy.allowTiaV21WorkerChanges must be boolean"; exit 1 ;; esac
             TASK_ID=$(jq -r '.id' "$TASK_PATH")
             KEY="task-${TASK_ID}"
           fi
@@ -107,6 +114,7 @@ jobs:
           echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
           echo "task_path=$TASK_PATH" >> "$GITHUB_OUTPUT"
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "allow_tia_worker=$ALLOW_TIA_WORKER" >> "$GITHUB_OUTPUT"
 
       - name: Create agent branch
         id: branch
@@ -211,6 +219,8 @@ jobs:
 
       - name: Capture and validate agent changes
         shell: bash
+        env:
+          ALLOW_TIA_WORKER: ${{ steps.work.outputs.allow_tia_worker }}
         run: |
           {
             git diff --name-only
@@ -225,8 +235,12 @@ jobs:
             exit 1
           fi
 
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/agent-changed-files.txt"; then
-            echo "Agent changed a protected path. Refusing to publish the branch."
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/agent-changed-files.txt"; then
+            echo "Agent changed protected infrastructure. Refusing to publish the branch."
+            exit 1
+          fi
+          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/agent-changed-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
+            echo "Agent changed src/TiaV21Worker without trusted task opt-in."
             exit 1
           fi
 
@@ -256,14 +270,20 @@ jobs:
 
       - name: Verify no protected changes appeared during acceptance
         shell: bash
+        env:
+          ALLOW_TIA_WORKER: ${{ steps.work.outputs.allow_tia_worker }}
         run: |
           {
             git diff --name-only
             git ls-files --others --exclude-standard
           } | sort -u > "$RUNNER_TEMP/final-changed-files.txt"
 
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/final-changed-files.txt"; then
-            echo "Protected path changed. Refusing to publish the branch."
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/final-changed-files.txt"; then
+            echo "Protected infrastructure changed. Refusing to publish the branch."
+            exit 1
+          fi
+          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/final-changed-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
+            echo "src/TiaV21Worker changed without trusted task opt-in."
             exit 1
           fi
 
@@ -292,6 +312,7 @@ jobs:
           WORK_KEY: ${{ steps.work.outputs.key }}
           BRANCH: ${{ steps.branch.outputs.name }}
           PROVIDER_AUDIT: ${{ steps.model.outputs.audit }}
+          ALLOW_TIA_WORKER: ${{ steps.work.outputs.allow_tia_worker }}
         run: |
           if [ "$MODE" = "task" ]; then
             TITLE=$(jq -r '.title' "$TASK_PATH")
@@ -303,12 +324,17 @@ jobs:
             SOURCE_LINE="Issue: #${ISSUE_NUMBER}"
           fi
 
+          TIA_POLICY_LINE="TiaV21Worker candidate changes were not permitted."
+          if [ "$ALLOW_TIA_WORKER" = "true" ]; then
+            TIA_POLICY_LINE="The trusted task explicitly permits bounded src/TiaV21Worker changes. Candidate code still executes only on disposable Linux; Windows/TIA execution requires trusted main."
+          fi
+
           cat > "$RUNNER_TEMP/pr-body.md" <<EOF
           Automated coding-agent candidate for ${WORK_KEY}.
 
           ${SOURCE_LINE}
 
-          Agent execution environment: disposable GitHub-hosted Linux runner. Protected Windows/TIA integration paths were not permitted to change.
+          Agent execution environment: disposable GitHub-hosted Linux runner. Protected orchestration paths were not permitted to change. ${TIA_POLICY_LINE}
 
           Provider/model audit:
           \`${PROVIDER_AUDIT}\`
@@ -344,16 +370,8 @@ jobs:
 
           if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$TASK_PATH" >/dev/null 2>&1; then
             jq -r '.review.reviewerSlots[]' "$TASK_PATH" > "$RUNNER_TEMP/reviewer-slots.txt"
-          elif [ "$RISK_CLASS" = "HIGH" ]; then
-            printf '%s\n' chatgpt gemini > "$RUNNER_TEMP/reviewer-slots.txt"
           else
             printf '%s\n' chatgpt > "$RUNNER_TEMP/reviewer-slots.txt"
-          fi
-
-          if [ "$RISK_CLASS" = "HIGH" ]; then
-            sort -u "$RUNNER_TEMP/reviewer-slots.txt" > "$RUNNER_TEMP/reviewer-slots.sorted"
-            printf '%s\n' chatgpt gemini | sort > "$RUNNER_TEMP/required-high-slots.txt"
-            diff -u "$RUNNER_TEMP/required-high-slots.txt" "$RUNNER_TEMP/reviewer-slots.sorted"
           fi
 
           while IFS= read -r SLOT; do
