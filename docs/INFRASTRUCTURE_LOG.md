@@ -65,16 +65,21 @@ Short, chronological record of infrastructure work. Keep entries concise and fac
 - I6 created PR #10 at candidate `91210d2da2a5a361aebb8f8077d715b9d893553d`; deterministic Linux acceptance passed 2/2 tests, Motor regression generation, and `UDT_Valve.scl` generation.
 - I6 Candidate Validation run `35315441338` passed Requirements Reviewer, candidate packaging, trusted Windows/TIA acceptance, PLC/TIA Reviewer, and final `repair-or-finish` at attempt 0/3.
 - I6 trusted TIA Portal V21 compiled the exact `UDT_Valve.scl` candidate artifact with `success=true`, 0 errors, and 0 warnings; `UDT_Valve (UDT)` and `Main (OB1)` both reported Success.
-- Infrastructure baseline through I6 is now complete and frozen; future baseline changes require a concrete generator/Phase-2 blocker.
-- Phase 2 slice 1 started: added `docs/EXTERNAL_REVIEW_PROTOCOL.md`, standalone code/architecture/PLC review templates, and a versioned machine-readable external review response schema.
+- Infrastructure baseline through I6 is complete and frozen; future baseline changes require a concrete generator/Phase-2 blocker.
+- Phase 2 external-review protocol is implemented with versioned code/architecture/PLC templates, strict bound reviewer JSON, trusted package generation, and explicit `WAITING_FOR_EXTERNAL_REVIEW` / result / `REVIEW_CONFLICT` states.
+- Connected ChatGPT may now act as the operator-facing review console: on request it can read pending GitHub review packages and evidence and write the authorized structured review response back to GitHub; HIGH-risk Gemini review remains independent.
+- Added DeepSeek API as the primary autonomous coder with provider order DeepSeek -> Gemini -> OpenRouter, a 16-step OpenCode bound, 30-minute DeepSeek timeout, and per-run token/cache/cost audit.
+- Pinned OpenCode `1.18.31` lacked a built-in DeepSeek catalog entry, so `opencode.json` now declares the official `https://api.deepseek.com` endpoint explicitly as an OpenAI-compatible provider using `deepseek-flash`.
+- DeepSeek primary path proven in Autonomous Agent run `35318239703`: selected provider `deepseek`, model `deepseek/deepseek-flash`, no fallback, 14 steps, 16,324 input tokens, 2,271 output tokens, 187,264 cache-read tokens, reported cost `$0.005266992`.
+- DeepSeek smoke produced PR #13 with only `AutomationCompilerTests.cs`; it independently mutation-checked the duplicate-name test, restored production code, and deterministic Linux tests passed.
 
 ### CURRENT
-- Phase 2 / issue #7: implement trusted self-contained external review packages and explicit external-review states on top of the frozen I6 baseline.
+- Phase 2 / issue #7: connect validated external `CHANGES_REQUIRED` results to the existing bounded repair dispatcher, then exercise the full DeepSeek -> ChatGPT review -> repair/approve loop on a versioned task.
 
 ### NEXT
-- Add trusted review-package generation/validation plumbing without changing the Windows/TIA boundary.
-- Add DeepSeek API as the primary bounded coder only after the external-review gate is testable and `DEEPSEEK_API_KEY` is configured.
-- Record per-task calls/tokens/cache/cost before considering LiteLLM or additional provider pooling.
+- Add automatic bounded repair/resume from validated external reviewer findings without changing the Windows/TIA boundary.
+- Run one versioned generator-development task through DeepSeek and the connected ChatGPT review path.
+- Accumulate per-task calls/tokens/cache/cost before considering LiteLLM or additional provider pooling.
 
 ## Logging rule
 After every meaningful infrastructure change, append one short bullet under DONE/CURRENT/NEXT. Do not turn this file into design documentation; design belongs in dedicated design docs.
