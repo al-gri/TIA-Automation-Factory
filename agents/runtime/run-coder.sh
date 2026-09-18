@@ -75,10 +75,10 @@ write_audit() {
       selected_model:$selected_model,
       final_outcome:$final_outcome,
       provider_order:["openrouter","deepseek"],
-      policy:"Use OpenRouter while available; on quota/rate exhaustion continue with DeepSeek. Gemini is reserved for independent review/escalation, not routine coding.",
+      policy:"Use OpenRouter while available; on quota/rate exhaustion continue with DeepSeek. A fresh secondary ChatGPT is reserved for independent review when the primary ChatGPT is not independent; it is not a coding fallback.",
       openrouter:{requested:$openrouter_requested,outcome:$openrouter_outcome,reason:$openrouter_reason,exit_status:$openrouter_status,usage:$openrouter_usage},
       deepseek:{requested:$deepseek_requested,outcome:$deepseek_outcome,reason:$deepseek_reason,exit_status:$deepseek_status,usage:$deepseek_usage},
-      gemini:{role:"independent_review_only",outcome:"not_used_by_coder"}
+      secondary_chatgpt:{role:"independent_review_only",outcome:"not_used_by_coder"}
     }' > "$AUDIT_PATH"
 }
 
