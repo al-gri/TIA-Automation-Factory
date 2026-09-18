@@ -1,0 +1,43 @@
+{
+  "id": "PHASE2-001",
+  "title": "DeepSeek duplicate-field validation review smoke",
+  "goal": "Prove the Phase 2 DeepSeek -> connected ChatGPT external review -> trusted validation/TIA path with a small deterministic compiler regression test.",
+  "scope": [
+    "Add a deterministic test proving AutomationCompiler rejects duplicate field names case-insensitively.",
+    "Use Start and start or an equivalent case-only duplicate pair.",
+    "Do not change production behavior unless the existing duplicate-name contract is actually missing.",
+    "Keep the change isolated to source/tests needed for this requirement."
+  ],
+  "generator": {
+    "input": "examples/motor.json",
+    "expectedArtifact": "UDT_Motor.scl"
+  },
+  "acceptance": {
+    "requirements": [
+      "A deterministic automated test proves AutomationCompiler rejects duplicate field names case-insensitively.",
+      "The test asserts compilation fails with InvalidOperationException for a case-only duplicate pair.",
+      "Existing SiemensBackend/PlcCompiler tests remain green.",
+      "GeneratorCli still produces UDT_Motor.scl from examples/motor.json on Linux."
+    ],
+    "tia": [
+      "The exact generated UDT_Motor.scl candidate artifact is transferred through the trusted Windows acceptance boundary.",
+      "TIA Portal V21 imports/generates the tested UDT_Motor.scl artifact and compiles with zero errors."
+    ]
+  },
+  "review": {
+    "riskClass": "LOW",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": ["chatgpt"]
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json",
+    "src/TiaV21Worker/**"
+  ],
+  "maxRepairAttempts": 2
+}
