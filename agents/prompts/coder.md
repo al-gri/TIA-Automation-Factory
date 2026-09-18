@@ -22,9 +22,19 @@ Do not modify any of these paths:
 - `.gemini/**`
 - `.openhands/**`
 - `.gitignore`
-- `src/TiaV21Worker/**`
+- `opencode.json`
 
-Do not attempt to connect to, control, discover, or access the Windows self-hosted runner or TIA Portal directly.
+`src/TiaV21Worker/**` is protected by default. You may modify it **only** when the current trusted versioned task explicitly contains:
+
+```json
+"candidatePolicy": {
+  "allowTiaV21WorkerChanges": true
+}
+```
+
+That opt-in permits only the bounded `TiaV21Worker` source changes required by the task. It does not permit changes to orchestration, prompts, tasks, repository policy, secrets, or runner configuration.
+
+Even when the task opts in to `TiaV21Worker` changes, do not attempt to connect to, control, discover, or access the Windows self-hosted runner or TIA Portal directly. Candidate code runs only on the disposable Linux implementation path; Windows/TIA execution is allowed only after independent review and human merge make that code part of trusted `main`.
 
 ## Git operations
 Do not commit, push, create branches, open pull requests, merge, or change repository settings. The outer trusted workflow owns Git operations.
