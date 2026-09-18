@@ -182,12 +182,15 @@ jobs:
           echo "state=$NEW_STATE" >> "$GITHUB_OUTPUT"
 
       - name: Resolve trusted task and repair bound
-        if: steps.state.outputs.risk_class != 'HIGH' && steps.publish.outputs.state != 'BLOCKED'
+        if: steps.publish.outputs.state != 'BLOCKED'
         id: task
         shell: bash
         env:
           TASK_ID: ${{ steps.state.outputs.task_id }}
           REVIEW_ROUND: ${{ steps.state.outputs.review_round }}
+          RISK_CLASS: ${{ steps.state.outputs.risk_class }}
+          REVIEW_TYPE: ${{ steps.state.outputs.review_type }}
+          REVIEWER_SLOT: ${{ steps.state.outputs.reviewer_slot }}
         run: |
           set -euo pipefail
           : > "$RUNNER_TEMP/task-matches.txt"
@@ -204,6 +207,13 @@ jobs:
             exit 1
           fi
           TASK_PATH=$(cat "$RUNNER_TEMP/task-matches.txt")
+          TASK_RISK=$(jq -r '.review.riskClass' "$TASK_PATH")
+          TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$TASK_PATH")
+          test "$TASK_RISK" = "$RISK_CLASS"
+          test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
+          if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$TASK_PATH" >/dev/null 2>&1; then
+            jq -e --arg slot "$REVIEWER_SLOT" '.review.reviewerSlots | index($slot) != null' "$TASK_PATH" >/dev/null
+          fi
           MAX_REPAIRS=$(jq -r '.maxRepairAttempts // 0' "$TASK_PATH")
           [[ "$MAX_REPAIRS" =~ ^[0-9]+$ ]]
           [[ "$REVIEW_ROUND" =~ ^[1-9][0-9]*$ ]]
@@ -235,8 +245,19 @@ jobs:
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/approved-dispatch.json"
           gh pr comment "$PR_NUMBER" --body "External review is **APPROVED**. Dispatched trusted Candidate Validation for candidate \`${CANDIDATE_SHA}\` at repair attempt ${ATTEMPT}."
 
-      - name: Dispatch bounded DeepSeek repair after LOW/MEDIUM changes required
-        if: steps.state.outputs.risk_class != 'HIGH' && steps.publish.outputs.state == 'REVIEW_CHANGES_REQUIRED'
+      - name: Record approved HIGH candidate for delegated merge decision
+        if: steps.state.outputs.risk_class == 'HIGH' && steps.publish.outputs.state == 'APPROVED_EXTERNAL_REVIEW'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          CANDIDATE_SHA: ${{ steps.state.outputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          gh pr comment "$PR_NUMBER" --body "HIGH-risk external review is **APPROVED** for exact candidate \`${CANDIDATE_SHA}\`. No pre-merge Windows/TIA execution is dispatched. Connected ChatGPT may make the delegated technical merge decision after verifying all applicable exact-SHA gates."
+
+      - name: Dispatch bounded repair after changes required
+        if: steps.publish.outputs.state == 'REVIEW_CHANGES_REQUIRED'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -278,64 +299,4 @@ jobs:
             > "$RUNNER_TEMP/repair-dispatch.json"
           cat "$RUNNER_TEMP/repair-dispatch.json"
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/repair-dispatch.json"
-          gh pr comment "$PR_NUMBER" --body "External review requires changes. Dispatched bounded DeepSeek repair attempt **${REPAIR_ATTEMPT}/${MAX_REPAIRS}** on the same candidate PR."
-
-      - name: Resolve HIGH-risk dual-review aggregate
-        if: steps.state.outputs.risk_class == 'HIGH'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.issue.number }}
-          TASK_ID: ${{ steps.state.outputs.task_id }}
-          CANDIDATE_SHA: ${{ steps.state.outputs.candidate_sha }}
-          REVIEW_TYPE: ${{ steps.state.outputs.review_type }}
-          REVIEW_ROUND: ${{ steps.state.outputs.review_round }}
-        run: |
-          set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" > "$RUNNER_TEMP/pr-comments-after.json"
-          python3 - <<'PY'
-          import json, os, re
-          from pathlib import Path
-
-          comments = json.loads(Path(os.environ['RUNNER_TEMP'], 'pr-comments-after.json').read_text(encoding='utf-8'))
-          pattern = re.compile(r'<!-- external-review-state-v1\n(\{[^\n]+\})\n-->', re.M)
-          latest = {}
-          for comment in comments:
-              for raw in pattern.findall(comment.get('body') or ''):
-                  try:
-                      state = json.loads(raw)
-                  except json.JSONDecodeError:
-                      continue
-                  if (
-                      state.get('taskId') == os.environ['TASK_ID'] and
-                      state.get('candidateSha','').lower() == os.environ['CANDIDATE_SHA'].lower() and
-                      state.get('reviewType') == os.environ['REVIEW_TYPE'] and
-                      str(state.get('reviewRound')) == os.environ['REVIEW_ROUND'] and
-                      state.get('riskClass') == 'HIGH' and
-                      state.get('reviewerSlot') in {'chatgpt','gemini'}
-                  ):
-                      latest[state['reviewerSlot']] = state['state']
-
-          terminal = {'APPROVED_EXTERNAL_REVIEW', 'REVIEW_CHANGES_REQUIRED', 'BLOCKED'}
-          a = latest.get('chatgpt')
-          b = latest.get('gemini')
-          if a not in terminal or b not in terminal:
-              aggregate = 'WAITING_FOR_EXTERNAL_REVIEW'
-          elif a == b:
-              aggregate = a
-          else:
-              aggregate = 'REVIEW_CONFLICT'
-
-          aggregate_id = 'AGG-' + os.environ['TASK_ID'] + '-' + os.environ['CANDIDATE_SHA'][:12] + '-' + os.environ['REVIEW_TYPE'] + '-' + os.environ['REVIEW_ROUND']
-          state = {
-              'protocolVersion':'1.0', 'reviewRequestId':aggregate_id, 'reviewerSlot':'aggregate',
-              'taskId':os.environ['TASK_ID'], 'candidateSha':os.environ['CANDIDATE_SHA'],
-              'reviewType':os.environ['REVIEW_TYPE'], 'reviewRound':int(os.environ['REVIEW_ROUND']),
-              'riskClass':'HIGH', 'state':aggregate,
-              'chatgptState':a, 'geminiState':b,
-          }
-          marker = '<!-- external-review-state-v1\n' + json.dumps(state, separators=(',', ':')) + '\n-->\n'
-          body = marker + '### High-risk external review aggregate\n\nState: **' + aggregate + '**\n\nChatGPT: `' + str(a) + '`  \nGemini: `' + str(b) + '`\n'
-          Path(os.environ['RUNNER_TEMP'], 'aggregate-comment.md').write_text(body, encoding='utf-8')
-          PY
-          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/aggregate-comment.md"
+          gh pr comment "$PR_NUMBER" --body "External review requires changes. Dispatched bounded repair attempt **${REPAIR_ATTEMPT}/${MAX_REPAIRS}** on the same candidate PR for risk class \`${RISK_CLASS}\`."
