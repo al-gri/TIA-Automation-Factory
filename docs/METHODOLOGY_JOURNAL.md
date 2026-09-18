@@ -180,16 +180,41 @@ Introduced M-013: keep control-plane authority separate from mixed prompt conten
 
 PR #30 repaired the live GOV-CTX-001 trust-origin defect and passed exact-SHA CI #224 plus fresh independent `chatgpt-secondary` APPROVE, but current governance also required a trusted task on `main` to authorize `chatgpt-secondary`. No `tasks/GOV-CTX-001.json` existed. Adding one inside the same candidate would have been self-authorization; creating a separate protected task PR raised the same recursive authorization question.
 
-The human operator granted a one-time exact-SHA waiver for PR #30 and then explicitly directed the project to eliminate the bootstrap ambiguity under issue #31. PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b`. Issue #31 records a SHA-256 fingerprint of its human-authorized scope before the permanent policy candidate was authored.
+The human operator granted a one-time exact-SHA waiver for PR #30 and then explicitly directed the project to eliminate the bootstrap ambiguity under issue #31. PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b`. Issue #31 was used to define a bounded bootstrap scope before the permanent policy candidate was authored.
 
 ### Lessons
 
 - A fail-closed task/review system still needs an explicit root-of-authority path for repairing its own authorization mechanism.
 - The candidate must never solve recursion by authorizing itself.
-- Human strategic authority is appropriate at the bootstrap boundary, but the authorized scope should be fingerprinted and persisted so later review can detect widening.
+- Human strategic authority is appropriate at the bootstrap boundary, but scope and provenance must be independently auditable from GitHub.
 - Normal automation should remain task-only and fail-closed; exceptional governance authorization is safer as a visibly manual lane than as an implicit fallback.
-- Once the bounded scope is human-authorized, exact-SHA CI and an independent reviewer can gate the implementation without requiring a second routine merge confirmation.
+- Once the bounded scope is validly human-authorized, exact-SHA CI and an independent reviewer can gate the implementation without requiring a second routine merge confirmation.
 
 ### Methodology effect
 
-Introduced M-014 and `docs/GOVERNANCE_BOOTSTRAP.md`: rare protected-governance recursion uses a human-authorized issue-body fingerprint, HIGH-risk exact-SHA CI and fresh `chatgpt-secondary` review while ordinary task-based automation remains unchanged and fail-closed.
+Introduced M-014 and `docs/GOVERNANCE_BOOTSTRAP.md`: rare governance-authority recursion uses a frozen issue-body fingerprint, HIGH-risk exact-SHA CI and fresh `chatgpt-secondary` review while ordinary task-based automation remains unchanged and fail-closed.
+
+## 2026-09-18 — Authority provenance must be separate from the conflicted actor
+
+### Evidence
+
+The first independent review of PR #32 at candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` returned `CHANGES_REQUIRED` with four major findings:
+
+- F001: connector-authored comments could claim human authorization without proving that the human actually created the authority artifact;
+- F002: the live authorization issue did not contain the mandatory bounded authorization fields inside its fingerprinted body;
+- F003: bootstrap eligibility incorrectly depended on coding-agent protected paths even though the candidate changed governance docs outside that list;
+- F004: primary-persisted secondary JSON proved response contents but not reviewer-evidence provenance.
+
+GitHub API metadata confirmed that the existing authorization comments were created through `chatgpt-codex-connector`, so they could not serve as origin-verifiable human authority.
+
+### Lessons
+
+- A trusted actor identity in the rendered GitHub UI is insufficient when an app can act as that account; provenance metadata matters.
+- Human root authorization for an exceptional lane must be represented by an action the conflicted primary cannot create, not by prose saying that the human approved something.
+- Bootstrap eligibility should describe the semantic authority recursion, not accidentally mirror one implementation's protected-path list.
+- Review identity fields and exact SHA authenticate *what* a verdict refers to, but not *who caused it to enter the trusted record*.
+- Conservative findings may be acted on even when relayed through primary, but an authority-bearing APPROVE requires provenance separated from the candidate author.
+
+### Methodology effect
+
+M-014 and the bootstrap protocol now require direct non-app-mediated human GitHub authorization bound to the frozen issue-body hash, plus provenance-separated direct human relay/attestation of any authority-bearing `chatgpt-secondary` APPROVE. Normal task-only automation remains unchanged and fail-closed.
