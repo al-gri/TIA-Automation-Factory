@@ -36,6 +36,8 @@ on:
         type: string
   repository_dispatch:
     types: [external-review-request]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
@@ -44,6 +46,11 @@ permissions:
 
 jobs:
   build-review-package:
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+       github.event.comment.author_association == 'OWNER' &&
+       startsWith(github.event.comment.body, '/prepare-external-review '))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -63,6 +70,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_PR: ${{ github.event.issue.number }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number || inputs.pr_number }}
           TASK_PATH: ${{ github.event.client_payload.task_path || inputs.task_path }}
           REVIEW_TYPE: ${{ github.event.client_payload.review_type || inputs.review_type }}
@@ -71,6 +81,13 @@ jobs:
           REVIEW_ROUND: ${{ github.event.client_payload.review_round || inputs.review_round }}
         run: |
           set -euo pipefail
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            read -r COMMAND TASK_PATH REVIEW_TYPE RISK_CLASS REVIEWER_SLOT REVIEW_ROUND EXTRA <<< "$COMMENT_BODY"
+            test "$COMMAND" = "/prepare-external-review"
+            test -z "${EXTRA:-}"
+            PR_NUMBER="$COMMENT_PR"
+          fi
+
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Invalid PR number"; exit 1; }
           [[ "$REVIEW_ROUND" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid review round"; exit 1; }
           case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path"; exit 1 ;; esac
@@ -132,7 +149,6 @@ jobs:
           python3 - <<'PY'
           import os
           from pathlib import Path
-
           root = Path(os.environ['CANDIDATE_ROOT'])
           changed = Path(os.environ['RUNNER_TEMP']) / 'changed-files.txt'
           out = Path(os.environ['RUNNER_TEMP']) / 'source-context.txt'
@@ -147,8 +163,7 @@ jobs:
                   text = path.read_text(encoding='utf-8')
               except UnicodeDecodeError:
                   continue
-              header = f"\n--- {rel} ---\n"
-              block = header + text
+              block = f"\n--- {rel} ---\n" + text
               encoded = block.encode('utf-8')
               if used + len(encoded) > limit:
                   parts.append(f"\n--- {rel} ---\n[omitted: bounded source-context limit reached]\n")
@@ -225,7 +240,6 @@ jobs:
           python3 - <<'PY'
           import json, os
           from pathlib import Path
-
           temp = Path(os.environ['RUNNER_TEMP'])
           task = json.loads(Path(os.environ['TASK_PATH']).read_text(encoding='utf-8'))
           context = {
