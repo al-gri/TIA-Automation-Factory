@@ -154,3 +154,22 @@ The project explicitly treats development methodology as a second product alongs
 ### Expected future use
 
 After enough real generator tasks, review the accumulated evidence and extract a stable playbook covering task design, context construction, provider routing, review independence, repair budgets, deterministic gates, trusted-machine boundaries and documentation discipline.
+
+## 2026-09-18 — Prompt content must never become control-plane authority
+
+### Evidence
+
+A historical independent review payload for PR #24 identified F011/F012 on candidate `450dca6608f0526d00370595fc5a928f7bbfbd71`. The payload itself was stale for merge purposes, but a fresh inspection of current `main` confirmed that `build-coder-context.py` still parsed task-looking headings from mixed `--prompt-input` content and used the parsed `contextFiles` as trusted authority. Current `validate_repo_path()` also silently canonicalized some malformed spellings. The defect had therefore survived the final #24 merge and downstream OLQ work had already begun.
+
+### Lessons
+
+- Exact-SHA staleness applies to verdicts, not to defect hypotheses: an old finding should be re-tested against current source before being discarded.
+- A prompt assembled by a trusted workflow can still contain untrusted data such as issue bodies, diffs, review comments and logs.
+- Trust provenance must attach to fields, not to the enclosing text blob.
+- Control metadata such as task identity, `contextFiles`, permissions and reviewer policy must travel through a separate structured channel and be resolved from trusted state.
+- Context-path normalization must fail closed; canonicalization after input is not equivalent to requiring canonical input.
+- A final independent review can miss a previously unpersisted finding if review evidence is not durably bound into the repository workflow.
+
+### Methodology effect
+
+Introduced M-013: keep control-plane authority separate from mixed prompt content. GOV-CTX-001 / issue #28 repairs task authority through structured event metadata plus trusted Git lookup, adds prompt-spoof and canonical-path regressions, and blocks downstream PR #27 until this trust-origin repair passes exact-SHA CI and independent `chatgpt-secondary` review.
