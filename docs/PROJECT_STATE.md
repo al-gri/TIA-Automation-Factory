@@ -110,6 +110,8 @@ TIA V21 diagnostics for the exact `UDT_Motor.scl` candidate artifact:
 
 `UDT_Motor (UDT)` and `Main (OB1)` both compiled successfully.
 
+Detailed proof record: `docs/PHASE2_PROOF_2026-09-18.md`.
+
 This proves the intended human interaction pattern: the user can ask ChatGPT in a clean connected chat to inspect the repository / pending AI work; ChatGPT can independently review and write its decision back to GitHub; the unchanged approved candidate then continues through trusted deterministic gates and real TIA Portal V21.
 
 ## Risk / Gemini policy
@@ -145,6 +147,7 @@ Near-term measurement goal: record provider/model, calls/steps, tokens/cache, fa
 - `docs/PROJECT_STATE.md` — current authoritative operational snapshot.
 - `docs/AI_COLLABORATION_MODEL.md` — roles, provider cascade, risk policy.
 - `docs/EXTERNAL_REVIEW_PROTOCOL.md` — normative external-review protocol.
+- `docs/PHASE2_PROOF_2026-09-18.md` — completed connected-review/TIA proof.
 - `docs/INFRASTRUCTURE_LOG.md` — chronological infrastructure history.
 - `docs/GENERATOR_CHAT_HANDOFF.md` — technical architecture / workflow background.
 - `tasks/*.json` — trusted executable task specifications.
