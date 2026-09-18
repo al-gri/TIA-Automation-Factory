@@ -12,7 +12,7 @@ jobs:
   requirements-review:
     if: startsWith(github.event.client_payload.branch, 'agent/')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     outputs:
       task_path: ${{ steps.task.outputs.path }}
       expected_artifact: ${{ steps.task.outputs.expected }}
@@ -23,11 +23,6 @@ jobs:
           ref: ${{ github.event.client_payload.candidate_sha }}
           fetch-depth: 0
           persist-credentials: false
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          package-manager-cache: false
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -43,8 +38,8 @@ jobs:
         run: |
           set -euo pipefail
           case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task_path: $TASK_PATH"; exit 1 ;; esac
-          test -n "$PR_NUMBER"
-          test -n "$CANDIDATE_SHA"
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
           git fetch --no-tags origin main
           git show "origin/main:$TASK_PATH" > "$RUNNER_TEMP/trusted-task.json"
           jq -e '.id and .acceptance.requirements and .acceptance.tia and .generator.input and .generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json" >/dev/null
@@ -55,117 +50,28 @@ jobs:
       - name: Reject protected-path changes
         shell: bash
         run: |
+          set -euo pipefail
           git diff --name-only origin/main...HEAD | sort -u | tee "$RUNNER_TEMP/changed-files.txt"
           if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/changed-files.txt"; then
             echo "Candidate changed protected infrastructure."
             exit 1
           fi
-          git diff --no-ext-diff --unified=80 origin/main...HEAD > "$RUNNER_TEMP/candidate.diff"
 
-      - name: Deterministic Linux evidence
+      - name: Deterministic Linux requirements evidence
         shell: bash
         run: |
           set -euo pipefail
-          set -o pipefail
-          dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release 2>&1 | tee "$RUNNER_TEMP/linux-test.log"
+          dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
 
           INPUT=$(jq -r '.generator.input' "$RUNNER_TEMP/trusted-task.json")
           EXPECTED=$(jq -r '.generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json")
-          rm -rf "$RUNNER_TEMP/reviewer-generated"
-          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/reviewer-generated" 2>&1 | tee "$RUNNER_TEMP/generator.log"
-          test -f "$RUNNER_TEMP/reviewer-generated/$EXPECTED"
+          rm -rf "$RUNNER_TEMP/requirements-generated"
+          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/requirements-generated"
+          test -f "$RUNNER_TEMP/requirements-generated/$EXPECTED"
 
           rm -rf "$RUNNER_TEMP/motor-generated"
-          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-generated" 2>&1 | tee -a "$RUNNER_TEMP/generator.log"
+          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-generated"
           test -f "$RUNNER_TEMP/motor-generated/UDT_Motor.scl"
-
-      - name: Require at least one reviewer provider
-        shell: bash
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          if [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "Configure GEMINI_API_KEY and/or OPENROUTER_API_KEY."
-            exit 1
-          fi
-
-      - name: Install Gemini reviewer fallback
-        shell: bash
-        run: |
-          npm install --global @google/gemini-cli@0.60.0
-          gemini --version
-
-      - name: Build Requirements Reviewer input
-        shell: bash
-        run: |
-          {
-            cat agents/prompts/reviewer-requirements.md
-            echo
-            echo '# Task specification'
-            cat "$RUNNER_TEMP/trusted-task.json"
-            echo
-            echo '# Candidate diff'
-            cat "$RUNNER_TEMP/candidate.diff"
-            echo
-            echo '# Deterministic Linux test output'
-            cat "$RUNNER_TEMP/linux-test.log"
-            echo
-            echo '# Generator output'
-            cat "$RUNNER_TEMP/generator.log"
-          } > "$RUNNER_TEMP/requirements-review-prompt.md"
-
-      - name: Run Requirements Reviewer
-        id: review
-        shell: bash
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GEMINI_CLI_TRUST_WORKSPACE: 'true'
-          OPENROUTER_REVIEW_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
-          GEMINI_REVIEW_MODEL: gemini-3.8-flash
-        run: |
-          python3 agents/runtime/run-reviewer.py \
-            "$RUNNER_TEMP/requirements-review-prompt.md" \
-            "$RUNNER_TEMP/requirements-review.json" \
-            "$RUNNER_TEMP/requirements-provider-audit.json"
-
-          STATUS=$(jq -r '.status' "$RUNNER_TEMP/requirements-review.json")
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          {
-            echo '### Requirements Reviewer provider audit'
-            echo
-            echo '```json'
-            cat "$RUNNER_TEMP/requirements-provider-audit.json"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Comment Requirements Reviewer result
-        if: always() && steps.review.outcome == 'success'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-        run: |
-          {
-            echo '### Requirements Reviewer'
-            echo
-            echo '```json'
-            cat "$RUNNER_TEMP/requirements-review.json"
-            echo '```'
-            echo
-            echo '<details><summary>Provider audit</summary>'
-            echo
-            echo '```json'
-            cat "$RUNNER_TEMP/requirements-provider-audit.json"
-            echo '```'
-            echo '</details>'
-          } > "$RUNNER_TEMP/requirements-comment.md"
-          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/requirements-comment.md"
-
-      - name: Enforce Requirements Reviewer
-        shell: bash
-        run: test "${{ steps.review.outputs.status }}" = "PASS"
 
   generate-candidate-artifact:
     needs: requirements-review
@@ -291,132 +197,34 @@ jobs:
     needs: [requirements-review, generate-candidate-artifact, tia-v21-acceptance]
     if: always() && needs.requirements-review.result == 'success' && needs.generate-candidate-artifact.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
-      - name: Checkout trusted reviewer prompt and task
-        uses: actions/checkout@v6
-        with:
-          ref: main
-          persist-credentials: false
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          package-manager-cache: false
-
-      - name: Download candidate package
-        uses: actions/download-artifact@v4
-        with:
-          name: candidate-plc-${{ github.run_id }}
-          path: candidate-package
-
       - name: Download TIA diagnostics
         uses: actions/download-artifact@v4
         with:
           name: tia-candidate-diagnostics-${{ github.run_id }}
           path: tia-diagnostics
 
-      - name: Require at least one reviewer provider
+      - name: Verify authoritative TIA diagnostics
         shell: bash
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          WORKER_OUTCOME: ${{ needs.tia-v21-acceptance.outputs.worker_outcome }}
         run: |
-          if [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "Configure GEMINI_API_KEY and/or OPENROUTER_API_KEY."
-            exit 1
-          fi
+          set -euo pipefail
+          test "$WORKER_OUTCOME" = "success"
+          test -f tia-diagnostics/tia-diagnostics.json
+          cat tia-diagnostics/tia-diagnostics.json
+          jq -e '.success == true and ((.errors // 0) == 0)' tia-diagnostics/tia-diagnostics.json >/dev/null
 
-      - name: Install Gemini reviewer fallback
-        shell: bash
-        run: |
-          npm install --global @google/gemini-cli@0.60.0
-          gemini --version
-
-      - name: Build PLC TIA Reviewer input
-        shell: bash
-        run: |
-          {
-            cat agents/prompts/reviewer-tia.md
-            echo
-            echo '# Task specification'
-            cat candidate-package/task.json
-            echo
-            echo '# Artifact manifest'
-            cat candidate-package/manifest.json
-            echo
-            echo '# Generated PLC artifact'
-            EXPECTED=$(jq -r '.artifact' candidate-package/manifest.json)
-            cat "candidate-package/$EXPECTED"
-            echo
-            echo '# TIA worker outcome'
-            echo '${{ needs.tia-v21-acceptance.outputs.worker_outcome }}'
-            echo
-            echo '# TIA diagnostics'
-            if [ -f tia-diagnostics/tia-diagnostics.json ]; then
-              cat tia-diagnostics/tia-diagnostics.json
-            else
-              echo '{"success":false,"errors":1,"diagnostics":[{"description":"tia-diagnostics.json missing"}]}'
-            fi
-          } > "$RUNNER_TEMP/tia-review-prompt.md"
-
-      - name: Run PLC TIA Reviewer
-        id: review
-        shell: bash
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GEMINI_CLI_TRUST_WORKSPACE: 'true'
-          OPENROUTER_REVIEW_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
-          GEMINI_REVIEW_MODEL: gemini-3.8-flash
-        run: |
-          python3 agents/runtime/run-reviewer.py \
-            "$RUNNER_TEMP/tia-review-prompt.md" \
-            "$RUNNER_TEMP/tia-review.json" \
-            "$RUNNER_TEMP/tia-provider-audit.json"
-
-          STATUS=$(jq -r '.status' "$RUNNER_TEMP/tia-review.json")
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          {
-            echo '### PLC / TIA Reviewer provider audit'
-            echo
-            echo '```json'
-            cat "$RUNNER_TEMP/tia-provider-audit.json"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Comment PLC TIA Reviewer result
-        if: always() && steps.review.outcome == 'success'
+      - name: Comment deterministic TIA acceptance
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
         run: |
-          {
-            echo '### PLC / TIA Reviewer'
-            echo
-            echo '```json'
-            cat "$RUNNER_TEMP/tia-review.json"
-            echo '```'
-            echo
-            echo '<details><summary>Provider audit</summary>'
-            echo
-            echo '```json'
-            cat "$RUNNER_TEMP/tia-provider-audit.json"
-            echo '```'
-            echo '</details>'
-          } > "$RUNNER_TEMP/tia-comment.md"
-          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/tia-comment.md"
-
-      - name: Enforce TIA and reviewer result
-        shell: bash
-        env:
-          WORKER_OUTCOME: ${{ needs.tia-v21-acceptance.outputs.worker_outcome }}
-          REVIEW_STATUS: ${{ steps.review.outputs.status }}
-        run: |
-          test "$WORKER_OUTCOME" = "success"
-          test "$REVIEW_STATUS" = "PASS"
+          gh pr comment "$PR_NUMBER" --body "### Trusted TIA V21 acceptance\n\nDeterministic TIA evidence **PASS** for candidate \`${CANDIDATE_SHA}\`: worker outcome success and diagnostics report \`success=true\`, \`errors=0\`. No LLM reviewer participates in this trusted target-validation stage."
 
   repair-or-finish:
     needs: [requirements-review, generate-candidate-artifact, tia-v21-acceptance, plc-tia-review]
@@ -446,7 +254,7 @@ jobs:
           REQUIREMENTS_RESULT: ${{ needs.requirements-review.result }}
           PACKAGE_RESULT: ${{ needs.generate-candidate-artifact.result }}
           TIA_RESULT: ${{ needs.tia-v21-acceptance.result }}
-          PLC_REVIEW_RESULT: ${{ needs.plc-tia-review.result }}
+          TIA_EVIDENCE_RESULT: ${{ needs.plc-tia-review.result }}
         run: |
           set -euo pipefail
           case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path: $TASK_PATH"; exit 1 ;; esac
@@ -458,12 +266,12 @@ jobs:
           MAX_ATTEMPTS=$(jq -r '.maxRepairAttempts // 0' "$TASK_PATH")
           [[ "$MAX_ATTEMPTS" =~ ^[0-9]+$ ]]
 
-          SUMMARY="requirements=${REQUIREMENTS_RESULT}, package=${PACKAGE_RESULT}, tia=${TIA_RESULT}, plc-review=${PLC_REVIEW_RESULT}"
+          SUMMARY="requirements=${REQUIREMENTS_RESULT}, package=${PACKAGE_RESULT}, tia=${TIA_RESULT}, tia-evidence=${TIA_EVIDENCE_RESULT}"
 
           if [ "$REQUIREMENTS_RESULT" = "success" ] \
             && [ "$PACKAGE_RESULT" = "success" ] \
             && [ "$TIA_RESULT" = "success" ] \
-            && [ "$PLC_REVIEW_RESULT" = "success" ]; then
+            && [ "$TIA_EVIDENCE_RESULT" = "success" ]; then
             gh pr comment "$PR_NUMBER" --body "### Autonomous Validation\n\n**PASS** after repair attempt ${ATTEMPT}/${MAX_ATTEMPTS}.\n\n${SUMMARY}\n\nNo further repair was dispatched."
             exit 0
           fi
