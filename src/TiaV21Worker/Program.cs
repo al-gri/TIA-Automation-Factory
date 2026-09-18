@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -70,18 +70,21 @@ namespace TiaAutomationFactory.TiaV21Worker
                 return 64;
             }
 
-            string sourceArchivePath = Path.GetFullPath(args[1]);
-            string qualificationOutputRoot = Path.GetFullPath(args[2]);
-            string manifestPath = Path.GetFullPath(args[3]);
-            string workRoot = args.Length == 5
-                ? Path.GetFullPath(args[4])
-                : Path.GetFullPath(Path.Combine(Path.GetTempPath(), "TiaAutomationFactory"));
+            string sourceArchivePathRaw = args[1];
+            string qualificationOutputRootRaw = args[2];
+            string manifestPathRaw = args[3];
+            string workRootRaw = args.Length == 5 ? args[4] : Path.Combine(Path.GetTempPath(), "TiaAutomationFactory");
 
-            if (!Path.IsPathRooted(sourceArchivePath) || !Path.IsPathRooted(qualificationOutputRoot) || !Path.IsPathRooted(manifestPath) || !Path.IsPathRooted(workRoot))
+            if (!Path.IsPathRooted(sourceArchivePathRaw) || !Path.IsPathRooted(qualificationOutputRootRaw) || !Path.IsPathRooted(manifestPathRaw) || !Path.IsPathRooted(workRootRaw))
             {
                 Console.Error.WriteLine("All paths must be absolute.");
                 return 64;
             }
+
+            string sourceArchivePath = Path.GetFullPath(sourceArchivePathRaw);
+            string qualificationOutputRoot = Path.GetFullPath(qualificationOutputRootRaw);
+            string manifestPath = Path.GetFullPath(manifestPathRaw);
+            string workRoot = Path.GetFullPath(workRootRaw);
 
             if (!string.Equals(Path.GetExtension(sourceArchivePath), ".zal19", StringComparison.OrdinalIgnoreCase))
             {
@@ -402,7 +405,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
                     userGlobalLibrary.Save();
 
-                    userGlobalLibrary.Archive(new FileInfo(qualifiedArchivePath), LibraryArchivationMode.Compressed);
+                    userGlobalLibrary.Archive(new DirectoryInfo(qualificationOutputRoot), qualifiedArchiveName, LibraryArchivationMode.Compressed);
                 }
                 finally
                 {
@@ -420,6 +423,8 @@ namespace TiaAutomationFactory.TiaV21Worker
             Directory.CreateDirectory(verifyWorkPath);
 
             UserGlobalLibrary verifiedLibrary = null;
+            bool nativeReopenSuccess = false;
+            string nativeReopenDetails = "";
             try
             {
                 using (TiaPortal portal = new TiaPortal(TiaPortalMode.WithUserInterface))
@@ -432,14 +437,20 @@ namespace TiaAutomationFactory.TiaV21Worker
 
                     if (verifiedLibrary == null)
                     {
-                        manifest.NativeReopenSuccess = false;
-                        manifest.NativeReopenDetails = "Current-version Retrieve returned null; produced archive is not a valid native V21 library.";
-                        manifest.Failure = "Native reopen verification failed.";
-                        return manifest;
+                        nativeReopenSuccess = false;
+                        nativeReopenDetails = "Current-version Retrieve returned null; produced archive is not a valid native V21 library.";
+                    }
+                    else
+                    {
+                        nativeReopenSuccess = true;
+                        nativeReopenDetails = "Successfully reopened with current-version GlobalLibraries.Retrieve.";
                     }
 
-                    manifest.NativeReopenSuccess = true;
-                    manifest.NativeReopenDetails = "Successfully reopened with current-version GlobalLibraries.Retrieve.";
+                    if (verifiedLibrary != null)
+                    {
+                        try { verifiedLibrary.Close(); } catch { }
+                        verifiedLibrary = null;
+                    }
                 }
             }
             finally
@@ -448,6 +459,15 @@ namespace TiaAutomationFactory.TiaV21Worker
                 {
                     try { verifiedLibrary.Close(); } catch { }
                 }
+            }
+
+            manifest.NativeReopenSuccess = nativeReopenSuccess;
+            manifest.NativeReopenDetails = nativeReopenDetails;
+
+            if (!nativeReopenSuccess)
+            {
+                manifest.Failure = "Native reopen verification failed.";
+                return manifest;
             }
 
             manifest.Success = true;
@@ -596,10 +616,10 @@ namespace TiaAutomationFactory.TiaV21Worker
             int colonIndex = line.IndexOf(':');
             if (colonIndex < 0) return null;
             string value = line.Substring(colonIndex + 1).Trim();
+            if (value.EndsWith(","))
+                value = value.Substring(0, value.Length - 1).Trim();
             if (value.StartsWith("\"") && value.EndsWith("\""))
                 value = value.Substring(1, value.Length - 2);
-            if (value.EndsWith(","))
-                value = value.Substring(0, value.Length - 1);
             return Unescape(value);
         }
 
