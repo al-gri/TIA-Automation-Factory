@@ -33,12 +33,13 @@ When the user says `проверь репозиторий`, `продолжай 
 
 1. Read root `AGENTS.md`.
 2. Read `docs/PROJECT_STATE.md`.
-3. Read `docs/AI_COLLABORATION_MODEL.md`.
-4. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` if review is involved.
-5. Read the active `tasks/*.json` task referenced by the current PR/workflow.
-6. Inspect current open candidate PRs, their current head SHA, latest review state, relevant Actions runs, artifacts, and TIA diagnostics.
-7. Use GitHub state, not chat history, to decide the next action.
-8. Persist any durable decision, blocker, architecture change, or meaningful result back to GitHub.
+3. Read this `docs/NEXT_CHAT_HANDOFF.md`.
+4. Read `docs/AI_COLLABORATION_MODEL.md`.
+5. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` if review is involved.
+6. Read the active `tasks/*.json` task referenced by the current PR/workflow.
+7. Inspect current open candidate PRs, their current head SHA, latest review state, relevant Actions runs, artifacts, and TIA diagnostics.
+8. Use GitHub state, not chat history, to decide the next action.
+9. Persist any durable decision, blocker, architecture change, or meaningful result back to GitHub.
 
 The user must not be asked to manually gather context that already exists in GitHub.
 
