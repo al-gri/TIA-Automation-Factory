@@ -33,7 +33,7 @@ The secondary reviewer must operate from a fresh chat and a self-contained GitHu
 
 One independent reviewer is the default. A simultaneous second reviewer is optional escalation only.
 
-`review.reviewerSlots` is an authorization allow-list, not a set of mandatory simultaneous reviewers. When the field is absent or an empty array on a legacy task, the only authorized default is `chatgpt`; `chatgpt-secondary` is never authorized implicitly and must be explicitly listed by the current trusted task. The only exception to trusted-task slot authorization is the manual protected-governance bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; that exception is not accepted by task-only review automation.
+`review.reviewerSlots` is an authorization allow-list, not a set of mandatory simultaneous reviewers. When the field is absent or an empty array on a legacy task, the only authorized default is `chatgpt`; `chatgpt-secondary` is never authorized implicitly and must be explicitly listed by the current trusted task. The only exception to trusted-task slot authorization is the manual governance-bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; that exception is not accepted by task-only review automation.
 
 ## Review risk policy
 
@@ -67,7 +67,7 @@ Required sections:
 
 1. reviewer role and instruction that no prior context exists;
 2. project purpose and relevant architecture/trust boundaries;
-3. exact trusted task and acceptance criteria, or for the exceptional governance-bootstrap lane the authorized issue, its recorded SHA-256 body fingerprint, the durable human-authorization record, and `docs/GOVERNANCE_BOOTSTRAP.md`;
+3. exact trusted task and acceptance criteria, or for the exceptional governance-bootstrap lane the frozen issue body, its exact SHA-256 fingerprint, the direct human-authorization comment with GitHub provenance metadata, and `docs/GOVERNANCE_BOOTSTRAP.md`;
 4. risk class and review type;
 5. candidate PR and exact SHA;
 6. implementation summary as orientation only;
@@ -96,7 +96,7 @@ An `APPROVE` response must not contain any `critical` or `major` finding.
 
 Trusted automation binds the response to exact request ID, reviewer slot, task ID, candidate SHA, review type and round. Reviewer slot strings are explicit identities such as `chatgpt` and `chatgpt-secondary`, not interchangeable aliases.
 
-For a governance-bootstrap review, primary ChatGPT performs the same identity/exact-SHA validation manually and records the returned JSON as PR evidence; the task-only automation must continue to reject the missing trusted task rather than infer bootstrap authority.
+For governance bootstrap, the same identity/schema/exact-SHA checks are performed manually by primary ChatGPT **against provenance-separated GitHub evidence**. Primary/connector-authored persistence alone cannot satisfy an authority-bearing bootstrap APPROVE.
 
 ## State transitions
 
@@ -119,7 +119,7 @@ Intentionally requested multi-review disagreement
     -> REVIEW_CONFLICT
 ```
 
-`REVIEW_CONFLICT` and `BLOCKED` require an explicit external decision before implementation continues. Repairs remain bounded by trusted task `maxRepairAttempts`; bootstrap authorization must likewise define a bounded repair allowance or return to the human when further repair would widen the authorized scope.
+`REVIEW_CONFLICT` and `BLOCKED` require an explicit external decision before implementation continues. Repairs remain bounded by trusted task `maxRepairAttempts`; bootstrap repairs use the bounded allowance in `docs/GOVERNANCE_BOOTSTRAP.md` and require direct reauthorization when the frozen issue body materially changes.
 
 ## Architecture gate
 
@@ -143,15 +143,32 @@ After external review, trusted Candidate Validation is deterministic: Linux test
 
 Candidate `TiaV21Worker` code is not executed on Windows before independent approval and trusted merge when the task explicitly defines post-merge TIA validation.
 
-## Protected-governance bootstrap review
+## Governance-bootstrap review
 
-`docs/GOVERNANCE_BOOTSTRAP.md` defines a narrow manual lane for maintainer/primary-authored protected governance repairs when establishing a trusted task first would create the same authorization recursion being repaired.
+`docs/GOVERNANCE_BOOTSTRAP.md` defines a narrow manual lane for primary/maintainer-authored repairs to the repository's normative authority/review-control model when establishing a normal trusted task first would create the same authorization recursion being repaired.
 
-The lane is HIGH risk and requires explicit human authorization of a bounded GitHub issue before acceptance. Primary ChatGPT records a SHA-256 fingerprint of the exact authorized issue body. Any material issue-body change invalidates that authorization.
+Eligibility is semantic, not based on whether the changed files happen to appear in the coding-agent protected-path list. Missing, inconvenient or stale tasks do not create bootstrap eligibility.
+
+The lane is HIGH risk and requires a frozen bounded GitHub issue plus a direct human authorization comment bound to the exact issue-body SHA-256. A verifier must fetch live GitHub metadata and reject connector/app-mediated claims of human authorization.
 
 A bootstrap candidate cannot authorize itself. Candidate-branch tasks or policy text do not become trusted authorization for that same candidate. The required independent reviewer is fresh `chatgpt-secondary`, exact-SHA deterministic CI must be green, and no candidate source may execute on trusted Windows/TIA.
 
-Bootstrap evidence is validated and persisted manually by primary ChatGPT. The existing external-review request/response automation remains task-only and fail-closed. This exception must not be implemented by weakening the automation's trusted-task checks.
+### Bootstrap review-evidence provenance
+
+Returning the secondary JSON to the primary chat is sufficient to diagnose or repair conservatively, but it is not sufficient to grant merge authority.
+
+An authority-bearing bootstrap APPROVE must be directly relayed/attested into GitHub by the human operator outside ChatGPT/Codex/GitHub-App execution. The direct comment must bind request ID, reviewer slot, candidate SHA, round and SHA-256 of the exact JSON payload and include the full JSON. Primary then verifies:
+
+- direct human author identity;
+- `performed_via_github_app` absent or `null`;
+- payload hash;
+- response schema and identity fields;
+- exact current candidate SHA;
+- no stale CI/review state.
+
+Connector-authored copies may be stored for traceability but cannot be the sole origin of authority-bearing approval evidence.
+
+The existing external-review request/response automation remains task-only and fail-closed. This exception must not be implemented by weakening the automation's trusted-task checks.
 
 ## Delegated technical merge gate
 
@@ -161,10 +178,11 @@ Primary connected ChatGPT may execute routine merge without separate human confi
 2. deterministic CI/tests are green;
 3. required TIA/Openness evidence is green unless trusted task explicitly defines it as post-merge;
 4. no unresolved `critical`/`major`, `BLOCKED` or `REVIEW_CONFLICT` exists;
-5. candidate still matches trusted task and architecture, or for the exceptional bootstrap lane the live authorized issue still matches its recorded fingerprint and the diff remains inside that human-authorized scope;
-6. review/evidence is not stale.
+5. candidate still matches trusted task and architecture, or for the exceptional bootstrap lane the live issue body still matches its **direct-human-authorized** fingerprint and the diff remains inside that scope;
+6. for bootstrap, the exact authority-bearing APPROVE has provenance separated from the candidate author according to `docs/GOVERNANCE_BOOTSTRAP.md`;
+7. review/evidence is not stale.
 
-Primary ChatGPT stops for human input on strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions, material bootstrap scope widening or unresolved review conflict/ambiguity.
+Primary ChatGPT stops for human input on strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions, material bootstrap scope/body changes or unresolved review conflict/ambiguity.
 
 No implementer, coding agent, reviewer or workflow may self-merge automatically.
 
@@ -175,11 +193,11 @@ The intended human involvement is small:
 1. Ask primary connected ChatGPT to inspect pending work.
 2. If primary ChatGPT is independent, it reviews directly from GitHub.
 3. If primary ChatGPT is not independent, it prepares a complete ready-to-paste `chatgpt-secondary` package.
-4. The human pastes that package into a fresh ChatGPT chat and returns only the JSON verdict.
-5. Trusted automation validates normal task-backed responses and continues the bounded state machine. For the exceptional governance-bootstrap lane, primary validates and records the response manually because task-only automation must fail closed.
-6. Primary ChatGPT performs delegated technical merge when gates pass.
+4. The human pastes that package into a fresh ChatGPT chat and returns the JSON verdict.
+5. Trusted automation validates normal task-backed responses and continues the bounded state machine.
+6. For the exceptional bootstrap lane only, the human additionally creates the direct GitHub authorization/attestation artifacts required by `docs/GOVERNANCE_BOOTSTRAP.md`; primary verifies their provenance and performs the delegated merge when all gates pass.
 
-Human scope authorization is additionally required before the exceptional governance-bootstrap lane may be used.
+Normal work should not need these extra human GitHub provenance steps.
 
 ## Acceptance rules for automation
 
