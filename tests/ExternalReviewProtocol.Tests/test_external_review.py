@@ -251,6 +251,25 @@ class ExternalReviewToolTests(unittest.TestCase):
         self.assertIn("case \"$TASK_RISK\" in LOW|MEDIUM|HIGH)", workflow)
         self.assertIn("reviewer-policy.py authorize-slot", workflow)
 
+    def test_validation_repair_must_return_to_fresh_exact_sha_review(self):
+        validation = (ROOT / ".github" / "workflows" / "candidate-validation.yml").read_text(encoding="utf-8")
+        repair = (ROOT / ".github" / "workflows" / "agent-repair.yml").read_text(encoding="utf-8")
+
+        self.assertIn('reviewer-policy.py expected-slot', validation)
+        self.assertIn('reviewer-policy.py authorize-slot', validation)
+        self.assertIn('--arg review_source "external-review"', validation)
+        self.assertIn('--arg review_type "$TASK_REVIEW_TYPE"', validation)
+        self.assertIn('--arg risk_class "$TASK_RISK"', validation)
+        self.assertIn('--arg reviewer_slot "$REVIEWER_SLOT"', validation)
+        self.assertIn('event_type:"candidate-repair"', validation)
+        self.assertIn('fresh external review for the new exact SHA', validation)
+
+        self.assertIn('test "$REVIEW_SOURCE" = "external-review"', repair)
+        self.assertNotIn('REVIEW_SOURCE="${REVIEW_SOURCE:-candidate-validation}"', repair)
+        self.assertNotIn('event_type:"candidate-validation"', repair)
+        self.assertIn('event_type:"external-review-request"', repair)
+        self.assertIn('Dispatch fresh external review for repaired SHA', repair)
+
     def test_candidate_validation_is_deterministic_and_has_no_llm_reviewer(self):
         workflow = (ROOT / ".github" / "workflows" / "candidate-validation.yml").read_text(encoding="utf-8")
         for marker in ACTIVE_GEMINI_MARKERS:
