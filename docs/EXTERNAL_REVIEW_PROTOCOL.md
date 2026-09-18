@@ -165,14 +165,17 @@ The intended human involvement is small:
 
 ## Acceptance rules for automation
 
-Before any external response affects execution, trusted automation must:
+Before any external response affects trusted state or execution, trusted automation must:
 
 - parse JSON;
 - validate against the versioned schema;
 - bind request ID, reviewer slot, task, candidate SHA, review type and round;
-- verify requested reviewer slot is authorized by the trusted task when reviewer slots are declared;
+- reject stale candidate SHA;
+- re-resolve the current trusted task and verify risk class, review type and requested reviewer-slot authorization;
+- derive reviewer eligibility from exact-candidate authorship and verify the reviewer is independent for that SHA;
+- require both trusted-task slot authorization **and** exact-candidate authorship-based independence before publishing any `APPROVED_EXTERNAL_REVIEW`, `REVIEW_CHANGES_REQUIRED` or `BLOCKED` review-state marker;
 - reject malformed statuses/findings;
-- preserve response as GitHub evidence;
+- preserve only fully authorized/independent validated responses as GitHub review-state evidence;
 - never treat prose outside validated JSON as approval;
 - prevent candidate agents from editing trusted review/orchestration definitions.
 
