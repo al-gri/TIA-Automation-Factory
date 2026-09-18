@@ -51,6 +51,8 @@ problem / hypothesis
 
 The loop is intentionally fail-closed: a later stage may add evidence, but it must not silently erase an earlier trust requirement.
 
+Protected governance work that cannot obtain a trusted task without authorization recursion uses only the exceptional manual bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; that lane does not alter the normal implementation loop or task-only automation.
+
 ## 4. Current accepted rules
 
 ### M-001 — Repository-first operation
@@ -107,6 +109,14 @@ Model-visible prompts are a data plane: they may contain issue bodies, diffs, re
 
 This rule is fail-closed: a prompt may quote or contradict control metadata without changing it.
 
+### M-014 — Bootstrap governance explicitly; never let a candidate self-authorize
+
+A trusted-task system needs an explicit answer for rare cases where the authorization mechanism itself must be repaired. Do not resolve that recursion by weakening normal automation or by accepting task/policy files introduced by the same candidate as authority for itself.
+
+For protected governance work with genuine authorization recursion, use a separate human-authorized bootstrap lane: bind the scope to a GitHub issue, record a SHA-256 fingerprint of the exact authorized issue body, require HIGH risk, exact-SHA deterministic CI and a fresh independent `chatgpt-secondary` review, and keep normal task-only automation fail-closed. Any material scope change invalidates the human authorization.
+
+The bootstrap lane is exceptional governance, not a shortcut for ordinary implementation work.
+
 ## 5. Rule maturity
 
 Methodology statements should be classified mentally or explicitly as:
@@ -135,6 +145,7 @@ For real tasks, prefer collecting:
 - stale-review/review-conflict incidents;
 - trusted context size and included contracts;
 - control/data-plane trust-boundary incidents;
+- governance-bootstrap invocations and why normal task authorization was impossible;
 - candidate changed-file count/scope;
 - merge/blocked outcome.
 
@@ -175,6 +186,7 @@ The following remain active experiments rather than universally proven rules out
 - the size/content balance of the trusted coding-context bundle;
 - OpenRouter -> DeepSeek continuity and its real cost/quality profile over multiple generator tasks;
 - whether one independent semantic reviewer plus deterministic TIA acceptance is sufficient for routine HIGH-risk bounded changes;
-- the optimal repair budget by task class.
+- the optimal repair budget by task class;
+- whether the manual governance-bootstrap lane remains rare enough that automating it would add more risk than value.
 
 Promote, modify or deprecate these only from accumulated GitHub evidence.
