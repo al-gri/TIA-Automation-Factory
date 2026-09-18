@@ -1,0 +1,58 @@
+{
+  "id": "OLQ-001",
+  "title": "Implement trusted V21 Open Library qualification command",
+  "goal": "Add the smallest trusted TIA Portal V21 Openness command that converts an operator-supplied Siemens Open Library V19 .zal19 archive into a deterministic native V21 qualified-library archive plus machine-readable qualification evidence. Migration is a one-time qualification operation, never part of normal project generation.",
+  "scope": [
+    "Modify only the trusted src/TiaV21Worker boundary unless a tiny adjacent non-Siemens test/helper change is strictly required. Do not modify Domain, PlcCompiler, SiemensBackend semantics, GeneratorCli, workflows, task files, prompts, or IndustrialMDE.",
+    "Preserve the existing TiaV21Worker smoke-test CLI behavior. Add an explicit qualify-library command/path rather than overloading normal SCL acceptance semantics.",
+    "The qualification command receives an absolute operator-controlled source .zal19 path, an absolute qualification output root, an absolute manifest/diagnostics JSON path, and optionally an absolute work root. The vendor archive itself must never be copied into Git output or committed.",
+    "Before opening TIA Portal, compute and record the exact SHA256 of the source .zal19 archive.",
+    "Use TIA Portal V21 Openness previous-version archive retrieval via GlobalLibraries.RetrieveWithUpgrade(sourceArchive, targetDirectory, OpenMode.ReadWrite). Do not use OpenWithUpgrade as a substitute for the archived .zal19 qualification path and do not add migration to any normal generator/project-assembly path.",
+    "After retrieval/upgrade, save the user global library before archiving it. Create a compressed native V21 archive with an explicit .zal21 file name using the V21 UserGlobalLibrary.Archive API and LibraryArchivationMode.Compressed.",
+    "Derive a stable qualification identity from source archive SHA256 plus the exact TIA/Openness build identity. Do not silently overwrite an existing qualification identity whose manifest/hash does not match the current source/build; fail deterministically instead.",
+    "Reopen/retrieve the produced native .zal21 archive with the current-version Retrieve API, not RetrieveWithUpgrade, as the bounded OLQ-001 proof that the resulting archive is native V21 and usable by V21 Openness. Close/dispose opened libraries cleanly.",
+    "Record machine-readable evidence including success/failure, source path basename only (not required to expose operator directories), source SHA256, TIA Portal/Openness V21 assembly/build identity, qualification identity, qualified archive file name, qualified archive SHA256, native-reopen result, and failure diagnostics when applicable.",
+    "Keep detailed fbValve_Solenoid contract discovery and master-copy/project materialization out of this task; those belong to OL-001/OL-002. If the real V19 archive cannot be upgraded/retrieved/reopened as native V21, report explicit BLOCKED/failure evidence rather than claiming qualification success."
+  ],
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": true
+  },
+  "acceptance": {
+    "requirements": [
+      "Existing TiaV21Worker SCL smoke-test invocation remains backward compatible and its behavior is not weakened.",
+      "A distinct qualify-library command/path exists and validates absolute input/output paths plus the expected .zal19 source extension before TIA processing.",
+      "Source archive SHA256 is computed before TIA Portal processes the library.",
+      "The implementation uses TIA Portal V21 GlobalLibraries.RetrieveWithUpgrade for the previous-version compressed archive, saves the retrieved UserGlobalLibrary, then creates a compressed archive with an explicit .zal21 name.",
+      "The produced native archive is verified through current-version GlobalLibraries.Retrieve rather than another upgrade call.",
+      "Qualification identity is deterministic from source SHA256 plus TIA/Openness build identity, and an existing mismatched identity/archive/manifest causes deterministic failure rather than silent overwrite.",
+      "A machine-readable manifest/diagnostics JSON records source SHA256, exact V21 build identity, qualification identity, output archive name/hash, native reopen status, and actionable failure information without committing or embedding the vendor library payload.",
+      "No Siemens.Engineering dependency is introduced outside src/TiaV21Worker and no normal generator path performs V19-to-V21 migration.",
+      "Existing Linux SiemensBackend tests and Motor/ValveConfig generator regressions remain green; candidate code is reviewed from source/diff evidence and is not executed on the Windows/TIA runner before trusted merge."
+    ],
+    "tia": [
+      "After independent review and trusted merge, TiaV21Worker builds on the TIA V21 Windows runner against the installed V21 net48 Openness assemblies.",
+      "Using the real operator-controlled Siemens Open Library V19 .zal19 archive, the trusted qualify-library command records its source SHA256 and exact TIA/Openness V21 build identity.",
+      "The trusted run successfully retrieves/upgrades the V19 archive, saves it, emits a compressed native .zal21 qualified archive, computes the output SHA256, and records the deterministic qualification identity.",
+      "The produced .zal21 can be retrieved/opened through the current-version Retrieve API without another upgrade step; otherwise the qualification result is failure/BLOCKED evidence.",
+      "A second run for the same source SHA256 and TIA build is deterministic and does not silently replace a different qualification result.",
+      "Durable GitHub evidence contains manifest/diagnostics and hashes only; the vendor .zal19/.zal21 payload remains outside the public repository."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2
+}
