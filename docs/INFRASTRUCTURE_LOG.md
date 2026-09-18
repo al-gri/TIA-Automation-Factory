@@ -62,7 +62,7 @@ Short chronological record of infrastructure work. Keep entries factual and conc
 - PR #30 merged as `0260117391abf5f0a8375699dca12caa06bafb8b`; issue #28 closed.
 - M-013 records the control-plane/data-plane separation rule.
 
-## 2026-09-18 — GOV-BOOT-001: explicit governance bootstrap lane
+## 2026-09-18/19 — GOV-BOOT-001: explicit governance bootstrap lane
 
 ### IN PROGRESS
 - Issue #31 / PR #32 define the permanent bootstrap lane for genuine authorization recursion in the repository's normative authority/review-control model.
@@ -70,22 +70,26 @@ Short chronological record of infrastructure work. Keep entries factual and conc
 - Round 2 exact candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED` with major F005.
 - F001-F004 forced semantic eligibility, complete fingerprinted issue scope, no candidate self-authorization and provenance separation for human/reviewer authority.
 - F005 established that owner authorship plus `performed_via_github_app == null` is only negative attribution and does not positively prove human origin against non-App API credentials.
-- The earlier direct owner authorization comment `5736439687` is historical evidence only under the repaired model.
-- Issue #31 was rewritten for the second/final candidate-changing repair. Current exact UTF-8 body SHA-256: `c037d2a568644813cbeaa0c626761c845c2ca046c8a6d7ba557573491ae49099`.
-- Candidate policy now requires positive cryptographic human provenance: SSH-signed Git scope/review attestation commits under a human-controlled key unavailable to project automation.
-- Raw GitHub verification must report `verified=true`, `reason=valid`, SSH signature type and repository-owner author/committer identity; web-flow signatures/comments/app metadata are insufficient by themselves.
+- Positive provenance was repaired through SSH-signed Git scope/review attestation commits under a human-controlled signing key unavailable to project automation.
+- Human scope-attestation commit `4ac2b16c2b1ea81d225779ece58df3131fb18fd6` validly signed the then-current issue-body hash and independently proved the SSH verification path.
+- Round 3 exact candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` -> `CHANGES_REQUIRED`, major F006-F007, while independently confirming F001-F005 repaired.
+- F006 found permanent schemas incorrectly hard-coded issue `31` / task `GOV-BOOT-001`; F007 found a pre-review/post-APPROVE fail-closed sequencing ambiguity.
+- Default two candidate-changing repairs were already exhausted. On 2026-09-19 the human explicitly authorized exactly one additional candidate-changing repair round strictly for F006/F007 without scope widening.
+- Issue #31 was updated only to bind that bounded repair decision; new exact UTF-8 body SHA-256 is `f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b`.
+- Because the issue body changed, signed commit `4ac2b16...` is now historical/stale for the next review and a fresh SSH-signed scope attestation is required for the new hash.
+- The F006 repair makes both scope/review attestation schemas invocation-generic and requires equality to the current repository/frozen issue/task identity.
+- The F007 repair makes fail-closed evaluation stage-specific: review attestation is not applicable before APPROVE exists; CHANGES_REQUIRED grants no authority; after APPROVE, invalid/missing/stale signed review evidence blocks authority consumption/merge.
 - Normal external-review automation remains task-only and fail-closed; no missing-task fallback was added.
-- The default two candidate-changing bootstrap repairs are now consumed.
-- M-014 was strengthened: neither the candidate nor an author-controlled connector/credential path may manufacture authority.
+- M-014 remains the governing lesson: neither the candidate nor an author-controlled connector/credential path may manufacture authority.
 
 ### NEXT GATE
-- Freeze repaired PR #32 exact head and require exact-SHA CI PASS.
-- Human creates SSH-signed scope-attestation commit for issue-body hash `c037d2a568644813cbeaa0c626761c845c2ca046c8a6d7ba557573491ae49099` on the dedicated non-merged human-attestation branch.
+- Freeze the single bounded F006/F007 repair exact head and require exact-SHA CI PASS.
+- Human creates a fresh SSH-signed scope-attestation commit for issue-body hash `f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b` on the dedicated non-merged human-attestation branch.
 - Primary verifies exact commit SHA, raw GitHub SSH-signature metadata and payload.
-- Obtain fresh isolated `chatgpt-secondary` round-3 review against the frozen candidate and signed scope authority.
+- Obtain a fresh isolated `chatgpt-secondary` review against the new exact candidate, carrying F001-F007 history.
 - If APPROVE, human creates a separate SSH-signed review-attestation commit containing the exact JSON and its hash.
 - Primary verifies schema/identity/exact SHA/signature and delegated-merges only if every gate remains green.
-- Any further candidate-changing repair requires fresh explicit human authorization; otherwise `BLOCKED`.
+- Any further candidate-changing repair requires another fresh explicit human authorization; otherwise `BLOCKED`.
 - Then re-check PR #27 against the new `main` and resume OLQ qualification work.
 
 ## 2026-09-18 — AUTO-001 accepted operating-model direction
