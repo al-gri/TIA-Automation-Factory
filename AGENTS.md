@@ -14,16 +14,17 @@ Secrets are the only exception: store secret names, purpose, and expected locati
 
 ## Required startup sequence for a fresh ChatGPT session
 
-When the user says anything equivalent to "проверь репозиторий", "проверь DeepSeek", "что сейчас происходит", or asks to continue project work from a clean chat:
+When the user says anything equivalent to "проверь репозиторий", "продолжай проект", "проверь DeepSeek", "что сейчас происходит", or asks to continue project work from a clean chat:
 
 1. Read this file first.
-2. Read `docs/PROJECT_STATE.md` for the current authoritative state and immediate blocker / next action.
-3. Read `docs/AI_COLLABORATION_MODEL.md` for role boundaries and provider policy.
-4. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` before handling any external review.
-5. Read the current task file under `tasks/` referenced by the active PR / workflow state.
-6. Inspect relevant open PRs, their latest comments, candidate SHA, changed files, and GitHub Actions evidence.
-7. Use GitHub state, not chat history, to decide what action is required.
-8. After a meaningful decision or infrastructure change, persist the durable result in GitHub.
+2. Read `docs/PROJECT_STATE.md` for the current authoritative state and immediate next action.
+3. Read `docs/NEXT_CHAT_HANDOFF.md` for the complete durable project handoff and current order of work.
+4. Read `docs/AI_COLLABORATION_MODEL.md` for role boundaries and provider policy.
+5. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` before handling any external review.
+6. Read the current task file under `tasks/` referenced by the active PR / workflow state.
+7. Inspect relevant open PRs, their latest comments, candidate SHA, changed files, and GitHub Actions evidence.
+8. Use GitHub state, not chat history, to decide what action is required.
+9. After a meaningful decision or infrastructure change, persist the durable result in GitHub.
 
 Do not ask the user to manually assemble context that already exists in GitHub.
 
@@ -62,7 +63,7 @@ Never approve AI-authored work merely because tests are green. Verify the task a
 Routine coding uses a cost-first bounded cascade:
 
 1. **OpenRouter first** using the configured free coding model while its daily allowance is available.
-2. **DeepSeek second** using the official API model `deepseek-flash` when OpenRouter is unavailable, rate-limited, or daily quota is exhausted.
+2. **DeepSeek second** using the official API model `deepseek-flash` when OpenRouter is unavailable, rate-limited, timed out, or daily quota is exhausted.
 3. If OpenRouter exhausts its allowance after already changing the disposable workspace, DeepSeek continues from that partial candidate instead of throwing away useful work.
 4. If the paid DeepSeek fallback also fails late after producing real repository changes, deterministic acceptance may evaluate the preserved candidate; provider success alone is never the DONE criterion.
 5. **Gemini is not a routine coding fallback.** It is reserved for independent review / red-team escalation so it remains independent from the implementer path.
@@ -102,7 +103,7 @@ Cline or a similar editor/terminal agent may be used as an **optional human-in-t
 
 If used, it must:
 
-- start from this repository and read `AGENTS.md`, `docs/PROJECT_STATE.md`, the active `tasks/*.json`, and relevant architecture docs;
+- start from this repository and read `AGENTS.md`, `docs/PROJECT_STATE.md`, `docs/NEXT_CHAT_HANDOFF.md`, the active `tasks/*.json`, and relevant architecture docs;
 - work on a branch, never directly on `main`;
 - obey the same protected paths, review requirements, and deterministic tests as the cloud coding agent;
 - never receive unrestricted authority over the trusted Windows/TIA machine;
@@ -134,6 +135,7 @@ A fact or decision that matters to future work is not considered durable until i
 - PR discussion or structured external-review state;
 - workflow / artifact / diagnostics evidence;
 - `docs/PROJECT_STATE.md` for the current operational snapshot;
+- `docs/NEXT_CHAT_HANDOFF.md` for complete clean-chat continuation context;
 - `docs/INFRASTRUCTURE_LOG.md` for chronological infrastructure history.
 
 Chat messages are disposable coordination only.
