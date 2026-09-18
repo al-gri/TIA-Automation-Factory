@@ -4,7 +4,7 @@ This file is the mandatory entry point for any AI assistant, reviewer, coding ag
 
 ## Source of truth
 
-GitHub is the only durable source of truth for this project. Do not rely on prior chat history, saved memory, local notes, or undocumented decisions. A brand-new chat must be able to recover project context, current state, responsibilities, pending work, provider policy, and review obligations from the repository plus GitHub issues, PRs, Actions and artifacts.
+GitHub is the only durable source of truth for this project. Do not rely on prior chat history, saved memory, local notes, or undocumented decisions. A brand-new chat must be able to recover project context, current state, responsibilities, pending work, provider policy, review obligations, and development-methodology state from the repository plus GitHub issues, PRs, Actions and artifacts.
 
 Secrets are the only exception: store secret names, purpose, and expected location, never secret values.
 
@@ -16,11 +16,13 @@ For a fresh ChatGPT session that continues project work:
 2. Read `docs/PROJECT_STATE.md`.
 3. Read `docs/NEXT_CHAT_HANDOFF.md`.
 4. Read `docs/AI_COLLABORATION_MODEL.md`.
-5. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work.
-6. Read the active task under `tasks/`.
-7. Inspect relevant PRs, current candidate SHA, changed files, comments and Actions evidence.
-8. Use GitHub state, not chat history, to decide the next action.
-9. Persist meaningful decisions and state changes back to GitHub.
+5. Read `docs/DEVELOPMENT_METHODOLOGY.md` and the latest relevant entries in `docs/METHODOLOGY_JOURNAL.md`.
+6. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work.
+7. Read the active task under `tasks/`.
+8. Inspect relevant PRs, current candidate SHA, changed files, comments and Actions evidence.
+9. Inspect methodology telemetry issue #25 when recent workflow/PR evidence may affect methodology conclusions.
+10. Use GitHub state, not chat history, to decide the next action.
+11. Persist meaningful decisions, operational state changes and methodology lessons back to GitHub.
 
 Do not ask the user to manually assemble context already present in GitHub.
 
@@ -30,7 +32,7 @@ Do not ask the user to manually assemble context already present in GitHub.
 
 Primary ChatGPT is the Senior Architect, normal connected external reviewer for coding-agent work, orchestrator and delegated technical merge authority.
 
-It may design architecture, create tasks, review coding-agent candidates, diagnose failures, make bounded maintainer fixes when repair limits are exhausted, and merge technically accepted PRs under the delegated merge gate.
+It may design architecture, create tasks, review coding-agent candidates, diagnose failures, make bounded maintainer fixes when repair limits are exhausted, merge technically accepted PRs under the delegated merge gate, and curate the development methodology from GitHub evidence.
 
 Primary ChatGPT must not provide the required independent approval for a candidate it materially authored or co-authored.
 
@@ -108,6 +110,8 @@ No coding agent, reviewer, GitHub Action, or PR author may self-merge automatica
 
 Provider/model, token/cost usage, fallback reason and outcome must be recorded in candidate evidence.
 
+Coding providers receive a bounded trusted context assembled from Git source of truth before provider selection. Task-specific qualified contracts/profiles may be supplied through trusted `contextFiles`; candidate files may not redefine trusted context.
+
 ## Protected infrastructure and TIA boundary
 
 The coding agent must not modify:
@@ -134,6 +138,7 @@ Trust boundary:
 
 - AI candidate source executes only on disposable Linux runners in the autonomous path;
 - Windows checks out trusted `main`;
+- self-hosted Windows/TIA manual workflows must fail closed to the `main` ref and explicitly check out `main`;
 - Windows never executes candidate source/scripts before independent review + trusted merge;
 - trusted `src/TiaV21Worker` is the only TIA Openness execution path;
 - real TIA Portal V21 compile/Openness evidence is authoritative Siemens acceptance;
@@ -147,13 +152,36 @@ The package must contain the exact task, candidate SHA/PR, bounded diff/source c
 
 The secondary chat must be instructed that GitHub is the sole source of truth and that it has no prior conversation context.
 
+## Methodology capture
+
+The project develops a reusable AI-assisted software-development methodology in parallel with the PLC generator.
+
+Durable methodology surfaces:
+
+- `docs/DEVELOPMENT_METHODOLOGY.md` — curated reusable rules and active experiments;
+- `docs/METHODOLOGY_JOURNAL.md` — milestone-level chronological lessons;
+- GitHub issue #25 — append-only automated raw methodology telemetry;
+- `docs/INFRASTRUCTURE_LOG.md` — concise chronological infrastructure record.
+
+`.github/workflows/methodology-telemetry.yml` automatically records selected workflow completions and PR closure/merge events to issue #25. Raw telemetry is evidence, not policy.
+
+At every logical milestone, primary connected ChatGPT must perform a methodology checkpoint without waiting for a user reminder:
+
+1. inspect relevant raw telemetry, PR/review/CI/TIA evidence;
+2. append a factual milestone lesson to `docs/METHODOLOGY_JOURNAL.md` when material;
+3. update `docs/DEVELOPMENT_METHODOLOGY.md` when evidence adds, changes or deprecates a reusable rule;
+4. update `docs/PROJECT_STATE.md`, `docs/NEXT_CHAT_HANDOFF.md` and `docs/INFRASTRUCTURE_LOG.md` when their state changed;
+5. never copy secrets, vendor payloads or unnecessary raw logs into versioned docs.
+
+The methodology is a first-class project artifact. Documentation of material lessons is part of completion, not optional cleanup.
+
 ## Cline / interactive agent policy
 
 Cline or another editor/terminal agent is optional human-supervised tooling, not a production orchestrator or source of truth. It must use the same GitHub context, branch discipline, protected paths, task-gated TIA-worker exception, review requirements and deterministic gates. It never receives unrestricted trusted Windows/TIA access.
 
 ## Persistence rule
 
-A durable fact or decision must exist in GitHub as versioned docs/tasks, issue/PR state, structured review evidence, workflow/artifact evidence, `docs/PROJECT_STATE.md`, `docs/NEXT_CHAT_HANDOFF.md`, or `docs/INFRASTRUCTURE_LOG.md`.
+A durable fact or decision must exist in GitHub as versioned docs/tasks, issue/PR state, structured review evidence, workflow/artifact evidence, `docs/PROJECT_STATE.md`, `docs/NEXT_CHAT_HANDOFF.md`, `docs/INFRASTRUCTURE_LOG.md`, the methodology documents, or methodology telemetry issue #25.
 
 Chat messages are disposable coordination only.
 
