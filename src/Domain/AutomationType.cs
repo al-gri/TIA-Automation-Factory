@@ -6,5 +6,6 @@ public enum AutomationType
     Int,
     DInt,
     Real,
-    String
+    String,
+    Time
 }
