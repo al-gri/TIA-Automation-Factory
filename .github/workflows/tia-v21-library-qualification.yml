@@ -114,13 +114,15 @@ jobs:
           }
 
           if ($null -eq $blockedReason) {
-            $workspacePrefix = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
+            $workspaceRoot = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')
+            $workspacePrefix = $workspaceRoot + '\'
             $sourceFull = [System.IO.Path]::GetFullPath($source)
-            $qualifiedRootFull = [System.IO.Path]::GetFullPath($qualifiedRoot)
+            $qualifiedRootFull = [System.IO.Path]::GetFullPath($qualifiedRoot).TrimEnd('\')
             if ($sourceFull.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
               $blockedReason = 'Vendor source archive must be runner-local and outside the GitHub workspace.'
             }
-            elseif ($qualifiedRootFull.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            elseif ($qualifiedRootFull.Equals($workspaceRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+                    $qualifiedRootFull.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
               $blockedReason = 'Qualified library output root must be outside the GitHub workspace.'
             }
           }
@@ -130,6 +132,7 @@ jobs:
             $evidence.failure = $blockedReason
             Write-PublicEvidence $evidence $publicEvidencePath
             "status=BLOCKED" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+            Remove-Item -LiteralPath $rawRoot -Recurse -Force -ErrorAction SilentlyContinue
             exit 0
           }
 
@@ -174,7 +177,12 @@ jobs:
 
               if ($run1Exit -ne 0 -or -not [bool]$run1.success) {
                 $evidence.status = 'FAIL'
-                $evidence.failure = if ($run1.failure) { [string]$run1.failure } else { 'First qualification invocation failed.' }
+                if ($run1.failure) {
+                  $evidence.failure = [string]$run1.failure
+                }
+                else {
+                  $evidence.failure = 'First qualification invocation failed.'
+                }
               }
               else {
                 & $exe qualify-library $source $qualifiedRoot $run2Manifest $run2Work 1> $run2Stdout 2> $run2Stderr
@@ -187,7 +195,7 @@ jobs:
                 }
                 else {
                   $run2 = Get-Content -LiteralPath $run2Manifest -Raw | ConvertFrom-Json
-                  $same =
+                  $same = (
                     ([bool]$run2.success) -and
                     ($run2Exit -eq 0) -and
                     ([bool]$run2.nativeReopenSuccess) -and
@@ -196,6 +204,7 @@ jobs:
                     ($run1.qualificationIdentity -eq $run2.qualificationIdentity) -and
                     ($run1.qualifiedArchiveName -eq $run2.qualifiedArchiveName) -and
                     ($run1.qualifiedArchiveSha256 -eq $run2.qualifiedArchiveSha256)
+                  )
 
                   $evidence.deterministicSecondRun = [bool]$same
                   if ($same) {
@@ -204,7 +213,12 @@ jobs:
                   }
                   else {
                     $evidence.status = 'FAIL'
-                    $evidence.failure = if ($run2.failure) { [string]$run2.failure } else { 'Second qualification run did not reproduce the first qualification identity and hashes.' }
+                    if ($run2.failure) {
+                      $evidence.failure = [string]$run2.failure
+                    }
+                    else {
+                      $evidence.failure = 'Second qualification run did not reproduce the first qualification identity and hashes.'
+                    }
                   }
                 }
               }
@@ -217,6 +231,7 @@ jobs:
 
           Write-PublicEvidence $evidence $publicEvidencePath
           "status=$($evidence.status)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+          Remove-Item -LiteralPath $rawRoot -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Show sanitized evidence
         if: always()
