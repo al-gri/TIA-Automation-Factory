@@ -71,7 +71,17 @@ The reviewer must verify that the live issue body still hashes to the authorized
 
 Any candidate change invalidates the review exactly as in the normal task path.
 
-## 5. Automation boundary
+## 5. Repair budget
+
+Bootstrap repair is bounded even though no trusted task exists.
+
+Default budget: **at most 2 candidate-changing repair rounds after the first reviewed candidate** while the authorized issue-body fingerprint and scope remain unchanged.
+
+Each repair produces a new candidate SHA, requires fresh deterministic CI and a new isolated `chatgpt-secondary` review round, and must preserve the same human-authorized issue fingerprint.
+
+The human may authorize a lower limit in the issue. Increasing the default or widening scope requires a fresh human decision. Exhaustion becomes `BLOCKED`; primary ChatGPT may not silently extend the budget.
+
+## 6. Automation boundary
 
 Existing trusted external-review automation remains **task-only and fail-closed**. It must continue to reject review responses that lack a trusted `tasks/*.json` authorization.
 
@@ -79,7 +89,7 @@ Bootstrap review evidence is therefore recorded manually in the PR/issue by prim
 
 This separation is deliberate: the exceptional human-authorized bootstrap lane must not silently broaden normal autonomous permissions.
 
-## 6. Merge gate
+## 7. Merge gate
 
 Primary connected ChatGPT may execute the delegated merge only when all of the following are true for the exact current head:
 
@@ -95,7 +105,7 @@ No additional routine human merge confirmation is required when the human alread
 
 A risk waiver, scope widening, material architecture change outside the authorized issue, destructive external action, or unresolved conflict still requires a new human decision.
 
-## 7. Completion
+## 8. Completion
 
 After a bootstrap governance merge:
 
@@ -104,8 +114,8 @@ After a bootstrap governance merge:
 - close the bootstrap issue only when the permanent ambiguity is actually resolved;
 - return subsequent ordinary implementation work to trusted versioned tasks.
 
-## 8. Fail-closed rule
+## 9. Fail-closed rule
 
-If the human authorization is missing, its issue-body fingerprint no longer matches, reviewer independence cannot be established, deterministic evidence is stale, or candidate scope is ambiguous, state is `BLOCKED`.
+If the human authorization is missing, its issue-body fingerprint no longer matches, reviewer independence cannot be established, deterministic evidence is stale, candidate scope is ambiguous, or the repair budget is exhausted, state is `BLOCKED`.
 
 Do not repair a bootstrap authorization gap by letting the candidate authorize itself.
