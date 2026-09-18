@@ -66,24 +66,36 @@ Short chronological record of infrastructure work. Keep entries factual and conc
 
 ### IN PROGRESS
 - Issue #31 / PR #32 define the permanent bootstrap lane for genuine authorization recursion in the repository's normative authority/review-control model.
-- PR #32 round-1 exact candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` passed CI #226 but independent `chatgpt-secondary` returned `CHANGES_REQUIRED` with major F001-F004.
-- F001: connector-authored comments could not prove human root authorization.
-- F002: the authorization issue body lacked mandatory bounded-scope fields.
-- F003: bootstrap eligibility incorrectly depended on coding-agent protected paths.
-- F004: primary-persisted secondary JSON lacked provenance separated from the candidate author.
-- The round-1 findings were accepted; that SHA is not mergeable by policy.
-- Issue #31 was rewritten as the frozen bounded scope contract. Current exact UTF-8 body SHA-256: `28abdc7a5837c8c93049f5b6ed668cafdd0c7de8275e02e6e14e55296b8cd47a`.
-- The issue rewrite was performed through `chatgpt-codex-connector`, so it is not human authorization.
-- Candidate policy now makes bootstrap eligibility semantic, requires a direct non-app-mediated human GitHub authorization bound to the frozen issue hash, and requires provenance-separated direct human relay/attestation of any authority-bearing secondary APPROVE.
+- Round 1 exact candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` -> `CHANGES_REQUIRED` with major F001-F004.
+- Round 2 exact candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED` with major F005.
+- F001-F004 forced semantic eligibility, complete fingerprinted issue scope, no candidate self-authorization and provenance separation for human/reviewer authority.
+- F005 established that owner authorship plus `performed_via_github_app == null` is only negative attribution and does not positively prove human origin against non-App API credentials.
+- The earlier direct owner authorization comment `5736439687` is historical evidence only under the repaired model.
+- Issue #31 was rewritten for the second/final candidate-changing repair. Current exact UTF-8 body SHA-256: `c037d2a568644813cbeaa0c626761c845c2ca046c8a6d7ba557573491ae49099`.
+- Candidate policy now requires positive cryptographic human provenance: SSH-signed Git scope/review attestation commits under a human-controlled key unavailable to project automation.
+- Raw GitHub verification must report `verified=true`, `reason=valid`, SSH signature type and repository-owner author/committer identity; web-flow signatures/comments/app metadata are insufficient by themselves.
 - Normal external-review automation remains task-only and fail-closed; no missing-task fallback was added.
-- M-014 was strengthened: neither the candidate nor an author-controlled connector may manufacture its own authority.
+- The default two candidate-changing bootstrap repairs are now consumed.
+- M-014 was strengthened: neither the candidate nor an author-controlled connector/credential path may manufacture authority.
 
 ### NEXT GATE
-- Human operator must add a direct GitHub comment on issue #31 authorizing task `GOV-BOOT-001` at body hash `28abdc7a5837c8c93049f5b6ed668cafdd0c7de8275e02e6e14e55296b8cd47a`; primary must verify `performed_via_github_app` absent/null.
-- Stabilize repaired PR #32 exact head and run exact-SHA CI.
-- Obtain fresh isolated `chatgpt-secondary` round-2 review against the repaired head and direct-human authorization evidence.
-- If round 2 is APPROVE, human directly relays/attests the exact JSON into GitHub with payload hash; primary verifies provenance/schema/identity/exact SHA before delegated merge.
+- Freeze repaired PR #32 exact head and require exact-SHA CI PASS.
+- Human creates SSH-signed scope-attestation commit for issue-body hash `c037d2a568644813cbeaa0c626761c845c2ca046c8a6d7ba557573491ae49099` on the dedicated non-merged human-attestation branch.
+- Primary verifies exact commit SHA, raw GitHub SSH-signature metadata and payload.
+- Obtain fresh isolated `chatgpt-secondary` round-3 review against the frozen candidate and signed scope authority.
+- If APPROVE, human creates a separate SSH-signed review-attestation commit containing the exact JSON and its hash.
+- Primary verifies schema/identity/exact SHA/signature and delegated-merges only if every gate remains green.
+- Any further candidate-changing repair requires fresh explicit human authorization; otherwise `BLOCKED`.
 - Then re-check PR #27 against the new `main` and resume OLQ qualification work.
+
+## 2026-09-18 — AUTO-001 accepted operating-model direction
+
+### PLANNED
+- Issue #35 records the accepted hybrid autonomy model.
+- OpenRouter/DeepSeek should run routine tasks autonomously to explicit checkpoints.
+- `WAITING_FOR_REVIEW` means primary connected ChatGPT performs full semantic/code/architecture review when independent.
+- Primary-authored candidates route to `chatgpt-secondary`.
+- AUTO-001 implementation is downstream of GOV-BOOT-001 and must not weaken exact-SHA review, bounded repair or trusted Windows/TIA boundaries.
 
 ## Logging rule
 
