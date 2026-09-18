@@ -262,7 +262,7 @@ Acceptance:
 
 Generate at least two units. Each unit/application FB has its own instance DB and ordinary device FBs are multi-instances inside it. No plant-wide giant instance DB.
 
-This task establishes memory/ownership scaling only; unit boundaries must not be treated as implicit scan-delay boundaries.
+This task establishes memory/ownership scaling only. Each unit/application FB remains one atomic once-per-scan call; Phase 6 does not yet introduce arbitrary cross-unit typed-graph dependencies.
 
 ### GEN-003 — HMI/Error/config grouping
 
@@ -301,24 +301,27 @@ Acceptance:
 - unit tests cover current-input feed-through plus previous-state behavior;
 - equivalent semantic input order/layout produces equivalent temporal IR.
 
-### GRAPH-003 — Controller-global combinational scheduling
+### GRAPH-003 — Controller-global and executable-container scheduling
 
 Risk: **HIGH**
 
-Goal: deterministically schedule all same-controller `SameScan` dependencies without allowing area/unit ownership partitions to change scan behavior.
+Goal: deterministically schedule all same-controller `SameScan` dependencies while preserving the realizability of one atomic call per generated unit/application FB.
 
 Acceptance:
 
-- build a controller-level graph of all `SameScan` dependencies;
-- SCC analysis runs on that controller-level graph;
+- build a controller-level semantic graph of all `SameScan` dependencies;
+- SCC analysis runs on that controller-level semantic graph;
 - same-scan SCC/self-loop is rejected unless actually cut by `PreviousState`;
-- remaining controller same-scan graph is proven DAG;
-- stable topological sort with deterministic semantic tie-breaker;
+- remaining controller semantic graph is proven DAG;
+- map semantic nodes into atomic generated unit/application execution containers;
+- derive a unit/container quotient graph from cross-unit `SameScan` dependencies;
+- the unit/container graph is also required to be a DAG;
+- reject an acyclic semantic graph that would require interleaving calls such as `UnitA(part) -> UnitB -> UnitA(part)`;
+- stable topological order exists both inside each unit and across unit invocations;
+- cross-unit data crosses explicit unit/application interfaces or orchestration signals, never private multi-instance memory;
 - same-scan propagation documented/tested;
-- cross-unit same-controller dependency determines deterministic unit/application invocation order;
-- cross-unit same-scan cycles are rejected unless explicitly delayed;
 - ordinary cross-controller runtime connections are rejected until an explicit communication primitive/profile defines transport and latency;
-- UI/layout/input/unit declaration ordering does not alter semantic schedule;
+- UI/layout/input/unit declaration ordering does not alter semantic or container schedules;
 - TIA reference scenarios compile.
 
 ### GRAPH-004 — Interlock/permissive condition sets
