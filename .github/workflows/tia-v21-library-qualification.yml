@@ -1,0 +1,290 @@
+name: TIA V21 Open Library Qualification
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: olq-001-tia-v21-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify-library:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.number == 19 &&
+       github.event.comment.body == '/run-olq-001' &&
+       github.event.comment.user.login == github.repository_owner)
+    runs-on: [self-hosted, Windows, X64, tia-v21]
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify trusted main checkout
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $checkedOut = (git rev-parse HEAD).Trim()
+          $main = (git rev-parse origin/main).Trim()
+          if ($checkedOut -ne $main) {
+            throw 'Trusted checkout is not current origin/main.'
+          }
+          Write-Host "Trusted main SHA: $checkedOut"
+
+      - name: Build TiaV21Worker
+        shell: cmd
+        run: dotnet build src\TiaV21Worker\TiaV21Worker.csproj --configuration Release
+
+      - name: Run qualification twice and create sanitized evidence
+        id: qualify
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $publicDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\olq-001'
+          $publicEvidencePath = Join-Path $publicDir 'qualification-evidence.json'
+          New-Item -ItemType Directory -Force -Path $publicDir | Out-Null
+
+          $rawRoot = Join-Path $env:RUNNER_TEMP ("olq-001-raw-{0}-{1}" -f $env:GITHUB_RUN_ID, $env:GITHUB_RUN_ATTEMPT)
+          New-Item -ItemType Directory -Force -Path $rawRoot | Out-Null
+
+          $trustedMainSha = (git rev-parse HEAD).Trim()
+          $evidence = [ordered]@{
+            schema = 'olq-001-public-evidence-v1'
+            status = 'BLOCKED'
+            trustedMainSha = $trustedMainSha
+            sourceArchiveBasename = $null
+            sourceArchiveSha256 = $null
+            tiaBuildIdentity = $null
+            qualificationIdentity = $null
+            qualifiedArchiveName = $null
+            qualifiedArchiveSha256 = $null
+            nativeReopenSuccess = $false
+            run1ExitCode = $null
+            run2ExitCode = $null
+            deterministicSecondRun = $false
+            failure = $null
+          }
+
+          function Write-PublicEvidence {
+            param($Value, $Path)
+            $Value | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Path -Encoding UTF8
+          }
+
+          function Test-FullyQualifiedWindowsPath {
+            param([string]$Path)
+            if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+            if ($Path -match '^[A-Za-z]:\\') { return $true }
+            if ($Path -match '^\\\\[^\\]+\\[^\\]+') { return $true }
+            return $false
+          }
+
+          $source = $env:TIA_OPEN_LIBRARY_V19_ARCHIVE
+          $qualifiedRoot = $env:TIA_OPEN_LIBRARY_QUALIFIED_ROOT
+          $blockedReason = $null
+
+          if ([string]::IsNullOrWhiteSpace($source)) {
+            $blockedReason = 'Runner environment variable TIA_OPEN_LIBRARY_V19_ARCHIVE is not configured.'
+          }
+          elseif ([string]::IsNullOrWhiteSpace($qualifiedRoot)) {
+            $blockedReason = 'Runner environment variable TIA_OPEN_LIBRARY_QUALIFIED_ROOT is not configured.'
+          }
+          elseif (-not (Test-FullyQualifiedWindowsPath $source)) {
+            $blockedReason = 'Configured source archive path is not a fully qualified Windows path.'
+          }
+          elseif (-not (Test-FullyQualifiedWindowsPath $qualifiedRoot)) {
+            $blockedReason = 'Configured qualification output root is not a fully qualified Windows path.'
+          }
+          elseif ([System.IO.Path]::GetExtension($source) -ine '.zal19') {
+            $blockedReason = 'Configured source archive does not have the required .zal19 extension.'
+          }
+          elseif (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            $blockedReason = 'Configured source archive does not exist on the trusted runner.'
+          }
+
+          if ($null -eq $blockedReason) {
+            $workspacePrefix = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
+            $sourceFull = [System.IO.Path]::GetFullPath($source)
+            $qualifiedRootFull = [System.IO.Path]::GetFullPath($qualifiedRoot)
+            if ($sourceFull.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+              $blockedReason = 'Vendor source archive must be runner-local and outside the GitHub workspace.'
+            }
+            elseif ($qualifiedRootFull.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+              $blockedReason = 'Qualified library output root must be outside the GitHub workspace.'
+            }
+          }
+
+          if ($null -ne $blockedReason) {
+            $evidence.status = 'BLOCKED'
+            $evidence.failure = $blockedReason
+            Write-PublicEvidence $evidence $publicEvidencePath
+            "status=BLOCKED" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+            exit 0
+          }
+
+          try {
+            $source = [System.IO.Path]::GetFullPath($source)
+            $qualifiedRoot = [System.IO.Path]::GetFullPath($qualifiedRoot)
+            New-Item -ItemType Directory -Force -Path $qualifiedRoot | Out-Null
+
+            $evidence.sourceArchiveBasename = [System.IO.Path]::GetFileName($source)
+
+            $exe = Join-Path $env:GITHUB_WORKSPACE 'src\TiaV21Worker\bin\Release\net48\TiaV21Worker.exe'
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+              throw 'Trusted TiaV21Worker executable was not produced by the build.'
+            }
+
+            $run1Manifest = Join-Path $rawRoot 'run1-manifest.json'
+            $run2Manifest = Join-Path $rawRoot 'run2-manifest.json'
+            $run1Work = Join-Path $rawRoot 'run1-work'
+            $run2Work = Join-Path $rawRoot 'run2-work'
+            $run1Stdout = Join-Path $rawRoot 'run1-stdout.txt'
+            $run1Stderr = Join-Path $rawRoot 'run1-stderr.txt'
+            $run2Stdout = Join-Path $rawRoot 'run2-stdout.txt'
+            $run2Stderr = Join-Path $rawRoot 'run2-stderr.txt'
+
+            & $exe qualify-library $source $qualifiedRoot $run1Manifest $run1Work 1> $run1Stdout 2> $run1Stderr
+            $run1Exit = $LASTEXITCODE
+            $evidence.run1ExitCode = $run1Exit
+
+            if (-not (Test-Path -LiteralPath $run1Manifest -PathType Leaf)) {
+              $evidence.status = 'FAIL'
+              $evidence.failure = 'First qualification invocation did not create a manifest.'
+            }
+            else {
+              $run1 = Get-Content -LiteralPath $run1Manifest -Raw | ConvertFrom-Json
+              $evidence.sourceArchiveBasename = $run1.sourceArchiveBasename
+              $evidence.sourceArchiveSha256 = $run1.sourceArchiveSha256
+              $evidence.tiaBuildIdentity = $run1.tiaBuildIdentity
+              $evidence.qualificationIdentity = $run1.qualificationIdentity
+              $evidence.qualifiedArchiveName = $run1.qualifiedArchiveName
+              $evidence.qualifiedArchiveSha256 = $run1.qualifiedArchiveSha256
+              $evidence.nativeReopenSuccess = [bool]$run1.nativeReopenSuccess
+
+              if ($run1Exit -ne 0 -or -not [bool]$run1.success) {
+                $evidence.status = 'FAIL'
+                $evidence.failure = if ($run1.failure) { [string]$run1.failure } else { 'First qualification invocation failed.' }
+              }
+              else {
+                & $exe qualify-library $source $qualifiedRoot $run2Manifest $run2Work 1> $run2Stdout 2> $run2Stderr
+                $run2Exit = $LASTEXITCODE
+                $evidence.run2ExitCode = $run2Exit
+
+                if (-not (Test-Path -LiteralPath $run2Manifest -PathType Leaf)) {
+                  $evidence.status = 'FAIL'
+                  $evidence.failure = 'Second qualification invocation did not create a manifest.'
+                }
+                else {
+                  $run2 = Get-Content -LiteralPath $run2Manifest -Raw | ConvertFrom-Json
+                  $same =
+                    ([bool]$run2.success) -and
+                    ($run2Exit -eq 0) -and
+                    ([bool]$run2.nativeReopenSuccess) -and
+                    ($run1.sourceArchiveSha256 -eq $run2.sourceArchiveSha256) -and
+                    ($run1.tiaBuildIdentity -eq $run2.tiaBuildIdentity) -and
+                    ($run1.qualificationIdentity -eq $run2.qualificationIdentity) -and
+                    ($run1.qualifiedArchiveName -eq $run2.qualifiedArchiveName) -and
+                    ($run1.qualifiedArchiveSha256 -eq $run2.qualifiedArchiveSha256)
+
+                  $evidence.deterministicSecondRun = [bool]$same
+                  if ($same) {
+                    $evidence.status = 'PASS'
+                    $evidence.failure = $null
+                  }
+                  else {
+                    $evidence.status = 'FAIL'
+                    $evidence.failure = if ($run2.failure) { [string]$run2.failure } else { 'Second qualification run did not reproduce the first qualification identity and hashes.' }
+                  }
+                }
+              }
+            }
+          }
+          catch {
+            $evidence.status = 'FAIL'
+            $evidence.failure = 'Qualification harness failed before valid public evidence could be completed.'
+          }
+
+          Write-PublicEvidence $evidence $publicEvidencePath
+          "status=$($evidence.status)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+
+      - name: Show sanitized evidence
+        if: always()
+        shell: powershell
+        run: |
+          $path = Join-Path $env:GITHUB_WORKSPACE 'artifacts\olq-001\qualification-evidence.json'
+          if (Test-Path -LiteralPath $path) {
+            Get-Content -LiteralPath $path
+          }
+          else {
+            Write-Host 'Sanitized qualification evidence was not created.'
+          }
+
+      - name: Upload sanitized qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: olq-001-public-evidence
+          path: artifacts/olq-001/qualification-evidence.json
+          if-no-files-found: warn
+
+      - name: Publish sanitized result to qualification issue
+        if: always()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const evidencePath = path.join(process.env.GITHUB_WORKSPACE, 'artifacts', 'olq-001', 'qualification-evidence.json');
+            let body;
+            if (!fs.existsSync(evidencePath)) {
+              body = `### OLQ-001 trusted qualification\n\nState: **FAIL**\n\nSanitized evidence was not created. Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            } else {
+              const e = JSON.parse(fs.readFileSync(evidencePath, 'utf8').replace(/^\uFEFF/, ''));
+              const safe = value => value == null ? 'n/a' : String(value).replace(/[\r\n`]/g, ' ');
+              body = [
+                '### OLQ-001 trusted qualification',
+                '',
+                `State: **${safe(e.status)}**`,
+                '',
+                `- trusted main: \`${safe(e.trustedMainSha)}\``,
+                `- source: \`${safe(e.sourceArchiveBasename)}\``,
+                `- source SHA256: \`${safe(e.sourceArchiveSha256)}\``,
+                `- TIA/Openness build: \`${safe(e.tiaBuildIdentity)}\``,
+                `- qualification identity: \`${safe(e.qualificationIdentity)}\``,
+                `- qualified archive: \`${safe(e.qualifiedArchiveName)}\``,
+                `- qualified archive SHA256: \`${safe(e.qualifiedArchiveSha256)}\``,
+                `- native reopen: \`${safe(e.nativeReopenSuccess)}\``,
+                `- deterministic second run: \`${safe(e.deterministicSecondRun)}\``,
+                `- failure: ${safe(e.failure)}`,
+                '',
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                '',
+                'Only sanitized hashes/identities/status are published; vendor payload and raw runner-local diagnostics are not uploaded.'
+              ].join('\n');
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 19,
+              body
+            });
+
+      - name: Enforce qualification result
+        if: always()
+        shell: powershell
+        run: |
+          $path = Join-Path $env:GITHUB_WORKSPACE 'artifacts\olq-001\qualification-evidence.json'
+          if (-not (Test-Path -LiteralPath $path)) { exit 1 }
+          $evidence = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+          if ($evidence.status -ne 'PASS') { exit 1 }
