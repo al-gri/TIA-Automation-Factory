@@ -42,7 +42,8 @@
     "riskClass": "HIGH",
     "reviewType": "CODE_REVIEW",
     "reviewerSlots": [
-      "chatgpt"
+      "chatgpt",
+      "gemini"
     ]
   },
   "protectedPaths": [
