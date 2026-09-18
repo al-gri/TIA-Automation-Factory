@@ -1,171 +1,59 @@
 # Target Architecture — TIA Automation Factory
 
-Status: **PROPOSED / HIGH-RISK ARCHITECTURE DECISION**
+Status: **PROPOSED / HIGH-RISK ARCHITECTURE DECISION — review round 2 required**
 
 Date: 2026-09-18
 
-This document defines the proposed target architecture for the generator. It is not accepted until the repository HIGH-risk review policy is satisfied. The proposal must receive independent ChatGPT and Gemini architecture review before it is merged to `main` and treated as normative.
+This document defines the proposed target architecture for the generator. It is not normative until the repository HIGH-risk review policy is satisfied for the exact current proposal SHA.
 
 ## 1. Product goal
 
-Build an engineering system in which an automation engineer models a plant visually and structurally, and the factory deterministically produces a modular Siemens TIA Portal V21 project that uses Siemens Open Library objects through a trusted TIA Portal Openness boundary.
-
-Target flow:
+Build an engineering system in which an automation engineer models a plant visually and structurally and the factory deterministically produces a modular Siemens TIA Portal V21 project using qualified Siemens Open Library objects through a trusted TIA Portal Openness boundary.
 
 ```text
 React / React Flow + table/property views
-            |
-            v
-Canonical Automation Project
-(vendor-neutral, versioned, no UI-library semantics)
-            |
-            v
+        |
+        v
+Canonical AutomationProject
+(vendor-neutral, versioned, UI-independent)
+        |
+        v
 Domain validation + semantic compilation
-            |
-            v
+        |
+        v
 Vendor-neutral PLC Program IR
-            |
-            v
+        |
+        v
 Siemens Backend
-Open Library catalog + bindings + Siemens lowering
-            |
-            v
-SCL AST / deterministic source emitter
-            |
-            v
-Declarative Generation Package
-            |
-            v
-Trusted TiaV21Worker (.NET Framework 4.8)
-            |
-            +--> target/profile preparation
-            +--> Open Library materialization
-            +--> external-source generation
-            +--> TIA V21 compile
-            +--> save ready project + diagnostics
-            |
-            v
-Ready TIA Portal V21 project
+qualified Open Library catalog + bindings
+        |
+        v
+SCL AST / deterministic emitter
+        |
+        v
+Declarative generation package
+        |
+        v
+Trusted TiaV21Worker / ProjectAssembler
+        |
+        v
+TIA Portal V21 -> compile -> save -> diagnostics
 ```
 
-The project must remain modular, deterministic, scalable to large plants, reviewable in Git, and reproducible from the same source model + target profile + pinned library versions.
+## 2. Non-negotiable boundaries
 
-## 2. Architectural principles
+- React Flow is an editor adapter, never the canonical PLC language.
+- Domain and PLC IR contain no `Siemens.Engineering`, Open Library FB names, TIA GUIDs or TIA paths.
+- PLC compiler decisions are complete before the Windows/TIA boundary.
+- Siemens-specific implementation belongs in SiemensBackend.
+- TIA Openness remains isolated in trusted `src/TiaV21Worker` targeting .NET Framework 4.8.
+- AI-authored executable code never runs on the trusted Windows/TIA host.
+- Real TIA Portal V21 compile is authoritative for Siemens integration.
+- F-safety generation is out of scope.
 
-### 2.1 Domain first, Siemens second
+## 3. Canonical engineering model
 
-The canonical project describes automation concepts, not Siemens implementation details.
-
-The Domain and PLC IR must never contain names such as `fbValve_Solenoid`, `udtHMI_ValveControl`, `Siemens.Engineering`, TIA library GUIDs, or TIA object paths. Those belong to the Siemens/Open-Library backend.
-
-A domain concept such as a two-position valve may be implemented by Siemens Open Library today and by another implementation profile later without changing the visual project format.
-
-### 2.2 React Flow is a view/editor, not the language runtime
-
-Raw React Flow node/edge JSON must never be the generator's source language.
-
-React Flow is an adapter over a canonical, versioned `AutomationProject` model. Canvas position, zoom, colors and UI grouping are layout metadata and must not affect generated PLC code.
-
-The frontend may perform fast UX validation, but backend/compiler validation is authoritative.
-
-### 2.3 PLC scan semantics are explicit
-
-The generator is not an event/message engine.
-
-Every graph element must have PLC semantics: signal level, edge, pulse, state, timer, latch, condition, state machine, device command, feedback, etc. Combinational logic is scheduled deterministically. Cycles are rejected unless they cross an explicit stateful element. Multiple writers are rejected by default.
-
-### 2.4 Generated code is deterministic
-
-The same canonical project, target profile, Open Library catalog version and generator version must produce semantically identical artifacts.
-
-Stable identifiers and tags drive generated identifiers. Moving a node on the canvas must not change PLC source.
-
-### 2.5 Open Library is consumed through a versioned implementation catalog
-
-The generator does not scatter Open Library block names through business logic.
-
-The Siemens backend owns a versioned machine-readable catalog describing exact released block/type versions, parameter directions, Siemens data types, dependencies, HMI/Error UDTs, mode/simulation behavior and optional HMI metadata.
-
-The catalog should ultimately be extracted/verified from the actual trusted V21-opened/upgraded library through TIA Openness materialization/export/inspection rather than maintained manually at scale.
-
-### 2.6 TIA Openness is assembly/orchestration, not the semantic compiler
-
-Compiler decisions are made before the Windows/TIA boundary.
-
-`TiaV21Worker` receives a bounded declarative package and performs only trusted operations: prepare target, materialize required library objects, import/generate sources, compile, save, and emit diagnostics.
-
-Candidate source code is never executed on the trusted Windows/TIA host.
-
-### 2.7 Modularity is bounded, not maximal nesting
-
-Open Library's multi-instance guidance should be applied inside meaningful subsystem/unit memory boundaries, not recursively to the entire plant.
-
-A very large root FB whose single instance DB contains every unit/device would increase memory size, recompilation blast radius and coupling. The default scalable boundary is therefore one application instance DB per logical unit/subsystem, with device FBs inside that unit as multi-instances.
-
-## 3. Siemens Open Library rules that shape the design
-
-The supplied Siemens Open Library V19 documentation establishes the following constraints.
-
-### 3.1 A library object is more than an FB
-
-A typical device object is a coordinated contract containing:
-
-- an FB/FC implementation;
-- an HMI UDT used as an `IN_OUT` interface;
-- an Error UDT for alarms and PLC logic;
-- HMI faceplates/popups and related metadata;
-- dependencies on helper blocks and types;
-- for physical devices, optional simulation behavior.
-
-For example, `fbValve_Solenoid` includes scalar inputs such as `Time`, `Int`, and `Bool`, an `IN_OUT` `udtHMI_ValveControl`, explicit Boolean outputs, and `udtError_Valve` output.
-
-Therefore a Siemens mapping must describe a complete library object contract, not only the FB name.
-
-### 3.2 Multi-instance memory is the default for normal device FBs
-
-Open Library documentation recommends multi-instance FB usage to reduce the number of instance DBs and improve project structure.
-
-The generated architecture therefore uses application/unit FBs whose `VAR_STATIC` section contains Open Library device FB instances. A unit/application FB itself normally has one explicit instance DB, creating a bounded memory domain. Single-instance device DBs are reserved for cases where a library object or Siemens technology explicitly requires them.
-
-### 3.3 Internal FB memory is private
-
-The generator must never read undocumented fields from a library FB instance DB. External behavior is obtained only through documented inputs, outputs, HMI UDTs and Error UDTs.
-
-### 3.4 `iStatus` and `iErrorCode` are not PLC-control contracts
-
-Open Library documents `iStatus` and scrolling `iErrorCode` as HMI display values. Generated PLC logic must use explicit Boolean outputs and Error UDT status bits, not these presentation integers.
-
-### 3.5 Modes are subsystem concepts
-
-Open Library defines Stop, Auto, Manual and Independent modes. For medium/large systems it recommends modes per subsystem and passing the mode into the customer-created subsystem FB.
-
-The domain therefore needs explicit `ModeDomain`/unit-level mode ownership; mode should not be duplicated independently on every graph node.
-
-### 3.6 Simulation is a subsystem-controlled PLC concept
-
-Simulatable device blocks expose `bInSimulate`. Open Library recommends distributing simulation from a higher-level system FB. Simulation is not an HMI bypass/maintenance mechanism.
-
-The domain therefore needs explicit `SimulationDomain` ownership, propagated down to devices by compiler lowering.
-
-### 3.7 Library constants and initial setup are mandatory dependencies
-
-Open Library uses constants from the `Open Library` PLC tag-table master copy and depends on CPU System/Clock memory bits. These are target/project prerequisites and belong to the TIA/Open-Library materialization stage, not to every generated device call.
-
-### 3.8 Interlock and permissive semantics are first-class
-
-`fbInterlock` and `fbPermissive` model named condition sets and expose HMI state, not merely a Boolean AND.
-
-The canonical model should preserve condition identity/name and condition-set semantics so a Siemens backend can map them to library objects and HMI data instead of reducing them prematurely to anonymous logic.
-
-### 3.9 Sequencers are stateful high-level semantics
-
-`fbStepSequencer` is intentionally used multiple times while sharing one instance memory allocation for a sequence. This is not equivalent to a generic stateless node. Sequencers/state machines are later, higher-risk compiler features and must receive explicit semantic design before implementation.
-
-Detailed generator implications are maintained in `docs/OPEN_LIBRARY_INTEGRATION_RULES.md` within this proposal.
-
-## 4. Canonical automation model
-
-The first stable project schema should evolve toward this conceptual shape:
+The canonical source evolves toward:
 
 ```text
 AutomationProject
@@ -173,157 +61,58 @@ AutomationProject
   controllers[]
   areas[] / units[]
   devices[]
+  signals[]
   connections[]
   logic[]
   conditionSets[]
   ioBindings[]
   modeDomains[]
   simulationDomains[]
-  layouts[]             # UI-only metadata
+  layouts[]            # UI-only
 ```
 
-### 4.1 Stable identity and human naming
+Every semantic object has a stable technical ID plus a human engineering tag/name. Canvas position, zoom, colors and UI grouping are layout metadata and cannot affect PLC output.
 
-Every semantic object has:
+### Devices, ports and parameters
 
-- immutable/stable technical ID;
-- human engineering tag/name;
-- optional description;
-- hierarchy parent/reference.
+A semantic device such as `TwoPositionValve` exposes vendor-neutral typed runtime ports, engineering parameters and context references. Siemens implementation details such as `fbValve_Solenoid` or `udtHMI_ValveControl` are not part of the Domain contract.
 
-Generated source uses deterministic naming rules derived from these stable values. UI internal IDs must not become PLC contracts accidentally.
+Ports and parameters are different concepts. Parameters such as timeout/scaling are configuration, not graph wires merely because the UI can draw a connection.
 
-### 4.2 Device template versus device instance
+## 4. PLC compiler and deterministic scan semantics
 
-A template defines a semantic equipment type and its public contract; an instance represents a physical/logical object in one project.
-
-Example semantic template:
+The compiler is multi-pass:
 
 ```text
-TwoPositionValve
-  Inputs/commands:
-    Enable
-    CommandWork
-    Reset
-    SignalHome
-    SignalWork
-  Outputs/status:
-    CommandHome
-    CommandWork
-    ActiveHome
-    ActiveWork
-    Error
-  Parameters:
-    Timeout
-  Context:
-    Mode
-    Simulation
+1. schema validation / migration
+2. symbol and identifier validation
+3. template/port resolution
+4. type checking
+5. connection/cardinality/single-writer validation
+6. stateful-boundary and SCC analysis
+7. partition by controller / area / unit
+8. normalize expressions/conditions
+9. stable combinational scheduling
+10. lower to PlcProgramIr
 ```
 
-No Siemens block name appears here.
+### 4.1 Combinational scheduling invariant
 
-### 4.3 Ports versus parameters
+Deterministic scheduling is a formal compiler invariant, not an implementation detail.
 
-Ports represent runtime signal/data flow and have:
+1. Stateful primitives define scan-to-scan boundaries.
+2. For each combinational partition, the compiler computes strongly connected components.
+3. Any combinational SCC containing more than one node, or a self-loop, is a compilation error unless the cycle is broken by an explicit stateful element.
+4. After stateful boundaries are removed, every combinational partition must be a DAG.
+5. The compiler performs a stable topological sort before emitting executable PLC statements.
+6. When several nodes are simultaneously schedulable, a deterministic semantic tie-breaker is used (stable semantic ID/order), never UI position or JSON array accident.
+7. Same-scan propagation is the default for combinational dependencies: a downstream expression sees the value produced earlier in the same deterministic schedule.
 
-- stable port ID;
-- direction: normally Input or Output at the domain level; bidirectional shared data is used only where it is a real domain concept, not merely because a Siemens FB uses `IN_OUT`;
-- type;
-- semantic role;
-- required/optional cardinality.
+Equivalent canonical models with different UI layout/order must produce the same semantic schedule.
 
-Parameters are compile-time engineering configuration such as timeout/default/scaling values. A parameter must not be represented as a graph wire simply because the UI can draw one.
+### 4.2 PLC IR owns its own type system
 
-Siemens-only `IN_OUT` implementation details such as an Open Library HMI UDT belong to the Siemens binding, not the visual device contract by default.
-
-### 4.4 Connections
-
-A connection references `source object + source port -> target object + target port`.
-
-Compiler rules:
-
-- output-to-input direction;
-- type compatibility;
-- required port completeness;
-- single writer by default;
-- no implicit merge of multiple command sources;
-- explicit conversion nodes for non-trivial conversions;
-- stable diagnostics that reference domain object/port IDs.
-
-### 4.5 Logic nodes
-
-Initial logic primitives should remain small and explicit:
-
-- AND / OR / NOT;
-- compare;
-- rising/falling edge;
-- TON / TOF or semantic timers;
-- latch/reset;
-- selector/arbitration.
-
-Stateful primitives mark legal scan-cycle feedback boundaries.
-
-### 4.6 Condition sets
-
-Interlocks/permissives are modeled as named condition collections with a final OK state and individual condition identity/text. This allows later mapping to Open Library `fbInterlock`/`fbPermissive` HMI structures.
-
-### 4.7 I/O bindings
-
-Physical I/O mapping is separate from logical device topology. A device port can bind to a controller/channel/tag without polluting device semantics with Siemens addresses.
-
-Initial product scope should support S7-1500 standard PLC logic. F-safety program generation is explicitly out of scope until separately designed and validated.
-
-### 4.8 Project persistence and UI layout
-
-The canonical project format is a versioned portable engineering representation, initially JSON-based and Git-friendly.
-
-Recommended separation:
-
-```text
-project.json / semantic project files
-  schemaVersion
-  hierarchy
-  devices
-  connections
-  logic
-  IO/configuration
-
-layout.json / layout section
-  canvas coordinates
-  viewport/group visual state
-  purely presentational metadata
-```
-
-For very large projects the same logical schema may be split into deterministic files by controller/unit, but storage partitioning must not change semantics.
-
-SQLite may later be used as a local index/cache for search/cross-reference/performance. It should not become the only opaque source format during the early product phase.
-
-## 5. Compiler architecture
-
-The compiler should be multi-pass and deterministic.
-
-```text
-Project DTO
-  1. Schema validation / migration
-  2. Symbol table + identifier validation
-  3. Template/port resolution
-  4. Type checking
-  5. Connection/cardinality validation
-  6. Scan-semantic validation
-     - multiple writers
-     - combinational cycles
-     - stateful boundaries
-  7. Partition by controller / area / unit
-  8. Normalize expressions/conditions
-  9. Deterministic scheduling
- 10. Lower to vendor-neutral PlcProgramIr
-```
-
-### 5.1 PLC IR must become independent of Domain DTO types
-
-The current early `PlcIrField` carries `AutomationType` directly. That is acceptable only for the smoke baseline.
-
-Before complex generation, PLC IR should own a target-independent PLC type system such as:
+The current smoke IR carrying `Domain.AutomationType` directly is temporary. Before complex generation, PLC IR owns target-independent types such as:
 
 ```text
 PlcTypeRef
@@ -333,380 +122,251 @@ PlcTypeRef
   Struct(...)
 ```
 
-This prevents the backend from depending on frontend/domain enum growth and allows target lowering to introduce target-specific named types without contaminating the domain.
+## 5. Siemens/Open Library backend
 
-### 5.2 Proposed PLC Program IR
-
-Conceptually:
-
-```text
-PlcProgramIr
-  dataTypes[]
-  globalData[]
-  functionBlocks[]
-  functions[]
-  entryPoints[]
-
-PlcFunctionBlockIr
-  interface
-  staticInstances
-  temporaries
-  statements
-  sourceRefs
-```
-
-It is a compiler IR, not a serialized UI format.
-
-## 6. Siemens backend architecture
-
-The Siemens backend lowers PLC IR + selected implementation profile into a Siemens-specific program model.
+SiemensBackend lowers PLC IR using:
 
 ```text
 PlcProgramIr
  + SiemensTargetProfile
- + OpenLibraryCatalog
+ + QualifiedOpenLibraryCatalog
         |
         v
 SiemensProgramModel
         |
-        +--> required library objects/types
-        +--> generated UDTs
-        +--> generated FBs
-        +--> generated DBs/instance DB plan
-        +--> OB/root orchestration plan
-        +--> source map
+        + required qualified library objects/types
+        + generated UDTs
+        + generated FBs
+        + generated DBs + DB access mode
+        + instance-DB plan
+        + entry/orchestration plan
+        + source map
         v
 SCL AST
-        v
-Deterministic SCL emitter
 ```
 
-### 6.1 Open Library catalog
+The Open Library catalog pins:
 
-A catalog entry should eventually contain at least:
+- qualified V21 library identity/hash;
+- originating V19 source archive hash for provenance;
+- exact released type version/GUID/state where available;
+- block kind and memory-model exceptions;
+- parameter names, directions and Siemens types;
+- HMI/Error UDTs;
+- mode/simulation support;
+- dependencies and master copies/constants;
+- optional HMI/SiVArc metadata.
+
+Generation never binds to an unspecified `latest` library type.
+
+## 6. Library qualification is separate from production generation
+
+TIA V21 can upgrade/retrieve older library archives, but a major-version upgrade is **not** part of a normal project build.
+
+Two distinct operations exist:
+
+### 6.1 Library qualification / migration event
+
+A dedicated HIGH-risk trusted operation may accept the source V19 `.zal19` and:
+
+1. record source SHA256 and TIA V21 build/version;
+2. perform the supported V19 -> V21 retrieve/open-with-upgrade path;
+3. save/archive a native V21 qualified library artifact/cache;
+4. inspect exact released type versions, dependencies and required master copies;
+5. compile a clean reference project;
+6. produce a machine-readable qualification manifest/catalog seed;
+7. require human acceptance before the result becomes an approved library profile.
+
+A library upgrade is therefore an explicit versioned migration event.
+
+### 6.2 Normal ProjectAssembler operation
+
+Normal generation accepts only an already qualified native V21 library identity/artifact/profile. It must reject an unqualified V19 archive as a production input.
+
+The same qualified library artifact/profile is reused until an explicit migration creates a new version.
+
+## 7. SCL generation and DB access mode
+
+SCL remains the primary generated application language. Before real FB calls the current direct StringBuilder approach evolves into a minimal deterministic SCL AST supporting declarations, variable sections, assignments, block calls, named bindings and expressions.
+
+The Siemens program model must carry an explicit per-DB access policy:
 
 ```text
-semanticImplementationKey
-library identity + archive/source hash
-library type name
-exact version/GUID/release state
-block kind
-memory model exception (if any)
-parameters[]:
-  name
-  direction
-  Siemens type (scalar or named UDT)
-  required/default semantics
-related HMI UDT
-related Error UDT
-mode support
-simulation support
-dependencies
-optional HMI/SiVArc metadata
+DbAccessMode
+  Optimized
+  Standard
 ```
 
-The catalog is versioned and pinned. Generation must not silently bind to "latest available" library types.
+For the Open Library legacy alarm-generation compatibility profile, generated Error DBs are **Standard / non-optimized** and the emitter must express this explicitly, e.g. via the supported SCL block attribute (`S7_Optimized_Access := 'FALSE'`) and prove it in real TIA V21.
 
-### 6.2 Catalog extraction/verification
+This requirement does **not** imply introducing SimaticML or Simatic Source Document now. SCL remains preferred while it can represent the required metadata. A second exchange backend is introduced only when a concrete TIA feature cannot be represented safely through SCL.
 
-At scale, the catalog should be derived/verified from the actual library through trusted TIA V21 Openness operations.
-
-The supplied V19 archive should be upgraded/retrieved into V21 in a trusted/cached step, then exact released type versions and dependencies inspected. If direct metadata is insufficient for parameter-interface extraction, the trusted process may instantiate/export the object and derive the descriptor from the resulting supported source/SimaticML representation. The extraction mechanism itself must be tested against known Open Library documentation.
-
-### 6.3 Library materialization
-
-TIA V21 supports creating project instances from specific global-library type versions and synchronizes required dependent elements into the project library. Openness also supports creating supported objects from master copies, including PLC tag tables/user constants.
-
-The worker should use exact versions and explicit conflict/path behavior, never arbitrary drag/drop-like "current default" behavior.
-
-## 7. SCL generation strategy
-
-SCL remains the primary generated language for the application layer.
-
-The current direct `StringBuilder` UDT emitter is acceptable for the smoke slice only. Before generated FB calls, introduce a minimal SCL AST with deterministic formatting:
-
-- compilation unit;
-- type declaration;
-- FB/FC/DB declaration;
-- variable sections;
-- assignments;
-- block calls and named parameter bindings;
-- literals and variable/member expressions;
-- comments/regions where useful.
-
-Templates may be used for harmless boilerplate, but expressions and calls should not become a large collection of string concatenations.
-
-One generated `.scl` file may contain multiple declarations. Keeping a single bounded source artifact as long as practical avoids unnecessary CI/TIA infrastructure expansion while the compiler matures.
+Generated standard-access Error DBs must not be placed inside a TIA Software Unit configuration that forces optimized access.
 
 ## 8. Modular generated TIA project structure
 
-The recommended application layout is hierarchical but uses **bounded subsystem instance memory**, not one recursively nested plant-wide instance DB.
+Use bounded subsystem memory, not one recursively nested plant-wide instance DB.
 
 ```text
 Program blocks / Generated
-  OB_Main                         # minimal entry point
-  FC_GeneratedRoot                # optional stateless orchestration
-
+  OB_Main
   FB_WaterSystem
   FB_AirSystem
-  FB_ConveyorArea
-
-  DB_WaterSystem                  # instance DB of FB_WaterSystem
-  DB_AirSystem                    # instance DB of FB_AirSystem
-  DB_ConveyorArea                 # instance DB of FB_ConveyorArea
-
-PLC data types / Generated
-  project-owned generated UDTs
+  DB_WaterSystem       # instance DB of FB_WaterSystem
+  DB_AirSystem         # instance DB of FB_AirSystem
 
 Global data / Generated
   DB_HMI_WaterSystem
   DB_Errors_WaterSystem
-  DB_Config_WaterSystem           # only where needed
-  ... equivalent per unit
+  DB_Config_WaterSystem   # only where needed
 
 Library objects/types
-  Open Library/...                # materialized from pinned library versions
+  qualified Open Library objects
 
 User/
-  manually maintained extension blocks; generator never overwrites
+  manually maintained extension objects; generator never overwrites
 ```
 
-### 8.1 Unit/subsystem is the default memory boundary
-
-`OB_Main` should contain only orchestration, either direct unit calls or a small stateless/root orchestration FC.
-
-Each logical unit/subsystem has an application FB with its own instance DB. That application FB contains the ordinary Open Library device FBs as multi-instance statics.
-
-Example:
+Inside a unit application FB, ordinary Open Library field-device FBs are multi-instances:
 
 ```text
-OB_Main
-  -> DB_WaterSystem   (instance of FB_WaterSystem)
-  -> DB_AirSystem     (instance of FB_AirSystem)
-
-FB_WaterSystem / DB_WaterSystem
+FB_WaterSystem
   VAR_STATIC
     V101 : fbValve_Solenoid
     V102 : fbValve_Solenoid
     P101 : <Open Library motor FB>
 ```
 
-This preserves Open Library's multi-instance benefits while preventing a single enormous recursive root instance DB.
+Do not generate one wrapper FB or one instance DB per ordinary physical device by default. Reusable unit types may share code while each physical unit has separate state/instance DB.
 
-### 8.2 Reusable unit types may share code but not state
+## 9. Open Library runtime contracts
 
-If multiple units are truly identical, they may share one generated/reusable FB type while each unit receives a distinct instance DB.
+The generator must preserve the library's documented contracts:
 
-Unique units may receive distinct generated FBs. The compiler should not force artificial type reuse when logic differs, but must avoid generating a unique wrapper FB per individual field device.
+- internal FB instance memory is private;
+- PLC logic uses documented inputs/outputs/HMI/Error contracts only;
+- `iStatus` and scrolling `iErrorCode` are presentation values, not PLC-control state;
+- mode is normally owned per subsystem and propagated to devices;
+- simulation is a subsystem/system context propagated to `bInSimulate` where supported;
+- Open Library constants/tag-table master copies are project prerequisites;
+- `fbInterlock` / `fbPermissive` preserve named condition/HMI semantics;
+- `fbStepSequencer` has special shared-instance semantics and requires separate explicit design.
 
-### 8.3 Do not create one wrapper FB per device instance
+## 10. Target profiles and CPU prerequisite preflight
 
-A generated wrapper per physical valve/motor would explode project size and reduce maintainability.
+Production generation prefers trusted versioned TIA base projects/target profiles rather than arbitrary hardware-from-scratch engineering.
 
-Prefer unit/application FB types and multi-instance device instances. If semantic device wrappers are required, create them per reusable device/application type/pattern, not per physical instance.
+A target profile declares at minimum:
 
-### 8.4 HMI and Error DB grouping
+- TIA version;
+- trusted base project identity/hash;
+- controller/profile identity;
+- expected Open Library qualified profile;
+- required System memory enabled state/address;
+- required Clock memory enabled state/address;
+- required Open Library constants/tag-table identity.
 
-Each subsystem/unit should normally own structured global DBs containing per-device HMI/Error UDT variables, for example:
+The ProjectAssembler performs a **preflight validation** of the actual target CPU and project before library/program materialization. It must verify the required System/Clock memory configuration and addresses match the target profile. Missing/mismatched prerequisites produce a deterministic failure; the assembler must not silently guess addresses or patch semantics.
 
-```text
-DB_HMI_WaterSystem
-  V101 : udtHMI_ValveControl
-  P101 : udtHMI_...
+The exact V21 Openness attribute/service mechanism for this check is proven by a dedicated trusted TIA task before production use.
 
-DB_Errors_WaterSystem
-  V101 : udtError_Valve
-  P101 : udtError_...
-```
+## 11. Trusted ProjectAssembler
 
-This aligns with Open Library examples, makes operator/HMI integration predictable, and keeps FB internal memory private.
+The normal assembler receives a bounded declarative package containing hashes, target profile, qualified library requirements, generated sources and source map.
 
-### 8.5 Modes and simulation
+Responsibilities:
 
-Each unit/subsystem owns or references its mode domain and passes mode to all relevant Open Library instances.
+1. validate package schema and hashes;
+2. open/copy the trusted target/base project;
+3. preflight CPU and Open Library prerequisites;
+4. open the already-qualified native V21 Open Library profile;
+5. materialize exact required released type versions/dependencies/master copies;
+6. import/generate bounded SCL;
+7. compile the entire PLC software;
+8. save the project;
+9. return structured diagnostics and evidence.
 
-Simulation is propagated from unit/system context to each simulatable device's `bInSimulate` input.
+It does not perform Domain semantics or a V19->V21 major-version upgrade during a normal build.
 
-### 8.6 Generated versus manual ownership
+## 12. Diagnostics and source mapping
 
-Generated paths are fully generator-owned and may be replaced deterministically.
-
-Manual/user paths are never rewritten. Cross-boundary integration must happen through documented interfaces, not by editing generated code manually.
-
-### 8.7 Partitioning remains explicit for very large projects
-
-Controller and unit partitioning is a compiler concern. A future target profile may impose practical limits on unit size, instance DB size, number of generated objects or scan-time budget. The compiler should be able to report those limits rather than silently collapsing everything into one block/DB.
-
-## 9. TIA V21 worker evolution
-
-The current worker is intentionally a smoke-test implementation: it creates one hard-coded S7-1516 project, imports one SCL source and compiles it. It must not be incrementally turned into business logic.
-
-The target worker is a trusted `ProjectAssembler` driven by a declarative package.
-
-### 9.1 Target generation package
-
-Conceptual package:
-
-```text
-manifest.json
-  schemaVersion
-  generatorVersion
-  sourceProjectHash
-  artifact hashes
-
-target-profile.json
-  TIA version
-  controller/profile
-  base-template identity
-
-library-requirements.json
-  exact Open Library identity/hash
-  required type versions/master copies
-
-generated/application.scl
-source-map.json
-```
-
-No executable/script payload from candidate code is accepted on Windows.
-
-### 9.2 Worker responsibilities
-
-1. Validate package schema and hashes.
-2. Create/copy the trusted target project profile/template.
-3. Ensure CPU/library prerequisites such as System/Clock memory and the Open Library tag-table master copy.
-4. Open/retrieve the pinned Open Library; if source archive is V19, perform controlled V21 upgrade/cache keyed by archive hash.
-5. Materialize exact required released library type versions and dependent elements.
-6. Import the bounded generated SCL source.
-7. Generate blocks from source.
-8. Compile the entire PLC software.
-9. Save the final project.
-10. Return structured diagnostics with stage, TIA object path, severity and source/domain reference where a source map permits it.
-
-### 9.3 Hardware strategy
-
-Do not make arbitrary hardware-catalog engineering a prerequisite for the generator MVP.
-
-For production, prefer versioned trusted target profiles/base TIA projects containing known-good hardware/network configuration. Later, optional hardware-from-scratch profiles can be added when there is a concrete requirement.
-
-The current hard-coded S7-1516 is a smoke fixture, not the product model.
-
-## 10. Diagnostics and traceability
-
-Every generated object should retain a source reference back to domain IDs. The Siemens backend emits a source map connecting generated symbols/sections to project objects.
-
-Diagnostics should eventually be translatable from:
+Every generated object retains a source reference back to canonical Domain IDs. The generation package carries a source map so a TIA diagnostic can eventually map:
 
 ```text
-TIA: FB_WaterSystem / line or object path
+TIA: FB_WaterSystem / generated symbol
+ -> Unit WaterSystem
+ -> Device V101
+ -> semantic port/parameter
 ```
 
-back to:
+## 13. Frontend boundary
 
-```text
-Unit WaterSystem -> Valve V101 -> port Enable
-```
+Target product stack remains React + TypeScript + React Flow over ASP.NET Core/.NET 10. Equipment/table/properties, connectivity, I/O, logic and diagnostics views operate on the same canonical model.
 
-This is essential for a usable visual engineering product.
+Do not show the entire plant as one canvas. Use hierarchy/unit views and filtered graphs.
 
-## 11. Frontend/API boundary
-
-Target product stack remains:
-
-```text
-React + TypeScript + React Flow
-        |
-ASP.NET Core / .NET 10 API
-        |
-Domain + compiler
-```
-
-Required frontend views should share one underlying model:
-
-- Equipment/plant hierarchy;
-- device table;
-- graph/connectivity;
-- I/O mapping;
-- control logic;
-- properties;
-- diagnostics/cross references.
-
-The graph is not expected to show the entire plant as one canvas. Hierarchical/unit views and filtered graphs are required for scale.
-
-Frontend implementation should begin only after the canonical model and first real Open Library vertical slice are proven.
-
-## 12. HMI and alarm strategy
-
-HMI generation is a later phase, but architecture must not block it.
-
-The Siemens catalog may retain HMI faceplate/type/SiVArc metadata. The first PLC generator should create HMI/Error structures compatible with Open Library contracts. Direct HMI screen generation, SiVArc automation and alarm generation are separate versioned features with their own TIA acceptance.
-
-Legacy Open Library alarm-generation assumptions such as non-optimized Error DB layout must not be adopted blindly. Alarm strategy must be made explicit when that phase starts.
-
-## 13. Deliberate non-goals for the first production vertical slice
-
-Do not implement yet:
-
-- F-safety logic generation;
-- arbitrary LAD/FBD layout generation;
-- full HMI screen generation;
-- PID/complex sequencer generation;
-- a generic multi-vendor plugin framework;
-- TIA Software Units/namespaces unless a measured need appears;
-- automatic arbitrary hardware configuration from scratch;
-- a huge generated wrapper class hierarchy.
-
-The architecture keeps boundaries that allow these later, but the first goal is a reliable Siemens/Open-Library PLC generator.
+Broad UI work begins only after the first real Open Library vertical slice is green.
 
 ## 14. First production vertical slice
 
-The architecture is considered proven when the repository can deterministically execute this scenario:
+Architecture proof target:
 
 ```text
-Canonical project
-  WaterSystem unit
-    V101 : TwoPositionValve
-    mode + simulation context
-    typed command/feedback signals
+WaterSystem
+  V101 : TwoPositionValve
+  mode + simulation context
         |
         v
-compiler + PLC IR
+Domain -> PLC IR
         |
         v
-Open Library mapping -> fbValve_Solenoid
+qualified Open Library binding -> fbValve_Solenoid
         |
         v
-Generated FB_WaterSystem
-  multi-instance V101 : fbValve_Solenoid
-Generated DB_WaterSystem
-  instance DB of FB_WaterSystem
-Generated DB_HMI_WaterSystem
-Generated DB_Errors_WaterSystem
-Minimal OB/root orchestration call
+FB_WaterSystem
+  V101 multi-instance
+DB_WaterSystem
+DB_HMI_WaterSystem
+DB_Errors_WaterSystem (explicit access policy)
         |
         v
-trusted TIA V21 worker
-  exact pinned Open Library dependencies
-  project prerequisites
-  import generated SCL
-  compile
-  save
+trusted target-profile preflight
+qualified V21 library materialization
+SCL generation/import
+full TIA V21 compile
         |
         v
-ready project, 0 TIA errors
+0 errors + saved project + traceable diagnostics
 ```
 
-That vertical slice should be completed before broadening the UI or library object catalog.
+That proof precedes broad React Flow UI and broad catalog expansion.
 
-## 15. Architecture acceptance criteria
+## 15. Deliberate non-goals
 
-This proposal should be accepted only if independent review agrees that:
+Not in the first production slice:
 
-- Domain remains independent of React Flow and Siemens;
-- PLC scan semantics are explicit and testable;
+- F-safety logic generation;
+- arbitrary LAD/FBD graphical generation;
+- PID/complex sequencer generation;
+- full HMI screen generation;
+- generic multi-vendor plugin framework;
+- arbitrary hardware-from-scratch generation;
+- wrapper hierarchy per device;
+- SimaticML/YAML backend without a demonstrated SCL blocker.
+
+## 16. Architecture acceptance criteria
+
+This proposal is acceptable only when independent review agrees that:
+
+- Domain is independent of React Flow and Siemens;
+- combinational scheduling is a stable DAG/topological invariant;
+- library upgrade is a separate qualification event, not normal build behavior;
+- normal builds consume an exact qualified native V21 library profile;
+- DB optimization/standard-access policy is explicit and testable;
+- System/Clock memory prerequisites are preflight-validated;
 - Open Library versions/dependencies are reproducible;
-- generated TIA project organization follows multi-instance guidance inside bounded unit/subsystem instance memory;
-- project partitioning can scale without one giant plant-wide instance DB;
-- the Windows/TIA trust boundary stays narrow and declarative;
-- generated/manual ownership is clear;
-- diagnostics can map back to engineering objects;
-- roadmap can reach a real compiled valve vertical slice through small versioned tasks without speculative infrastructure growth.
+- unit/subsystem memory boundaries scale without one giant plant DB;
+- Windows/TIA remains a narrow declarative trust boundary;
+- generated/manual ownership is explicit;
+- diagnostics retain source identity;
+- the roadmap reaches a real compiled valve slice through small versioned tasks.
