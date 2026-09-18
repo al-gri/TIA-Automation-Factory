@@ -33,6 +33,8 @@ The secondary reviewer must operate from a fresh chat and a self-contained GitHu
 
 One independent reviewer is the default. A simultaneous second reviewer is optional escalation only.
 
+`review.reviewerSlots` is an authorization allow-list, not a set of mandatory simultaneous reviewers. When the field is absent or an empty array on a legacy task, the only authorized default is `chatgpt`; `chatgpt-secondary` is never authorized implicitly and must be explicitly listed by the current trusted task.
+
 ## Review risk policy
 
 ### LOW
@@ -135,6 +137,8 @@ The implementation reviewer must be independent of the implementation candidate.
 
 Real TIA V21 diagnostics remain authoritative for import/compile/Openness status. External review may assess semantics, naming, interfaces and test adequacy, but must not claim successful TIA execution without trusted evidence.
 
+After external review, trusted Candidate Validation is deterministic: Linux tests/package generation plus machine validation of TIA V21 diagnostics. It must not invoke Gemini, OpenRouter, or any other hidden LLM reviewer provider. The external `chatgpt`/`chatgpt-secondary` gate is the independent LLM review; trusted TIA diagnostics are the target authority.
+
 Candidate `TiaV21Worker` code is not executed on Windows before independent approval and trusted merge when the task explicitly defines post-merge TIA validation.
 
 ## Delegated technical merge gate
@@ -174,6 +178,7 @@ Before any external response affects trusted state or execution, trusted automat
 - re-resolve the current trusted task and verify risk class, review type and requested reviewer-slot authorization;
 - derive reviewer eligibility from exact-candidate authorship and verify the reviewer is independent for that SHA;
 - require both trusted-task slot authorization **and** exact-candidate authorship-based independence before publishing any `APPROVED_EXTERNAL_REVIEW`, `REVIEW_CHANGES_REQUIRED` or `BLOCKED` review-state marker;
+- apply the legacy missing/empty-slot default only to `chatgpt`; never infer authorization for `chatgpt-secondary`;
 - reject malformed statuses/findings;
 - preserve only fully authorized/independent validated responses as GitHub review-state evidence;
 - never treat prose outside validated JSON as approval;
