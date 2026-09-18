@@ -368,25 +368,24 @@ jobs:
           case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid review.reviewType=$REVIEW_TYPE"; exit 1 ;; esac
           case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid review.riskClass=$RISK_CLASS"; exit 1 ;; esac
 
+          SLOT=chatgpt
           if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$TASK_PATH" >/dev/null 2>&1; then
-            jq -r '.review.reviewerSlots[]' "$TASK_PATH" > "$RUNNER_TEMP/reviewer-slots.txt"
-          else
-            printf '%s\n' chatgpt > "$RUNNER_TEMP/reviewer-slots.txt"
+            jq -e --arg slot "$SLOT" '.review.reviewerSlots | index($slot) != null' "$TASK_PATH" >/dev/null || {
+              echo "Trusted task does not authorize the primary reviewer slot required for a pure coding-agent candidate: $SLOT"
+              exit 1
+            }
           fi
 
-          while IFS= read -r SLOT; do
-            [[ "$SLOT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Invalid reviewer slot: $SLOT"; exit 1; }
-            jq -n \
-              --argjson pr "$PR_NUMBER" \
-              --arg task_path "$TASK_PATH" \
-              --arg review_type "$REVIEW_TYPE" \
-              --arg risk_class "$RISK_CLASS" \
-              --arg reviewer_slot "$SLOT" \
-              '{event_type:"external-review-request",client_payload:{pr_number:$pr,task_path:$task_path,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot,review_round:1}}' \
-              > "$RUNNER_TEMP/external-review-${SLOT}.json"
-            cat "$RUNNER_TEMP/external-review-${SLOT}.json"
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/external-review-${SLOT}.json"
-          done < "$RUNNER_TEMP/reviewer-slots.txt"
+          jq -n \
+            --argjson pr "$PR_NUMBER" \
+            --arg task_path "$TASK_PATH" \
+            --arg review_type "$REVIEW_TYPE" \
+            --arg risk_class "$RISK_CLASS" \
+            --arg reviewer_slot "$SLOT" \
+            '{event_type:"external-review-request",client_payload:{pr_number:$pr,task_path:$task_path,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot,review_round:1}}' \
+            > "$RUNNER_TEMP/external-review-${SLOT}.json"
+          cat "$RUNNER_TEMP/external-review-${SLOT}.json"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/external-review-${SLOT}.json"
 
       - name: Comment on source issue
         if: steps.work.outputs.mode == 'issue'
