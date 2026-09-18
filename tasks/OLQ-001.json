@@ -43,7 +43,7 @@
     "reviewType": "CODE_REVIEW",
     "reviewerSlots": [
       "chatgpt",
-      "gemini"
+      "chatgpt-secondary"
     ]
   },
   "protectedPaths": [
