@@ -177,6 +177,21 @@ class ExternalReviewToolTests(unittest.TestCase):
             response_path.write_text(json.dumps(response), encoding="utf-8")
             self.run_tool("validate-response", "--input", response_path)
 
+    def test_high_changes_required_uses_bounded_repair_without_dual_aggregate(self):
+        workflow = (ROOT / ".github" / "workflows" / "external-review-response.yml").read_text(encoding="utf-8")
+        self.assertIn("if: steps.publish.outputs.state == 'REVIEW_CHANGES_REQUIRED'", workflow)
+        self.assertIn('event_type:"candidate-repair"', workflow)
+        self.assertNotIn("Resolve HIGH-risk dual-review aggregate", workflow)
+        self.assertNotIn("risk_class != 'HIGH' && steps.publish.outputs.state == 'REVIEW_CHANGES_REQUIRED'", workflow)
+
+    def test_repair_honors_task_gated_tia_worker_and_non_generator_tasks(self):
+        workflow = (ROOT / ".github" / "workflows" / "agent-repair.yml").read_text(encoding="utf-8")
+        self.assertIn("candidatePolicy.allowTiaV21WorkerChanges // false", workflow)
+        self.assertIn("src/TiaV21Worker without trusted task opt-in", workflow)
+        self.assertIn(".generator.input // empty", workflow)
+        self.assertIn("case \"$RISK_CLASS\" in LOW|MEDIUM|HIGH)", workflow)
+        self.assertIn(".review.reviewerSlots | index($slot) != null", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
