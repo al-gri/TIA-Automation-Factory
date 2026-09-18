@@ -33,9 +33,8 @@ Short chronological record of infrastructure work. Keep entries factual and conc
 - Created HIGH-risk OLQ-001 for one-time Siemens Open Library V19 `.zal19` -> native V21 qualification.
 - PR #21 merged task-gated bounded `src/TiaV21Worker/**` candidate support.
 - PR #23 merged bounded HIGH repair support.
-- PR #22 coding/repair rounds resolved F001-F008; exact head `4354bebbf2a3bf745b09589d6abac0938d5b5664` passed CI #164 and independent `chatgpt-secondary` round-4 review, then merged as `5c8c957e6abb7004e4ee9e9382de97347ebfc9c6`.
-- PR #24 introduced authorship-based `chatgpt` / `chatgpt-secondary`, fail-closed reviewer authorization, deterministic Candidate Validation, fresh review after candidate-changing repair, one trusted validation dispatch source, main-only Windows/TIA manual execution, trusted coding context and methodology telemetry.
-- Independent rounds F001-F010 drove workflow/governance repairs.
+- PR #22 exact head `4354bebbf2a3bf745b09589d6abac0938d5b5664` passed CI #164 and independent `chatgpt-secondary` round-4 review, then merged as `5c8c957e6abb7004e4ee9e9382de97347ebfc9c6`.
+- PR #24 introduced authorship-based reviewer independence, fail-closed reviewer authorization, deterministic Candidate Validation, fresh review after candidate-changing repair, main-only Windows/TIA manual execution, trusted coding context and methodology telemetry.
 - PR #24 exact final head `a7062ac85c7b3c3fbcbe93380ea1c8e2f33d79ac` passed exact-SHA CI and fresh independent `chatgpt-secondary` review, then merged as `ef7e5a00e74a9d3b994c23637aab6fc2ae2546f5`.
 
 ## 2026-09-18 — Methodology and trusted-context instrumentation
@@ -44,40 +43,41 @@ Short chronological record of infrastructure work. Keep entries factual and conc
 - Added `docs/DEVELOPMENT_METHODOLOGY.md`, `docs/METHODOLOGY_JOURNAL.md`, issue #25 raw telemetry and `.github/workflows/methodology-telemetry.yml`.
 - Added `agents/runtime/build-coder-context.py`, `docs/CODING_AGENT_CONTEXT.md`, bounded `contextFiles`, source hashes and shared OpenRouter/DeepSeek rendered context.
 - Methodology checkpoints became mandatory primary-ChatGPT orchestration duties.
-- Issue #25 telemetry recorded PR #24/#22 merges and subsequent governance milestones.
 
 ## 2026-09-18 — OLQ trusted execution harness
 
-### IN PROGRESS
-- Issue #26 / PR #27 adds the smallest trusted-main Windows/TIA harness for real OLQ-001 qualification twice with sanitized evidence only.
-- First candidate `9ce3963…` failed repository trust-boundary regression because the main-only self-hosted guard did not use the exact audited invariant.
+### PAUSED
+- Issue #26 / PR #27 adds the trusted-main Windows/TIA harness for real OLQ-001 qualification twice with sanitized evidence only.
 - Repaired exact head `86b1b3f1b2cabca227d2976fa537ba00f572d960` passed CI #223 / run `35387244950`.
-- PR #27 is primary-ChatGPT-authored and reached independent-review gate, but is now paused behind GOV-CTX-001.
+- PR #27 is primary-ChatGPT-authored and must be re-checked against the post-governance `main` before any merge gate.
 
 ## 2026-09-18 — GOV-CTX-001: prompt/control authority separation
 
-### LIVE DEFECT CONFIRMED
-- A historical secondary-review response for PR #24 old SHA `450dca6608f0526d00370595fc5a928f7bbfbd71` reported F011/F012.
-- The old verdict itself was stale, but current `main` inspection confirmed the findings were still live after PR #24 merge.
-- `build-coder-context.py` parsed task-looking headings from mixed `--prompt-input` text, allowing free-form issue/reviewer content to select trusted-Git `contextFiles`.
-- `validate_repo_path()` silently canonicalized some malformed raw paths rather than requiring canonical spelling.
-- Issue #28 was created as HIGH-risk governance repair; downstream PR #27 is paused.
+### DONE
+- Historical F011/F012 findings were re-tested against then-current `main` and confirmed live despite the old verdict being stale.
+- Issue #28 / PR #30 removed task-authority discovery from mixed prompts and made repository path declarations fail closed on non-canonical spelling.
+- Exact candidate `e3d2912d74cf83256aafe1bd597f49f360411d34` passed CI #224 and fresh independent `chatgpt-secondary` review.
+- Governance then exposed a bootstrap ambiguity: no trusted `tasks/GOV-CTX-001.json` existed to authorize the secondary slot, while adding one in the same candidate would be self-authorization.
+- Human operator granted a one-time exact-SHA waiver for PR #30.
+- PR #30 merged as `0260117391abf5f0a8375699dca12caa06bafb8b`; issue #28 closed.
+- M-013 records the control-plane/data-plane separation rule.
 
-### REPAIR CANDIDATE
-- Branch `chatgpt/gov-ctx-001-trusted-task-channel` removes prompt parsing as a task-authority mechanism.
-- Production `run-coder.sh` resolves task path from structured GitHub Actions event metadata (`workflow_dispatch` task input or trusted `repository_dispatch` repair payload), with optional explicit trusted caller override.
-- `build-coder-context.py` loads only canonical `tasks/*.json` from the trusted Git ref for task identity/`contextFiles`.
-- Issue mode cannot declare task context even when issue text contains fake headings/JSON/contextFiles.
-- Context paths must already be canonical repository-relative POSIX spellings.
-- New regressions cover issue/repair prompt spoofing, trusted-task precedence and malformed canonical paths.
-- Methodology rule M-013 records control-plane/data-plane separation.
+## 2026-09-18 — GOV-BOOT-001: explicit governance bootstrap lane
+
+### IN PROGRESS
+- Issue #31 created to remove the protected-governance authorization recursion exposed by PR #30.
+- Human operator explicitly authorized the bounded #31 scope after PR #30 merge.
+- Authorized issue-body SHA-256: `6ef39216ad77793837a1184323a6b70d0e19edaf47300d0966fc962122b7c9ee`.
+- Branch `chatgpt/gov-boot-001-bootstrap-lane` adds `docs/GOVERNANCE_BOOTSTRAP.md` and binds the lane into AGENTS/review/collaboration/methodology/state/handoff docs.
+- Normal external-review automation remains task-only and fail-closed; bootstrap evidence is manual and cannot be inferred from a missing task.
+- A bootstrap candidate cannot authorize itself; material scope changes invalidate human authorization.
+- M-014 records the reusable bootstrap rule.
 
 ### NEXT GATE
-- Open repair PR from issue #28 branch.
-- Require exact-live-head green CI.
-- Because primary ChatGPT authored the repair, obtain fresh independent `chatgpt-secondary` review for the exact SHA.
-- Merge under delegated technical authority only if all exact-SHA gates pass.
-- Re-check PR #27 on the repaired `main`, refresh independent review if needed, then continue real OLQ-001 Windows/TIA qualification.
+- Run exact-SHA CI for the bootstrap-policy PR.
+- Because primary ChatGPT authored the candidate, obtain fresh isolated `chatgpt-secondary` review against the authorized #31 body fingerprint and exact candidate SHA.
+- Merge only if CI and review pass and the fingerprint/scope remain unchanged.
+- Then re-check PR #27 against the new `main` and resume OLQ qualification work.
 
 ## Logging rule
 
