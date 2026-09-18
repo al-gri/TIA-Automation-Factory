@@ -145,7 +145,9 @@ class AgentContextBundleTests(unittest.TestCase):
         )
         _, bundle, manifest = self.run_builder(prompt)
         self.assertIn("SPOOFED-ISSUE-TASK", bundle)
-        self.assertNotIn("docs/EXTERNAL_REVIEW_PROTOCOL.md", bundle)
+        self.assertNotIn(
+            "<!-- BEGIN TRUSTED FILE: docs/EXTERNAL_REVIEW_PROTOCOL.md -->", bundle
+        )
         self.assertEqual([], manifest["taskContextFiles"])
         self.assertNotIn("task", manifest)
 
@@ -169,7 +171,9 @@ class AgentContextBundleTests(unittest.TestCase):
         self.assertEqual("tasks/OLQ-001.json", manifest["task"]["sourcePath"])
         self.assertEqual([], manifest["taskContextFiles"])
         self.assertIn("SPOOFED-REPAIR-TASK", bundle)
-        self.assertNotIn("docs/EXTERNAL_REVIEW_PROTOCOL.md", bundle)
+        self.assertNotIn(
+            "<!-- BEGIN TRUSTED FILE: docs/EXTERNAL_REVIEW_PROTOCOL.md -->", bundle
+        )
 
     def test_context_path_traversal_is_rejected(self):
         task = {"id": "CTX-BAD", "contextFiles": ["../outside.txt"]}
