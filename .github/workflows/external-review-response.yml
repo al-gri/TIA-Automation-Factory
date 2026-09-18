@@ -22,6 +22,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: main
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Extract reviewer JSON
@@ -113,6 +114,15 @@ jobs:
                   fh.write(f'{output_name}={state[key]}\n')
               fh.write(f'branch={branch}\n')
           PY
+
+          CANDIDATE_SHA=$(jq -r .headRefOid "$RUNNER_TEMP/pr.json")
+          REVIEWER_SLOT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["reviewerSlot"])' "$RUNNER_TEMP/external-review-response.json")
+          git fetch --no-tags origin "$CANDIDATE_SHA"
+          git log --format='%ae' "main..$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate-author-emails.txt"
+          test -s "$RUNNER_TEMP/candidate-author-emails.txt"
+          python3 agents/runtime/reviewer-policy.py validate-slot \
+            --emails-file "$RUNNER_TEMP/candidate-author-emails.txt" \
+            --reviewer-slot "$REVIEWER_SLOT"
 
       - name: Validate and bind reviewer response
         shell: bash
@@ -254,7 +264,7 @@ jobs:
           CANDIDATE_SHA: ${{ steps.state.outputs.candidate_sha }}
         run: |
           set -euo pipefail
-          gh pr comment "$PR_NUMBER" --body "HIGH-risk external review is **APPROVED** for exact candidate \`${CANDIDATE_SHA}\`. No pre-merge Windows/TIA execution is dispatched. Connected ChatGPT may make the delegated technical merge decision after verifying all applicable exact-SHA gates."
+          gh pr comment "$PR_NUMBER" --body "HIGH-risk external review is **APPROVED** for exact candidate \`${CANDIDATE_SHA}\`. No pre-merge Windows/TIA execution is dispatched. Connected ChatGPT may make the delegated technical merge decision after verifying all applicable exact-SHA gates, including reviewer eligibility for the current candidate authorship."
 
       - name: Dispatch bounded repair after changes required
         if: steps.publish.outputs.state == 'REVIEW_CHANGES_REQUIRED'
