@@ -33,7 +33,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Resolve trusted dispatch task
+      - name: Resolve trusted dispatch task from main
         id: task
         shell: bash
         env:
@@ -41,19 +41,20 @@ jobs:
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
         run: |
+          set -euo pipefail
           case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task_path: $TASK_PATH"; exit 1 ;; esac
           test -n "$PR_NUMBER"
           test -n "$CANDIDATE_SHA"
-          test -f "$TASK_PATH"
-          jq -e '.id and .acceptance.requirements and .acceptance.tia and .generator.input and .generator.expectedArtifact' "$TASK_PATH" >/dev/null
-          EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
+          git fetch --no-tags origin main
+          git show "origin/main:$TASK_PATH" > "$RUNNER_TEMP/trusted-task.json"
+          jq -e '.id and .acceptance.requirements and .acceptance.tia and .generator.input and .generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json" >/dev/null
+          EXPECTED=$(jq -r '.generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json")
           echo "path=$TASK_PATH" >> "$GITHUB_OUTPUT"
           echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
 
       - name: Reject protected-path changes
         shell: bash
         run: |
-          git fetch origin main
           git diff --name-only origin/main...HEAD | sort -u | tee "$RUNNER_TEMP/changed-files.txt"
           if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/changed-files.txt"; then
             echo "Candidate changed protected infrastructure."
@@ -63,14 +64,13 @@ jobs:
 
       - name: Deterministic Linux evidence
         shell: bash
-        env:
-          TASK_PATH: ${{ steps.task.outputs.path }}
         run: |
+          set -euo pipefail
           set -o pipefail
           dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release 2>&1 | tee "$RUNNER_TEMP/linux-test.log"
 
-          INPUT=$(jq -r '.generator.input' "$TASK_PATH")
-          EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
+          INPUT=$(jq -r '.generator.input' "$RUNNER_TEMP/trusted-task.json")
+          EXPECTED=$(jq -r '.generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json")
           rm -rf "$RUNNER_TEMP/reviewer-generated"
           dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/reviewer-generated" 2>&1 | tee "$RUNNER_TEMP/generator.log"
           test -f "$RUNNER_TEMP/reviewer-generated/$EXPECTED"
@@ -98,14 +98,12 @@ jobs:
 
       - name: Build Requirements Reviewer input
         shell: bash
-        env:
-          TASK_PATH: ${{ steps.task.outputs.path }}
         run: |
           {
             cat agents/prompts/reviewer-requirements.md
             echo
             echo '# Task specification'
-            cat "$TASK_PATH"
+            cat "$RUNNER_TEMP/trusted-task.json"
             echo
             echo '# Candidate diff'
             cat "$RUNNER_TEMP/candidate.diff"
@@ -180,6 +178,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.client_payload.candidate_sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-dotnet@v5
@@ -194,9 +193,15 @@ jobs:
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
         run: |
-          INPUT=$(jq -r '.generator.input' "$TASK_PATH")
-          EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
-          TASK_ID=$(jq -r '.id' "$TASK_PATH")
+          set -euo pipefail
+          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task_path: $TASK_PATH"; exit 1 ;; esac
+          git fetch --no-tags origin main
+          git show "origin/main:$TASK_PATH" > "$RUNNER_TEMP/trusted-task.json"
+          jq -e '.id and .generator.input and .generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json" >/dev/null
+
+          INPUT=$(jq -r '.generator.input' "$RUNNER_TEMP/trusted-task.json")
+          EXPECTED=$(jq -r '.generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json")
+          TASK_ID=$(jq -r '.id' "$RUNNER_TEMP/trusted-task.json")
 
           rm -rf candidate-package
           mkdir -p candidate-package
@@ -213,7 +218,7 @@ jobs:
             --arg sha256 "$HASH" \
             '{taskId:$taskId,taskPath:$taskPath,candidateSha:$candidateSha,pr:$pr,artifact:$artifact,sha256:$sha256}' \
             > candidate-package/manifest.json
-          cp "$TASK_PATH" candidate-package/task.json
+          cp "$RUNNER_TEMP/trusted-task.json" candidate-package/task.json
           echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
           cat candidate-package/manifest.json
 
