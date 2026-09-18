@@ -28,6 +28,7 @@ public static class SclDataTypeGenerator
         AutomationType.DInt => "DInt",
         AutomationType.Real => "Real",
         AutomationType.String => "String[254]",
+        AutomationType.Time => "Time",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 }
