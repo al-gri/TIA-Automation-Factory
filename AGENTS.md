@@ -18,7 +18,7 @@ For a fresh ChatGPT session that continues project work:
 4. Read `docs/AI_COLLABORATION_MODEL.md`.
 5. Read `docs/DEVELOPMENT_METHODOLOGY.md` and the latest relevant entries in `docs/METHODOLOGY_JOURNAL.md`.
 6. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work.
-7. Read the active task under `tasks/`.
+7. Read the active task under `tasks/`; if the active work is an explicitly human-authorized governance-authority bootstrap with no non-recursive trusted task, read `docs/GOVERNANCE_BOOTSTRAP.md` and the authorized GitHub issue instead.
 8. Inspect relevant PRs, current candidate SHA, changed files, comments and Actions evidence.
 9. Inspect methodology telemetry issue #25 when recent workflow/PR evidence may affect methodology conclusions.
 10. Use GitHub state, not chat history, to decide the next action.
@@ -69,6 +69,18 @@ A second simultaneous reviewer is escalation only for unresolved uncertainty, di
 
 Independence is based on authorship and evidence separation, not model branding.
 
+## Governance-authority bootstrap exception
+
+Normal work is authorized by a trusted versioned task on `main`. The only exception is the fail-closed manual governance-bootstrap lane defined in `docs/GOVERNANCE_BOOTSTRAP.md`.
+
+That lane is semantic, not path-name based. It may be used only when the repository's normative authority/review-control model itself must be repaired or defined and a normal trusted task cannot be established first without depending on the same authorization semantics being repaired. Missing, stale or inconvenient tasks are not sufficient.
+
+Bootstrap requires HIGH risk, a frozen bounded GitHub issue, a SHA-256 fingerprint of its exact body, and **positive human provenance through an SSH-signed Git attestation commit** created outside ChatGPT/Codex/project automation under a human-controlled signing key. Owner attribution, comments, `performed_via_github_app` metadata, web-flow signatures and unsigned connector/API commits are not sufficient authority by themselves.
+
+A primary-authored bootstrap candidate requires exact-SHA green deterministic CI and fresh isolated `chatgpt-secondary` review. An authority-bearing bootstrap `APPROVE` must itself be relayed in a separate human SSH-signed review-attestation commit bound to exact request identity, candidate SHA, round and review-JSON hash.
+
+Task-only trusted automation remains task-only and must not infer or invent bootstrap authorization. A bootstrap candidate may not authorize itself. Any material issue-body change invalidates prior scope attestation and requires a new signed attestation for the new body hash. The human signing private key must never be placed in repository secrets, CI, runners or connected-agent credentials.
+
 ## User command semantics
 
 ### `проверь репозиторий`
@@ -93,10 +105,11 @@ Primary ChatGPT may merge without separate human confirmation only when all appl
 - deterministic CI/tests are green;
 - required TIA/Openness acceptance is green, or the trusted task explicitly defines Windows/TIA execution as post-merge;
 - no unresolved `critical`/`major` finding, `BLOCKED` or `REVIEW_CONFLICT` exists;
-- scope still matches the trusted task and accepted architecture;
+- scope still matches the trusted task and accepted architecture, or for the exceptional governance-bootstrap lane the live issue body still matches the **SSH-signed human-authorized** fingerprint and the diff remains inside that signed authorized scope;
+- for bootstrap, the exact independent APPROVE evidence is contained in the required separate SSH-signed review-attestation commit;
 - review/evidence is not stale relative to the current head.
 
-Primary ChatGPT must stop for the human on strategic or materially irreversible decisions, project-goal changes, risk waivers, destructive external actions, licensing/vendor-distribution decisions, or unresolved reviewer conflict/ambiguity.
+Primary ChatGPT must stop for the human on strategic or materially irreversible decisions, project-goal changes, risk waivers, destructive external actions, licensing/vendor-distribution decisions, bootstrap scope authorization/reauthorization, repair-budget extension, or unresolved reviewer conflict/ambiguity.
 
 No coding agent, reviewer, GitHub Action, or PR author may self-merge automatically.
 
@@ -148,7 +161,9 @@ Trust boundary:
 
 When `chatgpt-secondary` is required, primary ChatGPT must prepare the complete review request. The user should only have to paste it into a fresh ChatGPT chat and return the JSON response.
 
-The package must contain the exact task, candidate SHA/PR, bounded diff/source context, deterministic evidence, TIA evidence when available, prior findings relevant to the round, explicit objectives and the exact response schema/identity.
+The package must contain the exact task, candidate SHA/PR, bounded diff/source context, deterministic evidence, TIA evidence when available, prior findings relevant to the round, explicit objectives and the exact response schema/identity. For the exceptional governance-bootstrap lane, the frozen issue/body fingerprint, exact SSH-signed scope-attestation commit and its GitHub verification metadata, prior bootstrap findings and `docs/GOVERNANCE_BOOTSTRAP.md` replace the otherwise missing trusted task as manual scope evidence.
+
+For bootstrap only, returning the JSON to primary chat is sufficient to diagnose or repair conservatively, but an authority-bearing `APPROVE` does not satisfy the merge gate until the human places that exact JSON in the separate SSH-signed review-attestation commit defined by `docs/GOVERNANCE_BOOTSTRAP.md`.
 
 The secondary chat must be instructed that GitHub is the sole source of truth and that it has no prior conversation context.
 

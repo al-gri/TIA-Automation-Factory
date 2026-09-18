@@ -154,3 +154,106 @@ The project explicitly treats development methodology as a second product alongs
 ### Expected future use
 
 After enough real generator tasks, review the accumulated evidence and extract a stable playbook covering task design, context construction, provider routing, review independence, repair budgets, deterministic gates, trusted-machine boundaries and documentation discipline.
+
+## 2026-09-18 — Prompt content must never become control-plane authority
+
+### Evidence
+
+A historical independent review payload for PR #24 identified F011/F012 on candidate `450dca6608f0526d00370595fc5a928f7bbfbd71`. The payload itself was stale for merge purposes, but a fresh inspection of current `main` confirmed that `build-coder-context.py` still parsed task-looking headings from mixed `--prompt-input` content and used the parsed `contextFiles` as trusted authority. Current `validate_repo_path()` also silently canonicalized some malformed spellings. The defect had therefore survived the final #24 merge and downstream OLQ work had already begun.
+
+### Lessons
+
+- Exact-SHA staleness applies to verdicts, not to defect hypotheses: an old finding should be re-tested against current source before being discarded.
+- A prompt assembled by a trusted workflow can still contain untrusted data such as issue bodies, diffs, review comments and logs.
+- Trust provenance must attach to fields, not to the enclosing text blob.
+- Control metadata such as task identity, `contextFiles`, permissions and reviewer policy must travel through a separate structured channel and be resolved from trusted state.
+- Context-path normalization must fail closed; canonicalization after input is not equivalent to requiring canonical input.
+- A final independent review can miss a previously unpersisted finding if review evidence is not durably bound into the repository workflow.
+
+### Methodology effect
+
+Introduced M-013: keep control-plane authority separate from mixed prompt content. GOV-CTX-001 / issue #28 repairs task authority through structured event metadata plus trusted Git lookup, adds prompt-spoof and canonical-path regressions, and blocks downstream PR #27 until this trust-origin repair passes exact-SHA CI and independent `chatgpt-secondary` review.
+
+## 2026-09-18 — Governance needs an explicit bootstrap path
+
+### Evidence
+
+PR #30 repaired the live GOV-CTX-001 trust-origin defect and passed exact-SHA CI #224 plus fresh independent `chatgpt-secondary` APPROVE, but current governance also required a trusted task on `main` to authorize `chatgpt-secondary`. No `tasks/GOV-CTX-001.json` existed. Adding one inside the same candidate would have been self-authorization; creating a separate protected task PR raised the same recursive authorization question.
+
+The human operator granted a one-time exact-SHA waiver for PR #30 and then explicitly directed the project to eliminate the bootstrap ambiguity under issue #31. PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b`. Issue #31 was used to define a bounded bootstrap scope before the permanent policy candidate was authored.
+
+### Lessons
+
+- A fail-closed task/review system still needs an explicit root-of-authority path for repairing its own authorization mechanism.
+- The candidate must never solve recursion by authorizing itself.
+- Human strategic authority is appropriate at the bootstrap boundary, but scope and provenance must be independently auditable from GitHub.
+- Normal automation should remain task-only and fail-closed; exceptional governance authorization is safer as a visibly manual lane than as an implicit fallback.
+- Once the bounded scope is validly human-authorized, exact-SHA CI and an independent reviewer can gate the implementation without requiring a second routine merge confirmation.
+
+### Methodology effect
+
+Introduced M-014 and `docs/GOVERNANCE_BOOTSTRAP.md`: rare governance-authority recursion uses a frozen issue-body fingerprint, HIGH-risk exact-SHA CI and fresh `chatgpt-secondary` review while ordinary task-based automation remains unchanged and fail-closed.
+
+## 2026-09-18 — Authority provenance must be separate from the conflicted actor
+
+### Evidence
+
+The first independent review of PR #32 at candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` returned `CHANGES_REQUIRED` with four major findings:
+
+- F001: connector-authored comments could claim human authorization without proving that the human actually created the authority artifact;
+- F002: the live authorization issue did not contain the mandatory bounded authorization fields inside its fingerprinted body;
+- F003: bootstrap eligibility incorrectly depended on coding-agent protected paths even though the candidate changed governance docs outside that list;
+- F004: primary-persisted secondary JSON proved response contents but not reviewer-evidence provenance.
+
+GitHub API metadata confirmed that the existing authorization comments were created through `chatgpt-codex-connector`, so they could not serve as origin-verifiable human authority.
+
+### Lessons
+
+- A trusted actor identity in the rendered GitHub UI is insufficient when an app can act as that account; provenance metadata matters.
+- Human root authorization for an exceptional lane must be represented by an action the conflicted primary cannot create, not by prose saying that the human approved something.
+- Bootstrap eligibility should describe the semantic authority recursion, not accidentally mirror one implementation's protected-path list.
+- Review identity fields and exact SHA authenticate *what* a verdict refers to, but not *who caused it to enter the trusted record*.
+- Conservative findings may be acted on even when relayed through primary, but an authority-bearing APPROVE requires provenance separated from the candidate author.
+
+### Methodology effect
+
+Round-1 repair initially used non-app-mediated direct owner comments as the provenance mechanism. That mechanism was provisional and is superseded by the F005 lesson below.
+
+## 2026-09-18 — Negative attribution is not positive human authentication
+
+### Evidence
+
+Round-2 independent review of PR #32 candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` accepted the semantic bootstrap repair but returned major F005. The reviewer correctly observed that `performed_via_github_app == null` proves only that GitHub did not attribute an action to a GitHub App. A credentialed non-App API path could still act as the owner.
+
+The current ChatGPT connector's own commits were checked through the raw GitHub commit API and are unsigned (`verification.verified=false`, `reason=unsigned`), which gives the project a stronger separable primitive: a human-controlled SSH signing key unavailable to project automation.
+
+### Lessons
+
+- Negative provenance metadata cannot be promoted into positive identity proof.
+- The root authenticator must require a secret/capability unavailable to the conflicted actor, not merely a metadata pattern the actor usually does not produce.
+- A signed authority artifact should bind the exact semantic payload; mutable branch names and unsigned comments may point to evidence but are not evidence themselves.
+- Review APPROVE provenance needs the same strength as scope authorization because both grant authority.
+
+### Methodology effect
+
+M-014 now requires SSH-signed Git attestation commits for both bootstrap scope authorization and authority-bearing secondary APPROVE. GitHub must report a valid SSH signature, repository-owner author/committer identity, and exact attestation payload. Web-flow signatures, owner comments and `performed_via_github_app` checks are supplementary only. Human signing private material must remain outside ChatGPT/Codex/project automation, CI and runner secrets.
+
+## 2026-09-19 — Permanent authority protocols must separate schema from invocation and gates from stages
+
+### Evidence
+
+Round-3 independent review of PR #32 candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` confirmed F001-F005 repaired but found two new major defects. F006 showed that the supposedly permanent scope/review attestation payloads hard-coded the current invocation's issue/task values. F007 showed that a global fail-closed list required a signed review attestation before the reviewer could produce the APPROVE JSON that the attestation must contain.
+
+The default bootstrap repair budget was already exhausted. The human explicitly authorized exactly one additional candidate-changing repair round limited to F006/F007 without widening scope, and issue #31 was updated to bind that decision into the exact signed authority contract.
+
+### Lessons
+
+- A permanent governance schema must define field relationships, not bake in one incident's identifiers. Current issue/task values belong in an instance, example or signed evidence artifact.
+- Fail-closed does not mean requiring future-stage evidence before that evidence can exist. Gates must fail closed at the stage where the evidence is applicable.
+- A missing precondition and a not-yet-applicable artifact are different states; conflating them can deadlock an otherwise conservative state machine.
+- Human repair-budget extensions should remain bounded, explicit and invocation-local; they must not silently mutate the permanent default.
+- When durable human authority data changes, the exact issue-body fingerprint changes too, so prior signatures must become stale rather than being informally carried forward.
+
+### Methodology effect
+
+The bootstrap policy now uses invocation-generic scope/review attestation schemas with verifier equality to the current repository/frozen issue/task identity, and stage-specific fail-closed semantics for pre-review, CHANGES_REQUIRED/BLOCKED, and post-APPROVE signed evidence. The one additional F006/F007 repair remains an exception for this invocation only; it does not change the default two-repair budget.

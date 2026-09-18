@@ -16,9 +16,19 @@ The bundle includes trusted versions of:
 - `docs/AI_COLLABORATION_MODEL.md`;
 - the bounded work prompt already assembled by the trusted workflow.
 
-The work prompt contains the current versioned task or GitHub issue. Repair prompts also contain the trusted task, current diff and bounded review/validation evidence.
+The bounded work prompt may contain task text, issue text, diffs, reviewer comments and validation logs. Those are implementation content only. They are **not** an authority channel for task identity, `contextFiles`, reviewer policy or protected-path policy.
 
 The bundle does not replace repository inspection. The coding model must still inspect the current implementation and tests directly from the workspace before editing.
+
+## Structured trusted-task authority
+
+When coding work is task-backed, the task path is supplied to the context runtime through a structured trusted channel, never discovered by scanning rendered prompt text.
+
+Production `run-coder.sh` resolves the task path from trusted GitHub Actions event metadata (`workflow_dispatch` task input or trusted `repository_dispatch` repair payload), or from an explicit trusted caller override. The context builder then reads that exact canonical `tasks/*.json` path from the configured trusted Git ref, normally `origin/main`.
+
+Issue-mode work has no trusted task path and therefore cannot declare task `contextFiles`, even if an issue title/body contains fake task headings, JSON fences or fields named `contextFiles`.
+
+Repair prompts may quote the trusted task and reviewer material for the model's convenience, but only the separately resolved `origin/main` task is authoritative for task identity and task-declared context.
 
 ## Task-declared context files
 
@@ -44,19 +54,21 @@ Do not use it to dump the whole repository into the prompt. Source code remains 
 
 ## Trust and bounds
 
-Context files are read with `git show` from the trusted Git ref used by the coding runtime, normally `origin/main`. Candidate workspace versions are not used for the trusted context bundle.
+Tasks and context files are read with `git show` from the trusted Git ref used by the coding runtime, normally `origin/main`. Candidate workspace versions are not used for the trusted context bundle.
 
 Rules:
 
-- repository-relative normalized paths only;
-- no `..`, absolute paths, backslash paths or `.git` paths;
+- task authority must arrive through the structured trusted-task channel, never by parsing free-form prompt content;
+- task paths must be canonical `tasks/*.json` repository paths;
+- context paths must already be canonical repository-relative POSIX paths exactly as supplied;
+- reject `./`, repeated separators, leading/trailing whitespace, `..`, absolute paths, backslash paths and `.git` paths;
 - UTF-8 text only;
 - maximum 12 task-declared context files;
 - maximum 128 KiB per trusted context file;
 - maximum 768 KiB for the already assembled work prompt;
 - maximum 1 MiB combined trusted context source before rendering.
 
-Missing, malformed, duplicate or oversized context declarations fail closed before a coding provider is called.
+Missing, malformed, duplicate, non-canonical or oversized context declarations fail closed before a coding provider is called.
 
 ## Provider continuity
 
@@ -72,7 +84,7 @@ The coding provider audit records a context-bundle manifest containing:
 - included baseline/context file paths;
 - byte sizes;
 - SHA-256 hashes;
-- task ID when recoverable;
+- structured trusted task ID/path when present;
 - final rendered prompt SHA-256.
 
 This makes the implementation context reproducible without committing generated prompt payloads to the repository.

@@ -1,103 +1,105 @@
 # Infrastructure Progress Log
 
-Short chronological record of infrastructure work. Keep entries factual and concise. Historical experiments may remain here, but current policy is defined by `AGENTS.md`, `docs/PROJECT_STATE.md`, and the living methodology documents.
+Short chronological record of infrastructure work. Keep entries factual and concise. Current policy is defined by `AGENTS.md`, `docs/PROJECT_STATE.md`, and the living methodology documents. Raw high-frequency evidence belongs in methodology issue #25.
 
 ## 2026-09-17 — Initial autonomous/TIA infrastructure
 
 ### DONE
-- Created isolated repository `al-gri/TIA-Automation-Factory`; `IndustrialMDE` remains untouched.
-- Added minimal Domain -> PLC IR -> Siemens SCL generator path.
-- Added Linux GitHub Actions CI for tests and SCL generation.
-- Registered Windows x64 self-hosted runner with label `tia-v21`.
-- Verified TIA Portal V21 installation, Openness assemblies, `.NET Framework 4.8` build prerequisites and Siemens TIA Openness group membership.
-- Built `TiaV21Worker` against real V21 `net48` assemblies.
-- Completed real TIA V21 E2E smoke: generated/imported/compiled `UDT_Motor.scl` with 0 errors / 0 warnings and emitted machine-readable diagnostics.
-- Added first autonomous coding workflow on disposable Linux.
-- Added protected-path checks and Git hygiene to prevent build outputs/infrastructure changes from becoming AI candidate commits.
-- Added versioned coder/reviewer prompts and task acceptance split.
-- Implemented candidate bridge: candidate code executes only on Linux; trusted Windows/TIA uses trusted repository code plus bounded generated artifacts.
-- Implemented initial Candidate Validation and explicit trusted `repository_dispatch` chaining.
-- Provider failures exposed the need for fallback, provider audit and pinned coding runtime.
-- Proved OpenRouter/OpenCode coding provider and corrected invocation to supported `--pure --auto --agent build --format json --model ...` flags.
-- I2/I3/I4 proved autonomous candidate generation, deterministic Linux acceptance, trusted TIA compile and reviewer stages.
-- I5 intentionally produced an incomplete candidate, rejected it, repaired on the same PR within a bounded budget and revalidated successfully.
-- Late OpenRouter quota after useful edits proved that partial workspace changes may be worth preserving for a fallback provider.
+- Created isolated repository `al-gri/TIA-Automation-Factory`; `IndustrialMDE` remained untouched.
+- Added minimal Domain -> PLC IR -> Siemens SCL generator path and Linux CI.
+- Registered Windows x64 self-hosted runner with label `tia-v21` and verified TIA Portal V21 / Openness / net48 prerequisites.
+- Built `TiaV21Worker` against real V21 assemblies and completed real TIA E2E smoke with 0 errors / 0 warnings.
+- Added disposable-Linux autonomous coding, protected-path checks, versioned prompts/tasks and trusted Windows/TIA candidate bridge.
+- I5 proved bounded same-PR repair; late OpenRouter quota exposed need for provider continuity/audit.
 
 ## 2026-09-18 — Repository-first orchestration and provider continuity
 
 ### DONE
-- I6 production smoke and trusted Candidate Validation completed successfully with exact TIA diagnostics 0 errors / 0 warnings.
-- Added self-contained external-review packages for brand-new reviewer chats with no prior context.
-- Added strict external-review response schema bound to request ID, reviewer slot, task ID, candidate SHA, review type and round.
-- Added explicit review states including waiting, approve, changes required, blocked and conflict.
-- Added bounded repair path from external review findings.
-- Proved connected ChatGPT can recover pending review state from GitHub and continue orchestration without manual GitHub navigation.
-- Added official DeepSeek API `deepseek-flash` provider; smoke run `35318239703` proved direct DeepSeek execution and provider telemetry.
-- Fixed Candidate Validation so trusted task content is always resolved from `main`, never candidate checkout.
-- Adopted repository-first operation through `AGENTS.md`, `PROJECT_STATE.md`, `AI_COLLABORATION_MODEL.md` and `NEXT_CHAT_HANDOFF.md`.
-- Adopted GitHub as sole durable project context; chat history became disposable coordination only.
-- Adopted final routine coding cascade: **OpenRouter -> DeepSeek `deepseek-flash`**.
-- Implemented provider continuity so late OpenRouter quota/rate exhaustion can hand surviving bounded workspace changes to DeepSeek.
-- PR #15 merged repository-first/provider/task-trust hardening; later Candidate Validation `35322785146` proved the path end-to-end with trusted TIA V21 PASS.
-- PR #17 merged accepted generator architecture (`ARCH-001`).
-- PR #16 merged PLC-001 `TIME` support after exact TIA V21 compile PASS.
+- Added self-contained exact-SHA external-review packages and schema-bound responses.
+- Added explicit waiting/approve/changes-required/blocked/conflict states and bounded repair.
+- Proved connected ChatGPT can recover state from GitHub without prior chat context.
+- Added official DeepSeek `deepseek-flash` fallback and provider telemetry.
+- Adopted GitHub as sole durable source of truth through `AGENTS.md`, project-state/handoff/collaboration documents.
+- Adopted routine coding cascade OpenRouter -> DeepSeek while keeping deterministic/review/TIA acceptance provider-independent.
+- PR #17 merged ARCH-001; PR #16 merged PLC-001 after exact TIA V21 PASS.
 
 ### SUPERSEDED HISTORICAL POLICY
-- Earlier experiments used Gemini in routine/mandatory review paths and hidden Candidate Validation reviewer stages. Those decisions are retained here only as history and are **not current policy**.
-- Earlier I5 live smoke workflow directly entered Candidate Validation. That path was useful experimentally but later became incompatible with the exact-SHA review state machine and is retired in PR #24.
+- Early experiments used Gemini in standing/mandatory review paths and a hidden LLM stage in Candidate Validation. Those are historical only and are not current policy.
+- The old I5 live-smoke validation bypass was later retired.
 
-## 2026-09-18 — OLQ-001 infrastructure and governance hardening
+## 2026-09-18 — OLQ-001 implementation and governance hardening
 
 ### DONE
-- Created HIGH-risk OLQ-001 task for one-time Siemens Open Library V19 `.zal19` -> native V21 qualification.
-- PR #21 merged task-gated bounded `src/TiaV21Worker/**` candidate support while keeping orchestration protected and Windows/TIA trusted-main-only.
-- PR #22 coding agent produced the first `qualify-library` implementation.
-- Primary ChatGPT review found F001-F005: Siemens Archive API signature, missing `FileVersionInfo` dependency, absolute-path validation, manifest parser/reuse bug, and library lifecycle ordering.
+- Created HIGH-risk OLQ-001 for one-time Siemens Open Library V19 `.zal19` -> native V21 qualification.
+- PR #21 merged task-gated bounded `src/TiaV21Worker/**` candidate support.
 - PR #23 merged bounded HIGH repair support.
-- Autonomous repair rounds fixed F001-F007; trusted repair budget `2/2` was then exhausted.
-- Primary ChatGPT made one bounded maintainer repair for F008 (`return` inside `finally` / C# CS0157), making primary ChatGPT a material co-author of PR #22.
-- PR #22 current code head remains `4354bebbf2a3bf745b09589d6abac0938d5b5664`; CI #164 / `35366781733` PASS.
-- Human operator replaced Gemini standing review with a fresh isolated second ChatGPT because Gemini GitHub access was unreliable.
-- Governance PR #24 introduced authorship-based reviewer selection (`chatgpt` vs `chatgpt-secondary`).
-- Independent secondary review rounds found and drove repairs for reviewer-slot hard-coding, accidental multi-review dispatch, missing authorship enforcement, terminal-state ordering, fail-open slot authorization, hidden Gemini reviewer runtime, stale approval after repair, legacy Candidate Validation bypass and trusted Windows manual-ref exposure.
-- Candidate Validation was simplified to deterministic checks/TIA evidence after explicit external review; hidden LLM reviewer runtime was removed.
-- Every candidate-changing repair now returns to a fresh exact-SHA external review before Candidate Validation can resume.
-- Repository-wide tests now require Candidate Validation to have only one trusted dispatch source: post-APPROVE `external-review-response`.
-- Legacy I5 Repair Smoke workflow was retired; `INFRA-001` migrated into current reviewed-task metadata.
-- Self-hosted manual `tia-v21.yml` and `tia-v21-e2e.yml` were hardened to fail closed to `refs/heads/main` and explicitly check out `main`; repository-wide regression covers manual self-hosted workflow trust.
+- PR #22 exact head `4354bebbf2a3bf745b09589d6abac0938d5b5664` passed CI #164 and independent `chatgpt-secondary` round-4 review, then merged as `5c8c957e6abb7004e4ee9e9382de97347ebfc9c6`.
+- PR #24 introduced authorship-based reviewer independence, fail-closed reviewer authorization, deterministic Candidate Validation, fresh review after candidate-changing repair, main-only Windows/TIA manual execution, trusted coding context and methodology telemetry.
+- PR #24 exact final head `a7062ac85c7b3c3fbcbe93380ea1c8e2f33d79ac` passed exact-SHA CI and fresh independent `chatgpt-secondary` review, then merged as `ef7e5a00e74a9d3b994c23637aab6fc2ae2546f5`.
 
-## 2026-09-18 — Trusted coding context and methodology-as-a-product
+## 2026-09-18 — Methodology and trusted-context instrumentation
 
 ### DONE
-- Added `agents/runtime/build-coder-context.py` and `docs/CODING_AGENT_CONTEXT.md` in PR #24.
-- Coding providers now receive a bounded trusted context assembled from trusted Git before provider selection.
-- Baseline context includes repository operating contract, project state, engineering rules and collaboration model plus the bounded work prompt.
-- Trusted tasks may declare bounded `contextFiles` for qualified design/vendor contracts such as Siemens Open Library profiles.
-- Context paths, UTF-8/type/size/count are validated fail-closed; candidate workspace cannot redefine trusted context.
-- OpenRouter and DeepSeek share the same enriched prompt; provider audit records context manifest and hashes.
-- Added dedicated context-bundle CI tests.
-- User explicitly defined development methodology as a second project output alongside the PLC generator.
-- Added `docs/DEVELOPMENT_METHODOLOGY.md` with accepted rules, experiments, metrics and methodology checkpoint duties.
-- Added `docs/METHODOLOGY_JOURNAL.md` with curated lessons from the first two development days.
-- Created GitHub issue #25 as append-only raw methodology telemetry diary.
-- Added `.github/workflows/methodology-telemetry.yml` to automatically log selected workflow completions and PR lifecycle events to issue #25 without auto-editing policy documents.
-- Added CI tests enforcing methodology telemetry permissions, coverage and separation of raw evidence from curated policy.
-- Updated `AGENTS.md` so primary ChatGPT must perform methodology checkpoints automatically at logical milestones without user reminders.
+- Added `docs/DEVELOPMENT_METHODOLOGY.md`, `docs/METHODOLOGY_JOURNAL.md`, issue #25 raw telemetry and `.github/workflows/methodology-telemetry.yml`.
+- Added `agents/runtime/build-coder-context.py`, `docs/CODING_AGENT_CONTEXT.md`, bounded `contextFiles`, source hashes and shared OpenRouter/DeepSeek rendered context.
+- Methodology checkpoints became mandatory primary-ChatGPT orchestration duties.
 
-### CURRENT
-- PR #24 is the active governance/infrastructure candidate and has changed after all previously supplied secondary-review payloads.
-- Before merge, inspect the **live exact PR #24 head SHA and live exact-SHA CI**, then obtain a fresh `chatgpt-secondary` review for that exact head.
-- PR #22 waits behind PR #24 because its implementation is primary-ChatGPT-co-authored and therefore requires trusted `chatgpt-secondary` authorization/review.
-- Raw methodology telemetry automation becomes active after PR #24 is merged; issue #25 already exists as the stable sink.
+## 2026-09-18 — OLQ trusted execution harness
 
-### NEXT
-- Finish PR #24 with fresh exact-SHA independent secondary review and delegated merge.
-- Re-review and merge PR #22 if exact-SHA gates pass.
-- From trusted `main`, build and run OLQ-001 against the operator-controlled V19 `.zal19`; repeat identical qualification identity to prove deterministic reuse.
-- Persist hashes/manifests/diagnostics, never vendor archive payloads.
-- Require human acceptance before qualified Open Library profile becomes a normal generator dependency.
-- Continue `OL-001` -> `OL-002` -> PLC compiler foundations -> `GEN-001`.
-- Use issue #25 + methodology journal to accumulate provider/review/repair/TIA evidence and refine `docs/DEVELOPMENT_METHODOLOGY.md` at each logical milestone.
+### PAUSED
+- Issue #26 / PR #27 adds the trusted-main Windows/TIA harness for real OLQ-001 qualification twice with sanitized evidence only.
+- Repaired exact head `86b1b3f1b2cabca227d2976fa537ba00f572d960` passed CI #223 / run `35387244950`.
+- PR #27 is primary-ChatGPT-authored and must be re-checked against the post-governance `main` before any merge gate.
+
+## 2026-09-18 — GOV-CTX-001: prompt/control authority separation
+
+### DONE
+- Historical F011/F012 findings were re-tested against then-current `main` and confirmed live despite the old verdict being stale.
+- Issue #28 / PR #30 removed task-authority discovery from mixed prompts and made repository path declarations fail closed on non-canonical spelling.
+- Exact candidate `e3d2912d74cf83256aafe1bd597f49f360411d34` passed CI #224 and fresh independent `chatgpt-secondary` review.
+- Governance then exposed a bootstrap ambiguity: no trusted `tasks/GOV-CTX-001.json` existed to authorize the secondary slot, while adding one in the same candidate would be self-authorization.
+- Human operator granted a one-time exact-SHA waiver for PR #30.
+- PR #30 merged as `0260117391abf5f0a8375699dca12caa06bafb8b`; issue #28 closed.
+- M-013 records the control-plane/data-plane separation rule.
+
+## 2026-09-18/19 — GOV-BOOT-001: explicit governance bootstrap lane
+
+### IN PROGRESS
+- Issue #31 / PR #32 define the permanent bootstrap lane for genuine authorization recursion in the repository's normative authority/review-control model.
+- Round 1 exact candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` -> `CHANGES_REQUIRED` with major F001-F004.
+- Round 2 exact candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED` with major F005.
+- F001-F004 forced semantic eligibility, complete fingerprinted issue scope, no candidate self-authorization and provenance separation for human/reviewer authority.
+- F005 established that owner authorship plus `performed_via_github_app == null` is only negative attribution and does not positively prove human origin against non-App API credentials.
+- Positive provenance was repaired through SSH-signed Git scope/review attestation commits under a human-controlled signing key unavailable to project automation.
+- Human scope-attestation commit `4ac2b16c2b1ea81d225779ece58df3131fb18fd6` validly signed the then-current issue-body hash and independently proved the SSH verification path.
+- Round 3 exact candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` -> `CHANGES_REQUIRED`, major F006-F007, while independently confirming F001-F005 repaired.
+- F006 found permanent schemas incorrectly hard-coded issue `31` / task `GOV-BOOT-001`; F007 found a pre-review/post-APPROVE fail-closed sequencing ambiguity.
+- Default two candidate-changing repairs were already exhausted. On 2026-09-19 the human explicitly authorized exactly one additional candidate-changing repair round strictly for F006/F007 without scope widening.
+- Issue #31 was updated only to bind that bounded repair decision; new exact UTF-8 body SHA-256 is `f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b`.
+- Because the issue body changed, signed commit `4ac2b16...` is now historical/stale for the next review and a fresh SSH-signed scope attestation is required for the new hash.
+- The F006 repair makes both scope/review attestation schemas invocation-generic and requires equality to the current repository/frozen issue/task identity.
+- The F007 repair makes fail-closed evaluation stage-specific: review attestation is not applicable before APPROVE exists; CHANGES_REQUIRED grants no authority; after APPROVE, invalid/missing/stale signed review evidence blocks authority consumption/merge.
+- Normal external-review automation remains task-only and fail-closed; no missing-task fallback was added.
+- M-014 remains the governing lesson: neither the candidate nor an author-controlled connector/credential path may manufacture authority.
+
+### NEXT GATE
+- Freeze the single bounded F006/F007 repair exact head and require exact-SHA CI PASS.
+- Human creates a fresh SSH-signed scope-attestation commit for issue-body hash `f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b` on the dedicated non-merged human-attestation branch.
+- Primary verifies exact commit SHA, raw GitHub SSH-signature metadata and payload.
+- Obtain a fresh isolated `chatgpt-secondary` review against the new exact candidate, carrying F001-F007 history.
+- If APPROVE, human creates a separate SSH-signed review-attestation commit containing the exact JSON and its hash.
+- Primary verifies schema/identity/exact SHA/signature and delegated-merges only if every gate remains green.
+- Any further candidate-changing repair requires another fresh explicit human authorization; otherwise `BLOCKED`.
+- Then re-check PR #27 against the new `main` and resume OLQ qualification work.
+
+## 2026-09-18 — AUTO-001 accepted operating-model direction
+
+### PLANNED
+- Issue #35 records the accepted hybrid autonomy model.
+- OpenRouter/DeepSeek should run routine tasks autonomously to explicit checkpoints.
+- `WAITING_FOR_REVIEW` means primary connected ChatGPT performs full semantic/code/architecture review when independent.
+- Primary-authored candidates route to `chatgpt-secondary`.
+- AUTO-001 implementation is downstream of GOV-BOOT-001 and must not weaken exact-SHA review, bounded repair or trusted Windows/TIA boundaries.
 
 ## Logging rule
 
