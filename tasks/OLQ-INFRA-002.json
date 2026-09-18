@@ -1,0 +1,55 @@
+{
+  "id": "OLQ-INFRA-002",
+  "title": "Add trusted-main Open Library qualification execution harness",
+  "goal": "Add the smallest protected GitHub Actions harness that executes the already-merged OLQ-001 qualification command only from trusted main on the self-hosted Windows/TIA V21 runner, twice against the same operator-controlled Siemens Open Library V19 archive, while publishing only sanitized evidence and never exposing vendor payloads or operator paths.",
+  "scope": [
+    "Primary maintainer scope only: change exactly .github/workflows/tia-v21-library-qualification.yml. Do not modify generator semantics, src/TiaV21Worker, agents, other workflows, task files beyond this trusted authorization record, secrets, runner configuration, vendor payloads, or IndustrialMDE.",
+    "The trusted Windows/TIA job must execute only trusted main. Candidate or PR code must never execute on the Windows/TIA runner before independent review and merge.",
+    "Support workflow_dispatch only when the workflow ref is refs/heads/main and support an issue_comment trigger only for the exact /run-olq-001 command on issue #19 from repository owner al-gri.",
+    "The trusted job must explicitly check out main with persist-credentials disabled, fetch/verify origin/main, and fail closed if the checked-out commit is not the current trusted main commit.",
+    "Use runner-local environment variables TIA_OPEN_LIBRARY_V19_ARCHIVE and TIA_OPEN_LIBRARY_QUALIFIED_ROOT for the external source archive and persistent qualified-output root. Reject missing/invalid values and reject paths inside the GitHub workspace without printing full operator-controlled paths.",
+    "Build trusted src/TiaV21Worker from main against installed TIA Portal V21 Openness assemblies, then run qualify-library twice against the same source/build/output identity using separate raw runner-local manifests.",
+    "Compare both runs for deterministic agreement on source SHA256, TIA build identity, qualification identity, qualified archive basename/SHA256, native reopen state, success status, and second-run determinism.",
+    "Raw manifests/stdout/stderr and vendor .zal19/.zal21 archives remain runner-local and are deleted or retained only outside GitHub evidence as appropriate. Never upload vendor payloads, raw absolute paths, or raw exception details.",
+    "Publish only sanitized evidence: allowed basenames, hashes, build/qualification identities, status, native-reopen state, run exit states, and deterministicSecondRun. Post a concise sanitized result to issue #19 when possible.",
+    "If external archive/output configuration is unavailable or invalid, emit explicit sanitized BLOCKED evidence and fail rather than inventing paths or claiming qualification success."
+  ],
+  "acceptance": {
+    "requirements": [
+      "PR scope is exactly .github/workflows/tia-v21-library-qualification.yml and remains primary-maintainer authored; no unrelated protected or product files change.",
+      "Unauthorized issue comments cannot start trusted execution; only exact /run-olq-001 on issue #19 by repository owner al-gri is accepted.",
+      "workflow_dispatch is accepted only from refs/heads/main.",
+      "The Windows/TIA job explicitly checks out main with persist-credentials disabled and verifies the checked-out SHA equals current origin/main before build or execution.",
+      "Candidate/unmerged source is never executed on the trusted Windows/TIA runner.",
+      "Missing or invalid TIA_OPEN_LIBRARY_V19_ARCHIVE / TIA_OPEN_LIBRARY_QUALIFIED_ROOT configuration yields explicit sanitized BLOCKED evidence and a failing workflow without exposing full paths.",
+      "The workflow runs qualify-library twice for the same source/build/output identity and verifies deterministic agreement on the required hashes, identities, native-reopen state, statuses, and second-run determinism.",
+      "Only sanitized JSON/comment evidence is uploaded or posted; .zal19, .zal21, raw manifests, raw stdout/stderr, absolute operator paths and raw exception details are not uploaded or committed.",
+      "Linux CI and workflow/static validation for the exact candidate SHA are green before merge.",
+      "Because primary ChatGPT materially authored the candidate, a fresh isolated chatgpt-secondary CODE_REVIEW APPROVE is required for the exact current candidate SHA before merge."
+    ],
+    "tia": [
+      "Windows/TIA execution is post-merge only from trusted main.",
+      "After merge, /run-olq-001 on issue #19 may legitimately produce BLOCKED if runner-local external archive/output configuration is missing or invalid.",
+      "When runner-local configuration is valid, the trusted run builds TiaV21Worker against installed TIA V21 Openness assemblies and performs two OLQ-001 qualification invocations against the same real operator-controlled V19 archive.",
+      "Successful sanitized evidence records source basename/SHA256, exact TIA build identity, qualification identity, qualified archive basename/SHA256, nativeReopenSuccess, both run exit states, and deterministicSecondRun=true.",
+      "Vendor .zal19/.zal21 payloads remain outside GitHub and no full operator-controlled paths are exposed."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2
+}
