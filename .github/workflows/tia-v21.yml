@@ -10,9 +10,13 @@ on:
 
 jobs:
   verify-runner:
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Windows, X64, tia-v21]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
       - name: Verify TIA Portal V21 installation
         shell: cmd
         run: |
