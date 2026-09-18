@@ -173,3 +173,23 @@ A historical independent review payload for PR #24 identified F011/F012 on candi
 ### Methodology effect
 
 Introduced M-013: keep control-plane authority separate from mixed prompt content. GOV-CTX-001 / issue #28 repairs task authority through structured event metadata plus trusted Git lookup, adds prompt-spoof and canonical-path regressions, and blocks downstream PR #27 until this trust-origin repair passes exact-SHA CI and independent `chatgpt-secondary` review.
+
+## 2026-09-18 — Governance needs an explicit bootstrap path
+
+### Evidence
+
+PR #30 repaired the live GOV-CTX-001 trust-origin defect and passed exact-SHA CI #224 plus fresh independent `chatgpt-secondary` APPROVE, but current governance also required a trusted task on `main` to authorize `chatgpt-secondary`. No `tasks/GOV-CTX-001.json` existed. Adding one inside the same candidate would have been self-authorization; creating a separate protected task PR raised the same recursive authorization question.
+
+The human operator granted a one-time exact-SHA waiver for PR #30 and then explicitly directed the project to eliminate the bootstrap ambiguity under issue #31. PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b`. Issue #31 records a SHA-256 fingerprint of its human-authorized scope before the permanent policy candidate was authored.
+
+### Lessons
+
+- A fail-closed task/review system still needs an explicit root-of-authority path for repairing its own authorization mechanism.
+- The candidate must never solve recursion by authorizing itself.
+- Human strategic authority is appropriate at the bootstrap boundary, but the authorized scope should be fingerprinted and persisted so later review can detect widening.
+- Normal automation should remain task-only and fail-closed; exceptional governance authorization is safer as a visibly manual lane than as an implicit fallback.
+- Once the bounded scope is human-authorized, exact-SHA CI and an independent reviewer can gate the implementation without requiring a second routine merge confirmation.
+
+### Methodology effect
+
+Introduced M-014 and `docs/GOVERNANCE_BOOTSTRAP.md`: rare protected-governance recursion uses a human-authorized issue-body fingerprint, HIGH-risk exact-SHA CI and fresh `chatgpt-secondary` review while ordinary task-based automation remains unchanged and fail-closed.
