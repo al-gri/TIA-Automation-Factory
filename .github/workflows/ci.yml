@@ -18,6 +18,10 @@ jobs:
         run: |
           bash -n agents/runtime/run-coder.sh
           python3 -m py_compile agents/runtime/run-reviewer.py
+          python3 -m py_compile agents/runtime/external-review.py
+          python3 -m json.tool reviews/schemas/external-review-response.schema.json >/dev/null
+      - name: Test external review protocol
+        run: python3 -m unittest discover -s tests/ExternalReviewProtocol.Tests -p 'test_*.py' -v
       - name: Test Siemens backend
         run: dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
       - name: Generate first Siemens artifact
