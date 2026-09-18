@@ -10,8 +10,9 @@ Before doing project work, read:
 
 1. `AGENTS.md` — mandatory repository-first operating contract, ChatGPT / coding-provider / Gemini roles, user command semantics, and Cline policy.
 2. `docs/PROJECT_STATE.md` — current authoritative operational state, active blocker, and next action.
-3. `docs/AI_COLLABORATION_MODEL.md` — collaboration, provider cascade, and risk policy.
-4. `docs/EXTERNAL_REVIEW_PROTOCOL.md` — external review protocol.
+3. `docs/NEXT_CHAT_HANDOFF.md` — complete fresh-chat handoff and current order of work.
+4. `docs/AI_COLLABORATION_MODEL.md` — collaboration, provider cascade, and risk policy.
+5. `docs/EXTERNAL_REVIEW_PROTOCOL.md` — external review protocol.
 
 A brand-new ChatGPT session should be able to inspect this repository and continue safely without any context copied from another chat.
 
@@ -38,7 +39,7 @@ A brand-new ChatGPT session should be able to inspect this repository and contin
 - TIA Portal V21 compile through trusted infrastructure remains authoritative.
 - No automatic merge.
 
-See `AGENTS.md` and `docs/AI_COLLABORATION_MODEL.md` for the normative rules.
+See `AGENTS.md`, `docs/NEXT_CHAT_HANDOFF.md`, and `docs/AI_COLLABORATION_MODEL.md` for the normative operating rules.
 
 ## Local cloud-independent check
 
