@@ -78,9 +78,9 @@ jobs:
             test "$TASK_RISK" = "$RISK_CLASS"
             test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
             [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
-            if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$RUNNER_TEMP/task.json" >/dev/null 2>&1; then
-              jq -e --arg slot "$REVIEWER_SLOT" '.review.reviewerSlots | index($slot) != null' "$RUNNER_TEMP/task.json" >/dev/null
-            fi
+            python3 agents/runtime/reviewer-policy.py authorize-slot \
+              --task-file "$RUNNER_TEMP/task.json" \
+              --reviewer-slot "$REVIEWER_SLOT"
           fi
 
           ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$RUNNER_TEMP/task.json")
@@ -138,7 +138,6 @@ jobs:
               --dir "$RUNNER_TEMP/previous-tia" >/dev/null 2>&1
           fi
           set -e
-
           test -f "$RUNNER_TEMP/reviewer-comments.txt" || : > "$RUNNER_TEMP/reviewer-comments.txt"
 
       - name: Build repair prompt from trusted Git state
@@ -151,7 +150,6 @@ jobs:
           git show origin/main:agents/prompts/coder.md > "$RUNNER_TEMP/repair-task.md"
           printf '\n\n' >> "$RUNNER_TEMP/repair-task.md"
           git show origin/main:agents/prompts/repair.md >> "$RUNNER_TEMP/repair-task.md"
-
           git diff --no-ext-diff --unified=80 origin/main...HEAD > "$RUNNER_TEMP/current-candidate.diff"
 
           {
