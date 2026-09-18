@@ -202,7 +202,7 @@ Use the cheapest authoritative layer, but never omit real TIA acceptance for cha
 - MEDIUM: internal type/AST representation preserving established behavior.
 - HIGH: canonical schema, scan semantics, executable-container scheduling, Open Library qualification/materialization, target preflight, TIA trust boundary, safety scope, cross-controller communication semantics, major architecture.
 
-HIGH-risk work requires independent ChatGPT and Gemini review of the same exact candidate SHA. Reviewer conflict blocks acceptance.
+HIGH-risk work requires one independent reviewer distinct from the candidate author/implementer. ChatGPT is the default reviewer for coding-agent work; Gemini is the default independent reviewer when ChatGPT materially authored/co-authored the candidate. A second reviewer is escalation only, not a standing gate. Reviewer conflict blocks acceptance when dual review is intentionally requested.
 
 ## 16. Definition of Done
 
@@ -213,7 +213,7 @@ trusted versioned task
  -> protected-path checks
  -> deterministic tests
  -> generated artifact/package
- -> required external review
+ -> required independent external review
  -> trusted target preflight
  -> real TIA V21 assembly/import
  -> full PLC compile (errors == 0)
