@@ -65,6 +65,14 @@ class ExternalReviewToolTests(unittest.TestCase):
             "recommendation": "Proceed to the next deterministic gate.",
         }
 
+    def write_task(self, root, reviewer_slots_marker):
+        review = {"riskClass": "HIGH", "reviewType": "CODE_REVIEW"}
+        if reviewer_slots_marker is not None:
+            review["reviewerSlots"] = reviewer_slots_marker
+        path = Path(root) / "task.json"
+        path.write_text(json.dumps({"id": "TEST", "review": review}), encoding="utf-8")
+        return path
+
     def test_build_package_resolves_all_placeholders(self):
         context = {
             "REVIEW_REQUEST_ID": REQUEST_ID,
@@ -89,7 +97,6 @@ class ExternalReviewToolTests(unittest.TestCase):
             context_path = temp_path / "context.json"
             output_path = temp_path / "review-request.md"
             context_path.write_text(json.dumps(context), encoding="utf-8")
-
             self.run_tool(
                 "build-package",
                 "--template",
@@ -99,7 +106,6 @@ class ExternalReviewToolTests(unittest.TestCase):
                 "--output",
                 output_path,
             )
-
             rendered = output_path.read_text(encoding="utf-8")
             self.assertNotIn("{{", rendered)
             self.assertIn("TEST-001", rendered)
@@ -131,16 +137,14 @@ class ExternalReviewToolTests(unittest.TestCase):
 
     def test_validate_rejects_approve_with_major_finding(self):
         response = self.valid_response()
-        response["findings"] = [
-            {
-                "id": "F001",
-                "severity": "major",
-                "file": "src/Test.cs",
-                "location": "TestMethod",
-                "problem": "Required behavior is missing.",
-                "requiredChange": "Implement the required behavior.",
-            }
-        ]
+        response["findings"] = [{
+            "id": "F001",
+            "severity": "major",
+            "file": "src/Test.cs",
+            "location": "TestMethod",
+            "problem": "Required behavior is missing.",
+            "requiredChange": "Implement the required behavior.",
+        }]
         with tempfile.TemporaryDirectory() as temp:
             response_path = Path(temp) / "response.json"
             response_path.write_text(json.dumps(response), encoding="utf-8")
@@ -180,16 +184,14 @@ class ExternalReviewToolTests(unittest.TestCase):
     def test_changes_required_may_contain_major_finding(self):
         response = self.valid_response()
         response["reviewStatus"] = "CHANGES_REQUIRED"
-        response["findings"] = [
-            {
-                "id": "F001",
-                "severity": "major",
-                "file": None,
-                "location": None,
-                "problem": "A required test is missing.",
-                "requiredChange": "Add the missing deterministic test.",
-            }
-        ]
+        response["findings"] = [{
+            "id": "F001",
+            "severity": "major",
+            "file": None,
+            "location": None,
+            "problem": "A required test is missing.",
+            "requiredChange": "Add the missing deterministic test.",
+        }]
         with tempfile.TemporaryDirectory() as temp:
             response_path = Path(temp) / "response.json"
             response_path.write_text(json.dumps(response), encoding="utf-8")
@@ -201,13 +203,7 @@ class ExternalReviewToolTests(unittest.TestCase):
             emails.write_text(f"{AGENT_EMAIL}\n{AGENT_EMAIL}\n", encoding="utf-8")
             completed = self.run_policy("expected-slot", "--emails-file", emails)
             self.assertEqual("chatgpt", completed.stdout.strip())
-            self.run_policy(
-                "validate-slot",
-                "--emails-file",
-                emails,
-                "--reviewer-slot",
-                "chatgpt",
-            )
+            self.run_policy("validate-slot", "--emails-file", emails, "--reviewer-slot", "chatgpt")
 
     def test_any_maintainer_authorship_requires_secondary_chatgpt(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -216,28 +212,41 @@ class ExternalReviewToolTests(unittest.TestCase):
             completed = self.run_policy("expected-slot", "--emails-file", emails)
             self.assertEqual("chatgpt-secondary", completed.stdout.strip())
             rejected = self.run_policy(
-                "validate-slot",
-                "--emails-file",
-                emails,
-                "--reviewer-slot",
-                "chatgpt",
-                expect=1,
+                "validate-slot", "--emails-file", emails, "--reviewer-slot", "chatgpt", expect=1
             )
             self.assertIn("not independent for current candidate authorship", rejected.stderr)
             self.run_policy(
-                "validate-slot",
-                "--emails-file",
-                emails,
-                "--reviewer-slot",
-                "chatgpt-secondary",
+                "validate-slot", "--emails-file", emails, "--reviewer-slot", "chatgpt-secondary"
+            )
+
+    def test_secondary_requires_explicit_task_authorization(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for marker in (None, []):
+                task = self.write_task(temp, marker)
+                rejected = self.run_policy(
+                    "authorize-slot",
+                    "--task-file",
+                    task,
+                    "--reviewer-slot",
+                    "chatgpt-secondary",
+                    expect=1,
+                )
+                self.assertIn("not authorized by trusted task", rejected.stderr)
+                self.run_policy(
+                    "authorize-slot", "--task-file", task, "--reviewer-slot", "chatgpt"
+                )
+
+            task = self.write_task(temp, ["chatgpt", "chatgpt-secondary"])
+            self.run_policy(
+                "authorize-slot", "--task-file", task, "--reviewer-slot", "chatgpt-secondary"
             )
 
     def test_external_review_request_supports_secondary_and_enforces_authorship(self):
         workflow = (ROOT / ".github" / "workflows" / "external-review-request.yml").read_text(encoding="utf-8")
         self.assertIn("Reviewer slot (chatgpt or chatgpt-secondary)", workflow)
+        self.assertIn("reviewer-policy.py authorize-slot", workflow)
         self.assertIn("reviewer-policy.py validate-slot", workflow)
         self.assertIn("candidate-author-emails.txt", workflow)
-        self.assertIn(".review.reviewerSlots | index($slot) != null", workflow)
         self.assertNotIn("reviewer_slot=chatgpt or gemini", workflow)
 
     def test_agent_dispatches_exactly_one_primary_review_for_pure_agent_candidate(self):
@@ -267,7 +276,7 @@ class ExternalReviewToolTests(unittest.TestCase):
         authorization_block = workflow[authorize_index:publish_index]
         self.assertIn("test \"$TASK_RISK\" = \"$RISK_CLASS\"", authorization_block)
         self.assertIn("test \"$TASK_REVIEW_TYPE\" = \"$REVIEW_TYPE\"", authorization_block)
-        self.assertIn(".review.reviewerSlots | index($slot) != null", authorization_block)
+        self.assertIn("reviewer-policy.py authorize-slot", authorization_block)
         self.assertNotIn("marker = '<!-- external-review-state-v1", authorization_block)
 
     def test_olq_task_authorizes_both_authorship_based_slots_without_dual_requirement(self):
@@ -288,7 +297,27 @@ class ExternalReviewToolTests(unittest.TestCase):
         self.assertIn("src/TiaV21Worker without trusted task opt-in", workflow)
         self.assertIn(".generator.input // empty", workflow)
         self.assertIn("case \"$RISK_CLASS\" in LOW|MEDIUM|HIGH)", workflow)
-        self.assertIn(".review.reviewerSlots | index($slot) != null", workflow)
+
+    def test_candidate_validation_is_deterministic_and_has_no_llm_reviewer(self):
+        workflow = (ROOT / ".github" / "workflows" / "candidate-validation.yml").read_text(encoding="utf-8")
+        lowered = workflow.lower()
+        self.assertNotIn("gemini", lowered)
+        self.assertNotIn("run-reviewer.py", workflow)
+        self.assertNotIn("OPENROUTER_REVIEW_MODEL", workflow)
+        self.assertIn("Verify authoritative TIA diagnostics", workflow)
+        self.assertIn(".success == true and ((.errors // 0) == 0)", workflow)
+        self.assertIn("No LLM reviewer participates in this trusted target-validation stage", workflow)
+
+    def test_no_active_legacy_gemini_reviewer_runtime(self):
+        self.assertFalse((ROOT / "agents" / "runtime" / "run-reviewer.py").exists())
+        active_files = [
+            ROOT / ".github" / "workflows" / "candidate-validation.yml",
+            ROOT / ".github" / "workflows" / "external-review-request.yml",
+            ROOT / ".github" / "workflows" / "external-review-response.yml",
+            ROOT / "agents" / "runtime" / "reviewer-policy.py",
+        ]
+        for path in active_files:
+            self.assertNotIn("gemini", path.read_text(encoding="utf-8").lower(), msg=str(path))
 
 
 if __name__ == "__main__":
