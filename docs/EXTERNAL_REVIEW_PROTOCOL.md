@@ -67,7 +67,7 @@ Required sections:
 
 1. reviewer role and instruction that no prior context exists;
 2. project purpose and relevant architecture/trust boundaries;
-3. exact trusted task and acceptance criteria, or for the exceptional governance-bootstrap lane the frozen issue body, its exact SHA-256 fingerprint, the direct human-authorization comment with GitHub provenance metadata, and `docs/GOVERNANCE_BOOTSTRAP.md`;
+3. exact trusted task and acceptance criteria, or for the exceptional governance-bootstrap lane the frozen issue body, its exact SHA-256 fingerprint, the exact SSH-signed scope-attestation commit and raw GitHub verification metadata, and `docs/GOVERNANCE_BOOTSTRAP.md`;
 4. risk class and review type;
 5. candidate PR and exact SHA;
 6. implementation summary as orientation only;
@@ -96,7 +96,7 @@ An `APPROVE` response must not contain any `critical` or `major` finding.
 
 Trusted automation binds the response to exact request ID, reviewer slot, task ID, candidate SHA, review type and round. Reviewer slot strings are explicit identities such as `chatgpt` and `chatgpt-secondary`, not interchangeable aliases.
 
-For governance bootstrap, the same identity/schema/exact-SHA checks are performed manually by primary ChatGPT **against provenance-separated GitHub evidence**. Primary/connector-authored persistence alone cannot satisfy an authority-bearing bootstrap APPROVE.
+For governance bootstrap, the same identity/schema/exact-SHA checks are performed manually by primary ChatGPT against the signed human evidence. Primary/connector-authored persistence alone cannot satisfy an authority-bearing bootstrap APPROVE.
 
 ## State transitions
 
@@ -119,7 +119,7 @@ Intentionally requested multi-review disagreement
     -> REVIEW_CONFLICT
 ```
 
-`REVIEW_CONFLICT` and `BLOCKED` require an explicit external decision before implementation continues. Repairs remain bounded by trusted task `maxRepairAttempts`; bootstrap repairs use the bounded allowance in `docs/GOVERNANCE_BOOTSTRAP.md` and require direct reauthorization when the frozen issue body materially changes.
+`REVIEW_CONFLICT` and `BLOCKED` require an explicit external decision before implementation continues. Repairs remain bounded by trusted task `maxRepairAttempts`; bootstrap repairs use the bounded allowance in `docs/GOVERNANCE_BOOTSTRAP.md`. After the default two candidate-changing bootstrap repairs are consumed, any further candidate-changing repair requires a fresh explicit human decision or state is `BLOCKED`.
 
 ## Architecture gate
 
@@ -149,7 +149,7 @@ Candidate `TiaV21Worker` code is not executed on Windows before independent appr
 
 Eligibility is semantic, not based on whether the changed files happen to appear in the coding-agent protected-path list. Missing, inconvenient or stale tasks do not create bootstrap eligibility.
 
-The lane is HIGH risk and requires a frozen bounded GitHub issue plus a direct human authorization comment bound to the exact issue-body SHA-256. A verifier must fetch live GitHub metadata and reject connector/app-mediated claims of human authorization.
+The lane is HIGH risk and requires a frozen bounded GitHub issue plus **positive cryptographic human provenance** through an SSH-signed Git scope-attestation commit. The verifier must fetch the raw commit API object and require a valid SSH signature, repository-owner author/committer identity, exact attestation payload and matching live issue-body hash. GitHub web-flow signatures, unsigned API commits, owner comments and `performed_via_github_app` metadata are not sufficient authority by themselves.
 
 A bootstrap candidate cannot authorize itself. Candidate-branch tasks or policy text do not become trusted authorization for that same candidate. The required independent reviewer is fresh `chatgpt-secondary`, exact-SHA deterministic CI must be green, and no candidate source may execute on trusted Windows/TIA.
 
@@ -157,14 +157,16 @@ A bootstrap candidate cannot authorize itself. Candidate-branch tasks or policy 
 
 Returning the secondary JSON to the primary chat is sufficient to diagnose or repair conservatively, but it is not sufficient to grant merge authority.
 
-An authority-bearing bootstrap APPROVE must be directly relayed/attested into GitHub by the human operator outside ChatGPT/Codex/GitHub-App execution. The direct comment must bind request ID, reviewer slot, candidate SHA, round and SHA-256 of the exact JSON payload and include the full JSON. Primary then verifies:
+An authority-bearing bootstrap APPROVE must be contained in a **separate SSH-signed review-attestation commit** created outside ChatGPT/Codex/project automation. It must bind request ID, reviewer slot, exact candidate SHA, round, SHA-256 of the exact JSON payload and the full exact JSON. Primary then verifies:
 
-- direct human author identity;
-- `performed_via_github_app` absent or `null`;
-- payload hash;
-- response schema and identity fields;
+- GitHub commit `verification.verified == true` and `reason == valid`;
+- the commit signature is SSH, not web-flow;
+- commit author and committer resolve to repository owner `al-gri`;
+- review JSON hash, schema and identity;
 - exact current candidate SHA;
 - no stale CI/review state.
+
+The human signing private key is a trust root and must remain unavailable to ChatGPT, Codex, project automation, PATs used by automation, CI, runners and coding providers.
 
 Connector-authored copies may be stored for traceability but cannot be the sole origin of authority-bearing approval evidence.
 
@@ -178,11 +180,11 @@ Primary connected ChatGPT may execute routine merge without separate human confi
 2. deterministic CI/tests are green;
 3. required TIA/Openness evidence is green unless trusted task explicitly defines it as post-merge;
 4. no unresolved `critical`/`major`, `BLOCKED` or `REVIEW_CONFLICT` exists;
-5. candidate still matches trusted task and architecture, or for the exceptional bootstrap lane the live issue body still matches its **direct-human-authorized** fingerprint and the diff remains inside that scope;
-6. for bootstrap, the exact authority-bearing APPROVE has provenance separated from the candidate author according to `docs/GOVERNANCE_BOOTSTRAP.md`;
+5. candidate still matches trusted task and architecture, or for the exceptional bootstrap lane the live issue body still matches its **SSH-signed human-authorized** fingerprint and the diff remains inside that scope;
+6. for bootstrap, the exact authority-bearing APPROVE is contained in the required separate SSH-signed review-attestation commit;
 7. review/evidence is not stale.
 
-Primary ChatGPT stops for human input on strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions, material bootstrap scope/body changes or unresolved review conflict/ambiguity.
+Primary ChatGPT stops for human input on strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions, material bootstrap scope/body changes, repair-budget extension or unresolved review conflict/ambiguity.
 
 No implementer, coding agent, reviewer or workflow may self-merge automatically.
 
@@ -195,9 +197,9 @@ The intended human involvement is small:
 3. If primary ChatGPT is not independent, it prepares a complete ready-to-paste `chatgpt-secondary` package.
 4. The human pastes that package into a fresh ChatGPT chat and returns the JSON verdict.
 5. Trusted automation validates normal task-backed responses and continues the bounded state machine.
-6. For the exceptional bootstrap lane only, the human additionally creates the direct GitHub authorization/attestation artifacts required by `docs/GOVERNANCE_BOOTSTRAP.md`; primary verifies their provenance and performs the delegated merge when all gates pass.
+6. For the exceptional bootstrap lane only, the human additionally creates the SSH-signed scope/review attestation commits required by `docs/GOVERNANCE_BOOTSTRAP.md`; primary verifies them and performs the delegated merge when all gates pass.
 
-Normal work should not need these extra human GitHub provenance steps.
+Normal work should not need these extra human signing steps.
 
 ## Acceptance rules for automation
 
