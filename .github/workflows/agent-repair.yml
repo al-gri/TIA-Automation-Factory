@@ -53,10 +53,10 @@ jobs:
         run: |
           set -euo pipefail
           VALIDATION_RUN_ID="${VALIDATION_RUN_ID:-0}"
-          REVIEW_SOURCE="${REVIEW_SOURCE:-candidate-validation}"
+          REVIEW_SOURCE="${REVIEW_SOURCE:-}"
           case "$BRANCH" in agent/*) ;; *) echo "Invalid repair branch: $BRANCH"; exit 1 ;; esac
           case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path: $TASK_PATH"; exit 1 ;; esac
-          case "$REVIEW_SOURCE" in candidate-validation|external-review) ;; *) echo "Invalid repair source: $REVIEW_SOURCE"; exit 1 ;; esac
+          test "$REVIEW_SOURCE" = "external-review" || { echo "All candidate-changing repairs require external-review provenance."; exit 1; }
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
           [[ "$VALIDATION_RUN_ID" =~ ^[0-9]+$ ]]
           [[ "$ATTEMPT" =~ ^[1-9][0-9]*$ ]]
@@ -74,14 +74,12 @@ jobs:
           TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$RUNNER_TEMP/task.json")
           case "$TASK_RISK" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid trusted task risk class: $TASK_RISK"; exit 1 ;; esac
           case "$TASK_REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid trusted task review type: $TASK_REVIEW_TYPE"; exit 1 ;; esac
-          if [ "$REVIEW_SOURCE" = "external-review" ]; then
-            test "$TASK_RISK" = "$RISK_CLASS"
-            test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
-            [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
-            python3 agents/runtime/reviewer-policy.py authorize-slot \
-              --task-file "$RUNNER_TEMP/task.json" \
-              --reviewer-slot "$REVIEWER_SLOT"
-          fi
+          test "$TASK_RISK" = "$RISK_CLASS"
+          test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
+          [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
+          python3 agents/runtime/reviewer-policy.py authorize-slot \
+            --task-file "$RUNNER_TEMP/task.json" \
+            --reviewer-slot "$REVIEWER_SLOT"
 
           ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$RUNNER_TEMP/task.json")
           case "$ALLOW_TIA_WORKER" in true|false) ;; *) echo "candidatePolicy.allowTiaV21WorkerChanges must be boolean"; exit 1 ;; esac
@@ -277,57 +275,42 @@ jobs:
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
           ATTEMPT: ${{ github.event.client_payload.attempt }}
           MAX_ATTEMPTS: ${{ steps.context.outputs.max_attempts }}
-          REVIEW_SOURCE: ${{ steps.context.outputs.review_source }}
         run: |
           PROVIDER=$(jq -r '.selected_provider // "unknown"' "$RUNNER_TEMP/repair-provider-audit.json")
           MODEL=$(jq -r '.selected_model // "unknown"' "$RUNNER_TEMP/repair-provider-audit.json")
           OPENROUTER_COST=$(jq -r '.openrouter.usage.reported_cost_usd // 0' "$RUNNER_TEMP/repair-provider-audit.json")
           DEEPSEEK_COST=$(jq -r '.deepseek.usage.reported_cost_usd // 0' "$RUNNER_TEMP/repair-provider-audit.json")
-          if [ "$REVIEW_SOURCE" = "external-review" ]; then
-            NEXT_TEXT="A fresh external review package will be generated for the repaired candidate."
-          else
-            NEXT_TEXT="A fresh trusted candidate validation has been dispatched."
-          fi
+          NEXT_TEXT="A fresh external review package will be generated for the repaired candidate before any further Candidate Validation."
           gh pr comment "$PR_NUMBER" --body "### Autonomous Repair\n\nRepair attempt **${ATTEMPT}/${MAX_ATTEMPTS}** committed to the same candidate branch.\n\nProvider: \`${PROVIDER}\`  \nModel: \`${MODEL}\`  \nOpenRouter reported cost: \`\$${OPENROUTER_COST}\`  \nDeepSeek reported cost: \`\$${DEEPSEEK_COST}\`\n\n${NEXT_TEXT}"
 
-      - name: Dispatch next trusted gate
+      - name: Dispatch fresh external review for repaired SHA
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-          CANDIDATE_SHA: ${{ steps.push.outputs.candidate_sha }}
-          BRANCH: ${{ github.event.client_payload.branch }}
           TASK_PATH: ${{ github.event.client_payload.task_path }}
           ATTEMPT: ${{ github.event.client_payload.attempt }}
-          REVIEW_SOURCE: ${{ steps.context.outputs.review_source }}
           REVIEW_TYPE: ${{ github.event.client_payload.review_type }}
           RISK_CLASS: ${{ github.event.client_payload.risk_class }}
           REVIEWER_SLOT: ${{ github.event.client_payload.reviewer_slot }}
         run: |
           set -euo pipefail
-          if [ "$REVIEW_SOURCE" = "external-review" ]; then
-            NEXT_ROUND=$((ATTEMPT + 1))
-            case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid external review type"; exit 1 ;; esac
-            case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid external review risk class"; exit 1 ;; esac
-            [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
-            jq -n \
-              --argjson pr "$PR_NUMBER" \
-              --arg task_path "$TASK_PATH" \
-              --arg review_type "$REVIEW_TYPE" \
-              --arg risk_class "$RISK_CLASS" \
-              --arg reviewer_slot "$REVIEWER_SLOT" \
-              --argjson review_round "$NEXT_ROUND" \
-              '{event_type:"external-review-request",client_payload:{pr_number:$pr,task_path:$task_path,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot,review_round:$review_round}}' \
-              > "$RUNNER_TEMP/next-dispatch.json"
-          else
-            jq -n \
-              --argjson pr "$PR_NUMBER" \
-              --arg candidate_sha "$CANDIDATE_SHA" \
-              --arg branch "$BRANCH" \
-              --arg task_path "$TASK_PATH" \
-              --argjson attempt "$ATTEMPT" \
-              '{event_type:"candidate-validation",client_payload:{pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,attempt:$attempt}}' \
-              > "$RUNNER_TEMP/next-dispatch.json"
-          fi
+          NEXT_ROUND=$((ATTEMPT + 1))
+          case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid external review type"; exit 1 ;; esac
+          case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid external review risk class"; exit 1 ;; esac
+          [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
+          python3 agents/runtime/reviewer-policy.py authorize-slot \
+            --task-file "$RUNNER_TEMP/task.json" \
+            --reviewer-slot "$REVIEWER_SLOT"
+
+          jq -n \
+            --argjson pr "$PR_NUMBER" \
+            --arg task_path "$TASK_PATH" \
+            --arg review_type "$REVIEW_TYPE" \
+            --arg risk_class "$RISK_CLASS" \
+            --arg reviewer_slot "$REVIEWER_SLOT" \
+            --argjson review_round "$NEXT_ROUND" \
+            '{event_type:"external-review-request",client_payload:{pr_number:$pr,task_path:$task_path,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot,review_round:$review_round}}' \
+            > "$RUNNER_TEMP/next-dispatch.json"
           cat "$RUNNER_TEMP/next-dispatch.json"
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/next-dispatch.json"
