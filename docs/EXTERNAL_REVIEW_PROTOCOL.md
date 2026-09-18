@@ -15,7 +15,7 @@ GitHub is the source of truth for the task, candidate commit, review package, re
 - **Implementer:** OpenRouter first, official DeepSeek API / `deepseek-flash` as continuity fallback.
 - **Primary external reviewer:** ChatGPT, especially for architecture, API boundaries, maintainability, root-cause analysis, and difficult implementation choices when ChatGPT is independent of the candidate authorship.
 - **Independent verification reviewer:** Gemini, especially for red-team review, missed requirements, edge cases, PLC semantics, security, disputed work, and candidates materially authored by ChatGPT.
-- **Human operator:** final merge/approval authority; performs copy/paste only when an isolated external reviewer is actually required.
+- **Human operator:** strategic/risk authority and escalation point; has delegated routine technical merge decisions to connected ChatGPT when all accepted gates are satisfied.
 - **Deterministic authorities:** Linux build/tests/generator checks and, where applicable, the trusted TIA Portal V21 acceptance gate.
 
 ## Reviewer independence
@@ -141,6 +141,21 @@ The implementation reviewer must be independent of the implementation candidate.
 
 Real TIA V21 diagnostics remain authoritative for import/compile status. External PLC review may assess generated semantics, naming, interfaces, and adequacy of PLC-specific tests, but it must not claim successful TIA compilation without trusted `tia-diagnostics.json` evidence.
 
+## Delegated technical merge gate
+
+Connected ChatGPT may make and execute the routine technical merge decision without a separate human confirmation only when all applicable gates are satisfied for the current exact PR head SHA:
+
+1. required independent review is valid and `APPROVE`;
+2. deterministic CI/tests are green;
+3. required TIA/Openness evidence is green, unless the trusted task explicitly defines Windows/TIA execution as a post-merge trusted-main step;
+4. there is no unresolved `critical`/`major` finding, `BLOCKED`, or `REVIEW_CONFLICT`;
+5. the candidate still matches the trusted task and approved architecture;
+6. review/evidence is not stale relative to the PR head.
+
+ChatGPT must stop for human input on strategic or materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution decisions, or unresolved review conflict/ambiguity.
+
+No implementer, coding agent, reviewer, or workflow may self-merge. Delegated ChatGPT technical merge is an operator-authorized decision after verification of gates, not an automatic workflow transition.
+
 ## Human workflow
 
 The intended human action is deliberately small:
@@ -149,7 +164,7 @@ The intended human action is deliberately small:
 2. If ChatGPT is eligible and independent, it performs the review directly from GitHub.
 3. If ChatGPT is not independent or an explicit red-team is required, ChatGPT prepares a complete Gemini package; the human only pastes it and returns the resulting JSON.
 4. Trusted automation validates the JSON schema and resumes the next bounded state.
-5. The human makes the separate merge decision.
+5. When the delegated technical merge gate is satisfied, ChatGPT may merge and continue automatically; the human is consulted only for strategic/irreversible decisions or explicit escalation conditions.
 
 A fresh second ChatGPT chat is optional only when intentionally requested, not part of the normal workflow.
 
@@ -166,4 +181,4 @@ Before an external response may influence execution, trusted automation must:
 - preserve the response as GitHub evidence;
 - prevent a candidate agent from editing trusted review/orchestration definitions without appropriate independent review.
 
-No automatic merge is introduced by this protocol.
+The protocol does not authorize workflow/bot self-merge. It authorizes connected ChatGPT to execute a delegated technical merge only after the explicit gate above is satisfied.
