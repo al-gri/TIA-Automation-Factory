@@ -1,0 +1,311 @@
+name: External Review Request
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Candidate pull request number
+        required: true
+        type: string
+      task_path:
+        description: Trusted task path
+        required: true
+        default: tasks/INFRA-001.json
+        type: string
+      review_type:
+        description: Review type
+        required: true
+        default: CODE_REVIEW
+        type: choice
+        options: [CODE_REVIEW, PLC_REVIEW]
+      risk_class:
+        description: Risk class
+        required: true
+        default: LOW
+        type: choice
+        options: [LOW, MEDIUM, HIGH]
+      reviewer_slot:
+        description: Reviewer slot (primary, chatgpt, gemini)
+        required: true
+        default: primary
+        type: string
+      review_round:
+        description: Review round
+        required: true
+        default: '1'
+        type: string
+  repository_dispatch:
+    types: [external-review-request]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  build-review-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve and validate request
+        id: request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number || inputs.pr_number }}
+          TASK_PATH: ${{ github.event.client_payload.task_path || inputs.task_path }}
+          REVIEW_TYPE: ${{ github.event.client_payload.review_type || inputs.review_type }}
+          RISK_CLASS: ${{ github.event.client_payload.risk_class || inputs.risk_class }}
+          REVIEWER_SLOT: ${{ github.event.client_payload.reviewer_slot || inputs.reviewer_slot }}
+          REVIEW_ROUND: ${{ github.event.client_payload.review_round || inputs.review_round }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Invalid PR number"; exit 1; }
+          [[ "$REVIEW_ROUND" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid review round"; exit 1; }
+          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path"; exit 1 ;; esac
+          test -f "$TASK_PATH"
+          jq -e '.id and .acceptance.requirements and .generator.input and .generator.expectedArtifact' "$TASK_PATH" >/dev/null
+          case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Unsupported review type"; exit 1 ;; esac
+          case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid risk class"; exit 1 ;; esac
+          [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Invalid reviewer slot"; exit 1; }
+          if [ "$RISK_CLASS" = "HIGH" ]; then
+            case "$REVIEWER_SLOT" in chatgpt|gemini) ;; *) echo "HIGH risk requires reviewer_slot=chatgpt or gemini"; exit 1 ;; esac
+          fi
+
+          gh pr view "$PR_NUMBER" --json state,baseRefName,headRefOid > "$RUNNER_TEMP/pr.json"
+          test "$(jq -r .state "$RUNNER_TEMP/pr.json")" = "OPEN"
+          test "$(jq -r .baseRefName "$RUNNER_TEMP/pr.json")" = "main"
+          CANDIDATE_SHA=$(jq -r .headRefOid "$RUNNER_TEMP/pr.json")
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          TASK_ID=$(jq -r .id "$TASK_PATH")
+          SHORT_SHA=${CANDIDATE_SHA:0:12}
+          REQUEST_ID="ER-${PR_NUMBER}-${SHORT_SHA}-${REVIEW_TYPE}-${REVIEW_ROUND}-${REVIEWER_SLOT}-${GITHUB_RUN_ID}"
+
+          gh pr diff "$PR_NUMBER" --name-only | sort -u > "$RUNNER_TEMP/changed-files.txt"
+          test -s "$RUNNER_TEMP/changed-files.txt"
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/changed-files.txt"; then
+            echo "Candidate changes protected infrastructure; external review package refused."
+            exit 1
+          fi
+          gh pr diff "$PR_NUMBER" > "$RUNNER_TEMP/candidate.diff"
+          DIFF_BYTES=$(wc -c < "$RUNNER_TEMP/candidate.diff")
+          if [ "$DIFF_BYTES" -gt 32000 ]; then
+            echo "Candidate diff is too large for bounded copy/paste review: $DIFF_BYTES bytes"
+            exit 1
+          fi
+
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "task_path=$TASK_PATH" >> "$GITHUB_OUTPUT"
+          echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
+          echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+          echo "review_type=$REVIEW_TYPE" >> "$GITHUB_OUTPUT"
+          echo "risk_class=$RISK_CLASS" >> "$GITHUB_OUTPUT"
+          echo "reviewer_slot=$REVIEWER_SLOT" >> "$GITHUB_OUTPUT"
+          echo "review_round=$REVIEW_ROUND" >> "$GITHUB_OUTPUT"
+          echo "request_id=$REQUEST_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Create disposable candidate worktree
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ steps.request.outputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$CANDIDATE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/candidate" "$CANDIDATE_SHA"
+
+      - name: Collect bounded candidate source context
+        shell: bash
+        env:
+          CANDIDATE_ROOT: ${{ runner.temp }}/candidate
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ['CANDIDATE_ROOT'])
+          changed = Path(os.environ['RUNNER_TEMP']) / 'changed-files.txt'
+          out = Path(os.environ['RUNNER_TEMP']) / 'source-context.txt'
+          limit = 16000
+          used = 0
+          parts = []
+          for rel in changed.read_text(encoding='utf-8').splitlines():
+              path = root / rel
+              if not path.is_file():
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except UnicodeDecodeError:
+                  continue
+              header = f"\n--- {rel} ---\n"
+              block = header + text
+              encoded = block.encode('utf-8')
+              if used + len(encoded) > limit:
+                  parts.append(f"\n--- {rel} ---\n[omitted: bounded source-context limit reached]\n")
+                  continue
+              parts.append(block)
+              used += len(encoded)
+          out.write_text(''.join(parts) or 'No text source context available.\n', encoding='utf-8')
+          PY
+
+      - name: Collect deterministic Linux evidence
+        shell: bash
+        env:
+          TASK_PATH: ${{ steps.request.outputs.task_path }}
+          CANDIDATE_ROOT: ${{ runner.temp }}/candidate
+        run: |
+          set -euo pipefail
+          INPUT=$(jq -r '.generator.input' "$TASK_PATH")
+          EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
+          {
+            echo '$ dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release'
+            (cd "$CANDIDATE_ROOT" && dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release)
+            echo
+            echo '$ GeneratorCli motor regression'
+            rm -rf "$RUNNER_TEMP/motor-review"
+            (cd "$CANDIDATE_ROOT" && dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-review")
+            test -f "$RUNNER_TEMP/motor-review/UDT_Motor.scl"
+            echo
+            echo '$ GeneratorCli task artifact'
+            rm -rf "$RUNNER_TEMP/candidate-review"
+            (cd "$CANDIDATE_ROOT" && dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/candidate-review")
+            test -f "$RUNNER_TEMP/candidate-review/$EXPECTED"
+          } 2>&1 | tee "$RUNNER_TEMP/linux-evidence.txt"
+
+          sha256sum "$RUNNER_TEMP/candidate-review/$EXPECTED" > "$RUNNER_TEMP/artifact.sha256"
+          {
+            echo "Generated artifact: $EXPECTED"
+            cat "$RUNNER_TEMP/artifact.sha256"
+            echo
+            cat "$RUNNER_TEMP/candidate-review/$EXPECTED"
+          } > "$RUNNER_TEMP/artifact-evidence.txt"
+
+      - name: Collect prior external review evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" \
+            --jq '[.[] | select(.body | contains("### External review result")) | .body][-2:][]' \
+            > "$RUNNER_TEMP/previous-findings.txt" || true
+          if [ ! -s "$RUNNER_TEMP/previous-findings.txt" ]; then
+            echo 'None.' > "$RUNNER_TEMP/previous-findings.txt"
+          fi
+
+      - name: Build self-contained review package
+        id: package
+        shell: bash
+        env:
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+          REVIEWER_SLOT: ${{ steps.request.outputs.reviewer_slot }}
+          TASK_ID: ${{ steps.request.outputs.task_id }}
+          CANDIDATE_SHA: ${{ steps.request.outputs.candidate_sha }}
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+          REVIEW_TYPE: ${{ steps.request.outputs.review_type }}
+          REVIEW_ROUND: ${{ steps.request.outputs.review_round }}
+          RISK_CLASS: ${{ steps.request.outputs.risk_class }}
+          TASK_PATH: ${{ steps.request.outputs.task_path }}
+        run: |
+          set -euo pipefail
+          TEMPLATE="reviews/templates/code-review.md"
+          if [ "$REVIEW_TYPE" = "PLC_REVIEW" ]; then TEMPLATE="reviews/templates/plc-review.md"; fi
+
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          temp = Path(os.environ['RUNNER_TEMP'])
+          task = json.loads(Path(os.environ['TASK_PATH']).read_text(encoding='utf-8'))
+          context = {
+              'REVIEW_REQUEST_ID': os.environ['REQUEST_ID'],
+              'REVIEWER_SLOT': os.environ['REVIEWER_SLOT'],
+              'TASK_ID': os.environ['TASK_ID'],
+              'CANDIDATE_SHA': os.environ['CANDIDATE_SHA'],
+              'PR_REFERENCE': '#' + os.environ['PR_NUMBER'],
+              'REVIEW_ROUND': int(os.environ['REVIEW_ROUND']),
+              'RISK_CLASS': os.environ['RISK_CLASS'],
+              'TASK_SPECIFICATION': json.dumps(task, indent=2, ensure_ascii=False),
+              'ACCEPTANCE_CRITERIA': json.dumps(task.get('acceptance', {}), indent=2, ensure_ascii=False),
+              'TIA_ACCEPTANCE_CRITERIA': json.dumps(task.get('acceptance', {}).get('tia', []), indent=2, ensure_ascii=False),
+              'IMPLEMENTATION_SUMMARY': 'Changed files:\n' + (temp / 'changed-files.txt').read_text(encoding='utf-8'),
+              'CANDIDATE_DIFF': (temp / 'candidate.diff').read_text(encoding='utf-8'),
+              'RELEVANT_SOURCE_CONTEXT': (temp / 'source-context.txt').read_text(encoding='utf-8'),
+              'LINUX_EVIDENCE': (temp / 'linux-evidence.txt').read_text(encoding='utf-8'),
+              'GENERATED_ARTIFACT_EVIDENCE': (temp / 'artifact-evidence.txt').read_text(encoding='utf-8'),
+              'TIA_EVIDENCE_OR_NOT_AVAILABLE': 'Trusted TIA evidence is not included in this pre-TIA package.',
+              'ARTIFACT_MANIFEST': json.dumps({'candidateSha': os.environ['CANDIDATE_SHA'], 'artifactEvidence': (temp / 'artifact-evidence.txt').read_text(encoding='utf-8')}, indent=2),
+              'PLC_ARTIFACT': (temp / 'artifact-evidence.txt').read_text(encoding='utf-8'),
+              'TIA_DIAGNOSTICS': 'Not available in this pre-TIA request. Return BLOCKED if this review requires proof of TIA compilation.',
+              'PREVIOUS_FINDINGS_OR_NONE': (temp / 'previous-findings.txt').read_text(encoding='utf-8'),
+          }
+          (temp / 'review-context.json').write_text(json.dumps(context, ensure_ascii=False), encoding='utf-8')
+          PY
+
+          python3 agents/runtime/external-review.py build-package \
+            --template "$TEMPLATE" \
+            --context "$RUNNER_TEMP/review-context.json" \
+            --output "$RUNNER_TEMP/review-request.md"
+
+          PACKAGE_BYTES=$(wc -c < "$RUNNER_TEMP/review-request.md")
+          if [ "$PACKAGE_BYTES" -gt 54000 ]; then
+            echo "Rendered review package exceeds bounded GitHub comment size: $PACKAGE_BYTES bytes"
+            exit 1
+          fi
+          echo "package_bytes=$PACKAGE_BYTES" >> "$GITHUB_OUTPUT"
+
+      - name: Publish WAITING_FOR_EXTERNAL_REVIEW state and package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+          REVIEWER_SLOT: ${{ steps.request.outputs.reviewer_slot }}
+          TASK_ID: ${{ steps.request.outputs.task_id }}
+          CANDIDATE_SHA: ${{ steps.request.outputs.candidate_sha }}
+          REVIEW_TYPE: ${{ steps.request.outputs.review_type }}
+          REVIEW_ROUND: ${{ steps.request.outputs.review_round }}
+          RISK_CLASS: ${{ steps.request.outputs.risk_class }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          state = {
+              'protocolVersion': '1.0',
+              'reviewRequestId': os.environ['REQUEST_ID'],
+              'reviewerSlot': os.environ['REVIEWER_SLOT'],
+              'taskId': os.environ['TASK_ID'],
+              'candidateSha': os.environ['CANDIDATE_SHA'],
+              'reviewType': os.environ['REVIEW_TYPE'],
+              'reviewRound': int(os.environ['REVIEW_ROUND']),
+              'riskClass': os.environ['RISK_CLASS'],
+              'state': 'WAITING_FOR_EXTERNAL_REVIEW',
+          }
+          package = (Path(os.environ['RUNNER_TEMP']) / 'review-request.md').read_text(encoding='utf-8')
+          marker = '<!-- external-review-state-v1\n' + json.dumps(state, separators=(',', ':')) + '\n-->\n'
+          header = '### External review request\n\nState: **WAITING_FOR_EXTERNAL_REVIEW**\n\nCopy everything under **REVIEW PACKAGE** into a fresh reviewer chat. Paste the returned JSON back to this PR as a comment starting with `/external-review`.\n\n---\n\n## REVIEW PACKAGE\n\n'
+          (Path(os.environ['RUNNER_TEMP']) / 'review-comment.md').write_text(marker + header + package, encoding='utf-8')
+          PY
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/review-comment.md"
+
+      - name: Upload review package evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-review-${{ steps.request.outputs.request_id }}
+          path: |
+            ${{ runner.temp }}/review-request.md
+            ${{ runner.temp }}/review-context.json
+            ${{ runner.temp }}/linux-evidence.txt
+          if-no-files-found: error
