@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/al-gri/TIA-Automation-Factory/reviews/schemas/external-review-response.schema.json",
+  "title": "ExternalReviewResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocolVersion",
+    "taskId",
+    "candidateSha",
+    "reviewType",
+    "reviewRound",
+    "reviewStatus",
+    "summary",
+    "requirements",
+    "architecture",
+    "codeQuality",
+    "tests",
+    "findings",
+    "recommendation"
+  ],
+  "properties": {
+    "protocolVersion": {
+      "const": "1.0"
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidateSha": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{40}$"
+    },
+    "reviewType": {
+      "enum": ["CODE_REVIEW", "ARCHITECTURE_REVIEW", "PLC_REVIEW"]
+    },
+    "reviewRound": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "reviewStatus": {
+      "enum": ["APPROVE", "CHANGES_REQUIRED", "BLOCKED"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requirements": {
+      "$ref": "#/$defs/assessment"
+    },
+    "architecture": {
+      "$ref": "#/$defs/assessment"
+    },
+    "codeQuality": {
+      "$ref": "#/$defs/assessment"
+    },
+    "tests": {
+      "$ref": "#/$defs/assessment"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "recommendation": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "notes"],
+      "properties": {
+        "status": {
+          "enum": ["PASS", "FAIL", "NOT_APPLICABLE", "INSUFFICIENT_EVIDENCE"]
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "problem", "requiredChange"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^F[0-9]{3,}$"
+        },
+        "severity": {
+          "enum": ["critical", "major", "minor"]
+        },
+        "file": {
+          "type": ["string", "null"]
+        },
+        "location": {
+          "type": ["string", "null"]
+        },
+        "problem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requiredChange": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
