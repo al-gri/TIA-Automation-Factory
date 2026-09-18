@@ -51,7 +51,7 @@ problem / hypothesis
 
 The loop is intentionally fail-closed: a later stage may add evidence, but it must not silently erase an earlier trust requirement.
 
-Protected governance work that cannot obtain a trusted task without authorization recursion uses only the exceptional manual bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; that lane does not alter the normal implementation loop or task-only automation.
+Governance-authority work that cannot obtain a trusted task without genuine authorization recursion uses only the exceptional manual bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; that lane does not alter the normal implementation loop or task-only automation.
 
 ## 4. Current accepted rules
 
@@ -109,13 +109,15 @@ Model-visible prompts are a data plane: they may contain issue bodies, diffs, re
 
 This rule is fail-closed: a prompt may quote or contradict control metadata without changing it.
 
-### M-014 — Bootstrap governance explicitly; never let a candidate self-authorize
+### M-014 — Bootstrap governance explicitly; never let a candidate manufacture authority
 
-A trusted-task system needs an explicit answer for rare cases where the authorization mechanism itself must be repaired. Do not resolve that recursion by weakening normal automation or by accepting task/policy files introduced by the same candidate as authority for itself.
+A trusted-task system needs an explicit answer for rare cases where the authorization mechanism itself must be repaired. Do not resolve that recursion by weakening normal automation, by accepting task/policy files introduced by the same candidate as authority for itself, or by treating a connector-authored assertion as proof of a human decision.
 
-For protected governance work with genuine authorization recursion, use a separate human-authorized bootstrap lane: bind the scope to a GitHub issue, record a SHA-256 fingerprint of the exact authorized issue body, require HIGH risk, exact-SHA deterministic CI and a fresh independent `chatgpt-secondary` review, and keep normal task-only automation fail-closed. Any material scope change invalidates the human authorization.
+Bootstrap eligibility is **semantic**: the candidate must repair or define the repository's normative authority/review-control model, and establishing a normal trusted task first must depend on the same authorization semantics being repaired. Physical membership in the coding-agent protected-path list is neither required nor sufficient, and an absent or inconvenient task is never enough.
 
-The bootstrap lane is exceptional governance, not a shortcut for ordinary implementation work.
+For genuine governance-authority recursion, bind scope to a frozen GitHub issue body and its exact SHA-256, require HIGH risk, exact-SHA deterministic CI and a fresh independent `chatgpt-secondary` review, and keep normal task-only automation fail-closed. Human scope authorization must be a direct GitHub action whose API metadata is not app-mediated. An authority-bearing secondary APPROVE must likewise reach GitHub through a provenance-separated direct human relay/attestation before it can satisfy a merge gate.
+
+Any material issue-body/scope change invalidates the prior authorization. The bootstrap lane is exceptional governance, not a shortcut for ordinary implementation work.
 
 ## 5. Rule maturity
 
@@ -145,7 +147,7 @@ For real tasks, prefer collecting:
 - stale-review/review-conflict incidents;
 - trusted context size and included contracts;
 - control/data-plane trust-boundary incidents;
-- governance-bootstrap invocations and why normal task authorization was impossible;
+- governance-bootstrap invocations, why normal task authorization was impossible, and whether provenance gates were needed;
 - candidate changed-file count/scope;
 - merge/blocked outcome.
 
