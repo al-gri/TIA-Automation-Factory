@@ -54,11 +54,12 @@ jobs:
       - name: Require at least one LLM provider
         shell: bash
         env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          if [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "Configure GEMINI_API_KEY and/or OPENROUTER_API_KEY as repository Actions secrets."
+          if [ -z "$DEEPSEEK_API_KEY" ] && [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "Configure DEEPSEEK_API_KEY and/or fallback provider keys as repository Actions secrets."
             exit 1
           fi
 
@@ -156,14 +157,18 @@ jobs:
           npm install --global @google/gemini-cli@0.60.0 opencode-ai@1.18.31
           gemini --version
           opencode --version
+          opencode models deepseek | grep -F 'deepseek/deepseek-flash'
 
       - name: Run coding agent with provider fallback
         id: agent
         shell: bash
         env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
+          DEEPSEEK_MODEL: deepseek-flash
+          DEEPSEEK_TIMEOUT_MINUTES: '30'
           GEMINI_MODEL: gemini-3.8-flash
           OPENROUTER_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
         run: |
@@ -184,6 +189,9 @@ jobs:
           COMPACT=$(jq -c . "$AUDIT")
           SELECTED_PROVIDER=$(jq -r '.selected_provider // "none"' "$AUDIT")
           SELECTED_MODEL=$(jq -r '.selected_model // "none"' "$AUDIT")
+          DEEPSEEK_COST=$(jq -r '.deepseek.usage.reported_cost_usd // 0' "$AUDIT")
+          DEEPSEEK_INPUT=$(jq -r '.deepseek.usage.input_tokens // 0' "$AUDIT")
+          DEEPSEEK_OUTPUT=$(jq -r '.deepseek.usage.output_tokens // 0' "$AUDIT")
           echo "audit=$COMPACT" >> "$GITHUB_OUTPUT"
           echo "provider=$SELECTED_PROVIDER" >> "$GITHUB_OUTPUT"
           echo "model=$SELECTED_MODEL" >> "$GITHUB_OUTPUT"
@@ -192,6 +200,8 @@ jobs:
             echo
             echo "- Selected provider: \`$SELECTED_PROVIDER\`"
             echo "- Selected model: \`$SELECTED_MODEL\`"
+            echo "- DeepSeek reported cost: \`\$${DEEPSEEK_COST}\`"
+            echo "- DeepSeek input/output tokens: \`${DEEPSEEK_INPUT}/${DEEPSEEK_OUTPUT}\`"
             echo
             echo '```json'
             cat "$AUDIT"
