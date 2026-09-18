@@ -399,6 +399,8 @@ namespace TiaAutomationFactory.TiaV21Worker
             string retrieveWorkPath = Path.Combine(workRoot, "retrieve_" + qualificationIdentity);
             Directory.CreateDirectory(retrieveWorkPath);
 
+            Exception upgradeOperationException = null;
+            Exception upgradeCloseException = null;
             using (TiaPortal portal = new TiaPortal(TiaPortalMode.WithUserInterface))
             using (ExclusiveAccess exclusiveAccess = portal.ExclusiveAccess("TIA Automation Factory library qualification"))
             {
@@ -414,12 +416,16 @@ namespace TiaAutomationFactory.TiaV21Worker
                     {
                         manifest.Failure = "RetrieveWithUpgrade returned null; V19 archive could not be upgraded.";
                         manifest.FailureDetails = "Source: " + sourceBasename + ", SHA256: " + sourceSha256;
-                        return manifest;
                     }
-
-                    userGlobalLibrary.Save();
-
-                    userGlobalLibrary.Archive(new DirectoryInfo(qualificationOutputRoot), qualifiedArchiveName, LibraryArchivationMode.Compressed);
+                    else
+                    {
+                        userGlobalLibrary.Save();
+                        userGlobalLibrary.Archive(new DirectoryInfo(qualificationOutputRoot), qualifiedArchiveName, LibraryArchivationMode.Compressed);
+                    }
+                }
+                catch (Exception operationEx)
+                {
+                    upgradeOperationException = operationEx;
                 }
                 finally
                 {
@@ -431,13 +437,30 @@ namespace TiaAutomationFactory.TiaV21Worker
                         }
                         catch (Exception closeEx)
                         {
-                            manifest.Failure = "Failed to close upgraded library cleanly.";
-                            manifest.FailureDetails = closeEx.ToString();
-                            return manifest;
+                            upgradeCloseException = closeEx;
                         }
                     }
                 }
             }
+
+            if (upgradeOperationException != null)
+            {
+                manifest.Failure = "Library upgrade/archive operation failed.";
+                manifest.FailureDetails = upgradeOperationException.ToString();
+                if (upgradeCloseException != null)
+                    manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
+                return manifest;
+            }
+
+            if (upgradeCloseException != null)
+            {
+                manifest.Failure = "Failed to close upgraded library cleanly.";
+                manifest.FailureDetails = upgradeCloseException.ToString();
+                return manifest;
+            }
+
+            if (manifest.Failure != null)
+                return manifest;
 
             string qualifiedArchiveSha256 = ComputeSha256(qualifiedArchivePath);
             manifest.QualifiedArchiveSha256 = qualifiedArchiveSha256;
@@ -445,13 +468,15 @@ namespace TiaAutomationFactory.TiaV21Worker
             string verifyWorkPath = Path.Combine(workRoot, "verify_" + qualificationIdentity);
             Directory.CreateDirectory(verifyWorkPath);
 
-            UserGlobalLibrary verifiedLibrary = null;
             bool nativeReopenSuccess = false;
             string nativeReopenDetails = "";
-            try
+            Exception verifyOperationException = null;
+            Exception verifyCloseException = null;
+            using (TiaPortal portal = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (ExclusiveAccess exclusiveAccess = portal.ExclusiveAccess("TIA Automation Factory library qualification verification"))
             {
-                using (TiaPortal portal = new TiaPortal(TiaPortalMode.WithUserInterface))
-                using (ExclusiveAccess exclusiveAccess = portal.ExclusiveAccess("TIA Automation Factory library qualification verification"))
+                UserGlobalLibrary verifiedLibrary = null;
+                try
                 {
                     verifiedLibrary = portal.GlobalLibraries.Retrieve(
                         new FileInfo(qualifiedArchivePath),
@@ -468,7 +493,13 @@ namespace TiaAutomationFactory.TiaV21Worker
                         nativeReopenSuccess = true;
                         nativeReopenDetails = "Successfully reopened with current-version GlobalLibraries.Retrieve.";
                     }
-
+                }
+                catch (Exception operationEx)
+                {
+                    verifyOperationException = operationEx;
+                }
+                finally
+                {
                     if (verifiedLibrary != null)
                     {
                         try
@@ -477,29 +508,26 @@ namespace TiaAutomationFactory.TiaV21Worker
                         }
                         catch (Exception closeEx)
                         {
-                            manifest.Failure = "Failed to close verified library cleanly.";
-                            manifest.FailureDetails = closeEx.ToString();
-                            return manifest;
+                            verifyCloseException = closeEx;
                         }
-                        verifiedLibrary = null;
                     }
                 }
             }
-            finally
+
+            if (verifyOperationException != null)
             {
-                if (verifiedLibrary != null)
-                {
-                    try
-                    {
-                        verifiedLibrary.Close();
-                    }
-                    catch (Exception closeEx)
-                    {
-                        manifest.Failure = "Failed to close verified library cleanly in finally.";
-                        manifest.FailureDetails = closeEx.ToString();
-                        return manifest;
-                    }
-                }
+                manifest.Failure = "Native reopen verification threw an exception.";
+                manifest.FailureDetails = verifyOperationException.ToString();
+                if (verifyCloseException != null)
+                    manifest.FailureDetails += Environment.NewLine + "Close failure: " + verifyCloseException;
+                return manifest;
+            }
+
+            if (verifyCloseException != null)
+            {
+                manifest.Failure = "Failed to close verified library cleanly.";
+                manifest.FailureDetails = verifyCloseException.ToString();
+                return manifest;
             }
 
             manifest.NativeReopenSuccess = nativeReopenSuccess;
