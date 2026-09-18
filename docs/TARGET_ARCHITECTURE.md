@@ -1,6 +1,6 @@
 # Target Architecture — TIA Automation Factory
 
-Status: **PROPOSED / HIGH-RISK ARCHITECTURE DECISION — review round 2 required**
+Status: **PROPOSED / HIGH-RISK ARCHITECTURE DECISION — review round 3 required**
 
 Date: 2026-09-18
 
@@ -89,28 +89,59 @@ The compiler is multi-pass:
 3. template/port resolution
 4. type checking
 5. connection/cardinality/single-writer validation
-6. stateful-boundary and SCC analysis
-7. partition by controller / area / unit
-8. normalize expressions/conditions
-9. stable combinational scheduling
+6. temporal-dependency resolution for stateful primitives
+7. controller-level same-scan dependency graph construction
+8. SCC validation + stable same-scan scheduling
+9. ownership partitioning / normalization by controller / area / unit
 10. lower to PlcProgramIr
 ```
 
-### 4.1 Combinational scheduling invariant
+Ownership partitioning may shape generated FBs/DBs, but it must not erase dependencies that determine PLC scan behavior.
+
+### 4.1 Temporal dependency contract
+
+A stateful object is **not** automatically a one-scan delay and is not removed wholesale from cycle analysis. The compiler models dependency latency explicitly.
+
+Every executable dependency relevant to scheduling is classified as one of:
+
+```text
+SameScan       # consumer needs a value produced from current-scan inputs/state
+PreviousState  # consumer reads state committed by an earlier scan
+```
+
+Rules:
+
+1. Only `PreviousState` dependencies cut a same-scan dependency cycle.
+2. A stateful primitive may still have `SameScan` dependencies from current inputs to current outputs.
+3. Each stateful primitive contract declares which outputs depend on current inputs, which depend on previous state, and what state is committed for the next scan.
+4. The compiler conceptually separates **read previous state -> compute current outputs -> commit next state**. Lowering may optimize this representation only if observable scan semantics are unchanged.
+5. Edge detectors, timers, latches/reset elements and explicit feedback/state primitives require dedicated semantic tests; they must not inherit an assumed generic one-scan latency merely because they are stateful.
+
+Example: a rising-edge primitive can read its remembered input from the previous scan while its current output still depends on the current input in the same scan. The current-input dependency therefore remains in the same-scan graph.
+
+This contract prevents a stateful FB with current-input feed-through from accidentally hiding an algebraic loop.
+
+### 4.2 Controller-global scheduling and hierarchy boundaries
 
 Deterministic scheduling is a formal compiler invariant, not an implementation detail.
 
-1. Stateful primitives define scan-to-scan boundaries.
-2. For each combinational partition, the compiler computes strongly connected components.
-3. Any combinational SCC containing more than one node, or a self-loop, is a compilation error unless the cycle is broken by an explicit stateful element.
-4. After stateful boundaries are removed, every combinational partition must be a DAG.
-5. The compiler performs a stable topological sort before emitting executable PLC statements.
-6. When several nodes are simultaneously schedulable, a deterministic semantic tie-breaker is used (stable semantic ID/order), never UI position or JSON array accident.
-7. Same-scan propagation is the default for combinational dependencies: a downstream expression sees the value produced earlier in the same deterministic schedule.
+For each controller:
 
-Equivalent canonical models with different UI layout/order must produce the same semantic schedule.
+1. Build one logical dependency graph containing all `SameScan` dependencies, including dependencies that cross area or unit ownership boundaries.
+2. Compute strongly connected components on that controller-level same-scan graph.
+3. Any SCC containing more than one node, or a self-loop, is a compilation error unless the cycle is actually cut by an explicit `PreviousState` dependency.
+4. After delayed/previous-state dependencies are excluded, the remaining graph must be a DAG.
+5. Perform a stable topological sort before emitting executable PLC statements or orchestration calls.
+6. When several nodes are simultaneously schedulable, use a deterministic semantic tie-breaker (stable semantic ID/order), never UI position or accidental JSON array order.
+7. Same-scan propagation is the default for `SameScan` dependencies: a downstream expression sees the value produced earlier in the same deterministic schedule.
 
-### 4.2 PLC IR owns its own type system
+`area` and `unit` are ownership, naming and memory boundaries. They are **not implicit scan-delay or scheduling boundaries**. If `UnitB` consumes a same-scan value produced by `UnitA` on the same controller, the controller-global schedule must order the generated unit/application invocations consistently with that dependency. A same-controller cycle across units is rejected unless an explicit `PreviousState` dependency breaks it.
+
+A normal canonical connection must not claim same-scan semantics across different controllers. Cross-controller data flow requires an explicit communication primitive/profile with defined transport, buffering, stale-data/error behavior and update latency. Until such a primitive is implemented, ordinary cross-controller runtime connections are compilation errors.
+
+Equivalent canonical models with different UI layout, JSON order or unit declaration order must produce the same semantic schedule.
+
+### 4.3 PLC IR owns its own type system
 
 The current smoke IR carrying `Domain.AutomationType` directly is temporary. Before complex generation, PLC IR owns target-independent types such as:
 
@@ -121,6 +152,8 @@ PlcTypeRef
   Array(...)
   Struct(...)
 ```
+
+PLC IR also retains the compiler-resolved execution/dependency semantics needed by the backend; SiemensBackend must not rediscover graph scheduling from source/UI order.
 
 ## 5. Siemens/Open Library backend
 
@@ -238,6 +271,8 @@ FB_WaterSystem
 ```
 
 Do not generate one wrapper FB or one instance DB per ordinary physical device by default. Reusable unit types may share code while each physical unit has separate state/instance DB.
+
+These bounded memory domains do not imply independent scan schedules. Same-controller cross-unit dependencies are scheduled by the controller-global dependency graph and reflected in deterministic orchestration order.
 
 ## 9. Open Library runtime contracts
 
@@ -359,7 +394,10 @@ Not in the first production slice:
 This proposal is acceptable only when independent review agrees that:
 
 - Domain is independent of React Flow and Siemens;
-- combinational scheduling is a stable DAG/topological invariant;
+- dependency latency is explicit: only `PreviousState` dependencies cut same-scan cycles;
+- stateful primitives declare current-input/output and previous-state dependencies rather than acting as generic cycle breakers;
+- same-controller scheduling is controller-global across unit/area ownership boundaries and uses stable DAG/topological ordering;
+- ordinary cross-controller runtime connections are rejected unless represented by an explicit communication primitive with defined latency;
 - library upgrade is a separate qualification event, not normal build behavior;
 - normal builds consume an exact qualified native V21 library profile;
 - DB optimization/standard-access policy is explicit and testable;
