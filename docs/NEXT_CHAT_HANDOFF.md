@@ -17,7 +17,7 @@ Read, in order:
 7. `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work
 8. `docs/GOVERNANCE_BOOTSTRAP.md` when governance bootstrap work is active
 
-Then inspect live GitHub state: current PRs, Actions, tasks, issues #19/#26/#31, methodology issue #25 and pending external-review requests.
+Then inspect live GitHub state: current PRs, Actions, tasks, issues #19/#26/#31/#35, methodology issue #25 and pending external-review requests.
 
 `IndustrialMDE` is outside scope and must not be touched.
 
@@ -35,46 +35,49 @@ Then inspect live GitHub state: current PRs, Actions, tasks, issues #19/#26/#31,
 - PLC-001 PR #16 merged at `64daa260416b7a4163f7627b668ae155db694919` after trusted TIA compile with 0 errors / 0 warnings.
 - Governance PR #24 merged at `ef7e5a00e74a9d3b994c23637aab6fc2ae2546f5`; exact merged head `a7062ac85c7b3c3fbcbe93380ea1c8e2f33d79ac` had green exact-SHA CI and independent `chatgpt-secondary` approval.
 - OLQ-001 implementation PR #22 merged at `5c8c957e6abb7004e4ee9e9382de97347ebfc9c6`; exact reviewed head `4354bebbf2a3bf745b09589d6abac0938d5b5664`, CI #164 PASS, secondary round-4 APPROVE.
-- GOV-CTX-001 PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b` from exact candidate `e3d2912d74cf83256aafe1bd597f49f360411d34`, CI #224 PASS and fresh `chatgpt-secondary` APPROVE. Human granted a one-time exact-SHA waiver because the governance bootstrap path was undefined. Issue #28 is closed.
+- GOV-CTX-001 PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b` from exact candidate `e3d2912d74cf83256aafe1bd597f49f360411d34`, CI #224 PASS and fresh `chatgpt-secondary` APPROVE. Human granted a one-time exact-SHA waiver because the permanent governance bootstrap path was undefined. Issue #28 is closed.
 
 ## Current highest-priority blocker — GOV-BOOT-001 / issue #31 / PR #32
 
-Round 1 secondary review of exact candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` returned `CHANGES_REQUIRED` with four major findings F001-F004. The findings were accepted; that SHA must never be merged.
+Review history:
 
-The repair changes the bootstrap design in four material ways:
+- round 1 exact candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` -> `CHANGES_REQUIRED`, F001-F004;
+- round 2 exact candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED`, major F005.
 
-- human root authorization must be a direct GitHub action whose API metadata is not app-mediated;
-- the frozen issue body itself contains task/risk/reviewer/Windows/repository/scope requirements;
-- eligibility is semantic governance-authority recursion, not physical membership in coding-agent protected paths;
-- an authority-bearing secondary APPROVE must enter GitHub through provenance separated from primary.
+F005 found that owner authorship plus `performed_via_github_app == null` is only negative GitHub-App attribution and does not prove direct human origin against non-App credentialed API paths. The prior direct owner comment `5736439687` is therefore historical evidence only and is not sufficient under the repaired mechanism.
 
-Issue #31 is now the frozen bounded scope contract. Current exact UTF-8 body SHA-256:
+Issue #31 has been rewritten for the second/final candidate-changing repair. Current exact UTF-8 body SHA-256:
 
-`28abdc7a5837c8c93049f5b6ed668cafdd0c7de8275e02e6e14e55296b8cd47a`
+`c037d2a568644813cbeaa0c626761c845c2ca046c8a6d7ba557573491ae49099`
 
-Important: the issue-body edit was performed through `chatgpt-codex-connector`; it does **not** constitute human authorization.
+The repaired bootstrap trust root is now **positive cryptographic provenance**:
 
-### Required next human artifact
+- human scope authorization is an SSH-signed Git attestation commit created outside ChatGPT/Codex/project automation;
+- GitHub must report `verification.verified=true`, `reason=valid`, and an SSH signature, with repository owner `al-gri` as author and committer;
+- the signed payload binds repository, issue #31, task `GOV-BOOT-001`, purpose `scope-authorization` and the exact live issue-body hash;
+- GitHub web-flow signatures, ordinary owner comments, app-attribution metadata and unsigned connector/API commits are insufficient by themselves;
+- the human signing private key must never be available to project automation, PATs used by automation, CI, runners or coding providers;
+- attestation branches are evidence transport only and are never merged into `main`.
 
-Before a repaired candidate can satisfy bootstrap review/merge gates, the human operator/repository owner must create a direct GitHub comment on issue #31 outside ChatGPT/Codex/GitHub-App execution that explicitly authorizes:
+For an authority-bearing secondary APPROVE, the human must create a separate SSH-signed review-attestation commit containing request ID, reviewer slot, exact candidate SHA, round, exact review JSON and its SHA-256.
 
-- issue `#31`;
-- task `GOV-BOOT-001`;
-- exact issue-body hash `28abdc7a5837c8c93049f5b6ed668cafdd0c7de8275e02e6e14e55296b8cd47a`;
-- the bounded governance scope in the issue body.
+The two default candidate-changing bootstrap repairs are now consumed. After the current repaired candidate is frozen, any further candidate-changing repair requires a fresh explicit human decision; otherwise state becomes `BLOCKED`.
 
-Primary must verify from GitHub API that the author is the human operator and `performed_via_github_app` is absent or `null`.
+Current candidate branch: `chatgpt/gov-boot-001-bootstrap-lane`.
 
-Current branch: `chatgpt/gov-boot-001-bootstrap-lane`.
+### Next gates
 
-After the repaired exact head is stable:
-
-1. run exact-SHA CI;
-2. prepare a fresh `chatgpt-secondary` round-2 package including F001-F004 and the direct human authorization comment;
-3. if the secondary returns APPROVE, the human directly relays/attests the exact JSON into GitHub with request ID, reviewer slot, candidate SHA, round and payload SHA-256;
-4. primary verifies provenance/content/schema/exact SHA and delegated-merges only if every gate remains green.
+1. freeze repaired PR #32 exact head and require exact-SHA CI PASS;
+2. create/verify SSH-signed scope-attestation commit for issue-body hash `c037d2a568644813cbeaa0c626761c845c2ca046c8a6d7ba557573491ae49099`;
+3. prepare fresh isolated `chatgpt-secondary` round-3 package with F001-F005 and signed-attestation evidence;
+4. if APPROVE, create/verify separate SSH-signed review-attestation commit with exact JSON;
+5. delegated merge only if every exact-candidate gate remains green.
 
 Normal task-backed automation remains task-only and fail-closed throughout.
+
+## AUTO-001 / issue #35 — accepted next operating-model work
+
+The human accepted a hybrid autonomy model. Routine OpenRouter/DeepSeek implementation should run autonomously to explicit checkpoints. `WAITING_FOR_REVIEW` means primary connected ChatGPT performs a full semantic/code/architecture review when independent; primary-authored candidates route to `chatgpt-secondary`. AUTO-001 must not merge before GOV-BOOT-001 resolves the governance authority ambiguity.
 
 ## OLQ-INFRA-002 / PR #27 — paused downstream
 
@@ -104,7 +107,7 @@ Issue #25 is raw append-only telemetry. `docs/DEVELOPMENT_METHODOLOGY.md` and `d
 Latest rules:
 
 - M-013: mixed prompt/data content must never become control-plane authority.
-- M-014: governance bootstrap must be explicit; the candidate/author-controlled connector must never manufacture its own authority.
+- M-014: governance bootstrap must use semantic eligibility and positive SSH-signed human provenance; the candidate/author-controlled connector must never manufacture its own authority.
 
 ## Hard boundaries
 
