@@ -92,13 +92,27 @@ jobs:
           [[ "$REVIEW_ROUND" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid review round"; exit 1; }
           case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path"; exit 1 ;; esac
           test -f "$TASK_PATH"
-          jq -e '.id and .acceptance.requirements and .generator.input and .generator.expectedArtifact' "$TASK_PATH" >/dev/null
+          jq -e '.id and .acceptance.requirements and .acceptance.tia and .review.riskClass and .review.reviewType' "$TASK_PATH" >/dev/null
+          if jq -e 'has("generator") and ((.generator.input // "") == "" or (.generator.expectedArtifact // "") == "")' "$TASK_PATH" >/dev/null; then
+            echo "generator, when present, requires both input and expectedArtifact"
+            exit 1
+          fi
           case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Unsupported review type"; exit 1 ;; esac
           case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid risk class"; exit 1 ;; esac
           [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Invalid reviewer slot"; exit 1; }
           if [ "$RISK_CLASS" = "HIGH" ]; then
             case "$REVIEWER_SLOT" in chatgpt|gemini) ;; *) echo "HIGH risk requires reviewer_slot=chatgpt or gemini"; exit 1 ;; esac
           fi
+
+          TASK_RISK=$(jq -r '.review.riskClass' "$TASK_PATH")
+          TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$TASK_PATH")
+          test "$TASK_RISK" = "$RISK_CLASS"
+          test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
+          if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$TASK_PATH" >/dev/null 2>&1; then
+            jq -e --arg slot "$REVIEWER_SLOT" '.review.reviewerSlots | index($slot) != null' "$TASK_PATH" >/dev/null
+          fi
+          ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$TASK_PATH")
+          case "$ALLOW_TIA_WORKER" in true|false) ;; *) echo "candidatePolicy.allowTiaV21WorkerChanges must be boolean"; exit 1 ;; esac
 
           gh pr view "$PR_NUMBER" --json state,baseRefName,headRefOid > "$RUNNER_TEMP/pr.json"
           test "$(jq -r .state "$RUNNER_TEMP/pr.json")" = "OPEN"
@@ -111,8 +125,12 @@ jobs:
 
           gh pr diff "$PR_NUMBER" --name-only | sort -u > "$RUNNER_TEMP/changed-files.txt"
           test -s "$RUNNER_TEMP/changed-files.txt"
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/changed-files.txt"; then
-            echo "Candidate changes protected infrastructure; external review package refused."
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/changed-files.txt"; then
+            echo "Candidate changes protected orchestration infrastructure; external review package refused."
+            exit 1
+          fi
+          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/changed-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
+            echo "Candidate changes src/TiaV21Worker without trusted task opt-in."
             exit 1
           fi
           gh pr diff "$PR_NUMBER" > "$RUNNER_TEMP/candidate.diff"
@@ -131,6 +149,7 @@ jobs:
           echo "reviewer_slot=$REVIEWER_SLOT" >> "$GITHUB_OUTPUT"
           echo "review_round=$REVIEW_ROUND" >> "$GITHUB_OUTPUT"
           echo "request_id=$REQUEST_ID" >> "$GITHUB_OUTPUT"
+          echo "allow_tia_worker=$ALLOW_TIA_WORKER" >> "$GITHUB_OUTPUT"
 
       - name: Create disposable candidate worktree
         shell: bash
@@ -180,8 +199,8 @@ jobs:
           CANDIDATE_ROOT: ${{ runner.temp }}/candidate
         run: |
           set -euo pipefail
-          INPUT=$(jq -r '.generator.input' "$TASK_PATH")
-          EXPECTED=$(jq -r '.generator.expectedArtifact' "$TASK_PATH")
+          INPUT=$(jq -r '.generator.input // empty' "$TASK_PATH")
+          EXPECTED=$(jq -r '.generator.expectedArtifact // empty' "$TASK_PATH")
           {
             echo '$ dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release'
             (cd "$CANDIDATE_ROOT" && dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release)
@@ -190,20 +209,33 @@ jobs:
             rm -rf "$RUNNER_TEMP/motor-review"
             (cd "$CANDIDATE_ROOT" && dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-review")
             test -f "$RUNNER_TEMP/motor-review/UDT_Motor.scl"
-            echo
-            echo '$ GeneratorCli task artifact'
-            rm -rf "$RUNNER_TEMP/candidate-review"
-            (cd "$CANDIDATE_ROOT" && dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/candidate-review")
-            test -f "$RUNNER_TEMP/candidate-review/$EXPECTED"
+
+            if [ -n "$INPUT" ] && [ -n "$EXPECTED" ]; then
+              echo
+              echo '$ GeneratorCli task artifact'
+              rm -rf "$RUNNER_TEMP/candidate-review"
+              (cd "$CANDIDATE_ROOT" && dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/candidate-review")
+              test -f "$RUNNER_TEMP/candidate-review/$EXPECTED"
+            else
+              echo
+              echo 'No GeneratorCli task artifact declared; this task is reviewed from source diff, source context, regression evidence, and its explicit acceptance criteria.'
+            fi
           } 2>&1 | tee "$RUNNER_TEMP/linux-evidence.txt"
 
-          sha256sum "$RUNNER_TEMP/candidate-review/$EXPECTED" > "$RUNNER_TEMP/artifact.sha256"
-          {
-            echo "Generated artifact: $EXPECTED"
-            cat "$RUNNER_TEMP/artifact.sha256"
-            echo
-            cat "$RUNNER_TEMP/candidate-review/$EXPECTED"
-          } > "$RUNNER_TEMP/artifact-evidence.txt"
+          if [ -n "$INPUT" ] && [ -n "$EXPECTED" ]; then
+            sha256sum "$RUNNER_TEMP/candidate-review/$EXPECTED" > "$RUNNER_TEMP/artifact.sha256"
+            {
+              echo "Generated artifact: $EXPECTED"
+              cat "$RUNNER_TEMP/artifact.sha256"
+              echo
+              cat "$RUNNER_TEMP/candidate-review/$EXPECTED"
+            } > "$RUNNER_TEMP/artifact-evidence.txt"
+          else
+            cat > "$RUNNER_TEMP/artifact-evidence.txt" <<'EOF'
+          No GeneratorCli task artifact is declared for this task.
+          Candidate-specific runtime/TIA acceptance, if required, must occur only at the trust boundary defined by the task.
+          EOF
+          fi
 
       - name: Collect prior external review evidence
         shell: bash
