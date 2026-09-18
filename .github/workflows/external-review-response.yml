@@ -174,9 +174,9 @@ jobs:
           TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$TASK_PATH")
           test "$TASK_RISK" = "$RISK_CLASS"
           test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
-          if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$TASK_PATH" >/dev/null 2>&1; then
-            jq -e --arg slot "$REVIEWER_SLOT" '.review.reviewerSlots | index($slot) != null' "$TASK_PATH" >/dev/null
-          fi
+          python3 agents/runtime/reviewer-policy.py authorize-slot \
+            --task-file "$TASK_PATH" \
+            --reviewer-slot "$REVIEWER_SLOT"
           MAX_REPAIRS=$(jq -r '.maxRepairAttempts // 0' "$TASK_PATH")
           [[ "$MAX_REPAIRS" =~ ^[0-9]+$ ]]
           [[ "$REVIEW_ROUND" =~ ^[1-9][0-9]*$ ]]
