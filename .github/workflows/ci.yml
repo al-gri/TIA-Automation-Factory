@@ -17,9 +17,12 @@ jobs:
       - name: Validate trusted agent runtime scripts
         run: |
           bash -n agents/runtime/run-coder.sh
+          python3 -m py_compile agents/runtime/build-coder-context.py
           python3 -m py_compile agents/runtime/reviewer-policy.py
           python3 -m py_compile agents/runtime/external-review.py
           python3 -m json.tool reviews/schemas/external-review-response.schema.json >/dev/null
+      - name: Test coding-agent context bundle
+        run: python3 -m unittest discover -s tests/AgentContext.Tests -p 'test_*.py' -v
       - name: Test external review protocol
         run: python3 -m unittest discover -s tests/ExternalReviewProtocol.Tests -p 'test_*.py' -v
       - name: Test Siemens backend
