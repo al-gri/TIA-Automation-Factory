@@ -8,7 +8,7 @@ GitHub is the only durable source of truth. Fresh sessions recover state from th
 
 Repository: `al-gri/TIA-Automation-Factory`
 
-Purpose: build a production engineering system that converts a vendor-neutral automation model edited through React/React Flow/table/property views into modular Siemens PLC code/projects and verifies/assembles them through TIA Portal V21 Openness.
+Purpose: build a production engineering system that converts a vendor-neutral automation model into modular Siemens PLC code/projects and verifies/assembles them through TIA Portal V21 Openness.
 
 Baseline flow:
 
@@ -37,9 +37,7 @@ Coding provider order:
 1. OpenRouter first.
 2. Official DeepSeek `deepseek-flash` fallback.
 3. Gemini is independent review/red-team only.
-4. ChatGPT is Senior Architect and primary connected reviewer.
-
-No automatic merge. Real TIA Portal V21 compile is authoritative Siemens acceptance.
+4. ChatGPT is Senior Architect, primary connected reviewer, and delegated technical merge authority.
 
 Reviewer independence is authorship-based:
 
@@ -48,6 +46,10 @@ Reviewer independence is authorship-based:
 - ChatGPT-authored/co-authored candidate -> Gemini is the normal independent reviewer;
 - a second reviewer is escalation only for uncertainty, dispute, security/safety ambiguity, or explicit human request;
 - intentionally requested dual-review disagreement -> `REVIEW_CONFLICT`.
+
+Technical merge decisions are delegated to connected ChatGPT after exact-SHA verification of all applicable gates. Human input is reserved for strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution choices, or unresolved review conflict/ambiguity.
+
+Real TIA Portal V21 compile/Openness evidence remains authoritative Siemens acceptance.
 
 ## Accepted architecture — ARCH-001
 
@@ -69,7 +71,6 @@ Accepted architecture documents:
 Important accepted constraints include:
 
 - `SameScan` vs `PreviousState` temporal dependency semantics;
-- only `PreviousState` cuts a same-scan dependency cycle;
 - controller-global semantic SCC/DAG validation;
 - atomic once-per-scan unit/application containers plus executable-container quotient-DAG validation;
 - explicit public interfaces/orchestration for cross-unit same-scan data;
@@ -100,48 +101,74 @@ Result:
 - trusted TIA Portal V21 import/generation/compile PASS;
 - final TIA result: **0 errors / 0 warnings**.
 
-One trusted TIA attempt timed out before diagnostics; a rerun of the unchanged exact candidate succeeded. No PLC-001 code repair was required.
-
-## Active work — OLQ-001
+## OLQ-001 — active
 
 Tracking issue: #19 — `OLQ-001: qualify Siemens Open Library V19 for TIA Portal V21`.
 
-Goal: create one deterministic reusable native V21 qualified Siemens Open Library profile from the externally supplied V19 `.zal19` archive.
+Goal: create one deterministic reusable native V21 qualified Siemens Open Library profile from an operator-controlled external V19 `.zal19` archive.
 
 Risk: **HIGH** — TIA Openness library migration and trusted Windows boundary.
 
-Hard rules:
+### Workflow unblock completed
 
-- V19 -> V21 migration occurs only in explicit qualification, never in normal generation;
-- the vendor library archive is not committed to GitHub;
-- source archive SHA256 and exact TIA/Openness build identity are recorded;
-- AI-authored candidate executables/scripts never run on the trusted Windows/TIA host;
-- qualification code executes on Windows only after independent review + human merge, from trusted `main`;
-- human acceptance is required before the resulting profile becomes a normal generator dependency.
+PR #21 is **MERGED**.
 
-## Concrete OLQ automation blocker
+Exact independently reviewed candidate: `3a66224e361c68ca065d3b3946a6278760b59138`.
 
-Current workflows predate the accepted architecture and block OLQ-001 in three concrete ways:
+Merge commit: `7430f83140de4bdf4d4b53c564373b15d14fb378`.
 
-1. `agent.yml` requires every versioned task to declare a GeneratorCli input/output artifact;
-2. `agent.yml` and `external-review-request.yml` unconditionally reject `src/TiaV21Worker/**`, although OLQ-001 legitimately needs a bounded trusted-task opt-in for that path;
-3. `agent.yml` still forces ChatGPT+Gemini reviewer slots for every HIGH task, contradicting the accepted authorship-based one-independent-reviewer policy.
+Gemini independently approved the exact candidate. The merged alignment:
 
-`external-review-response.yml` already does **not** dispatch pre-merge Candidate Validation for HIGH work, so the trusted-main Windows boundary is preserved. Do not add speculative pre-merge Windows execution for OLQ-001.
+- supports non-GeneratorCli versioned tasks;
+- permits bounded `src/TiaV21Worker/**` candidate changes only when a trusted task from `main` explicitly sets `candidatePolicy.allowTiaV21WorkerChanges=true`;
+- keeps `.github/**`, `agents/**`, `tasks/**` and other orchestration paths candidate-protected;
+- respects explicit one-independent-reviewer task policy for HIGH work;
+- preserves trusted-main-only Windows/TIA execution.
+
+### Versioned task ready
+
+Canonical task: `tasks/OLQ-001.json`.
+
+Task commit: `48b7ae7e80505ef75fc05ceef3e48bef2cd836e8`.
+
+Key task requirements:
+
+- preserve the existing SCL smoke path;
+- add explicit `qualify-library` behavior in `TiaV21Worker`;
+- hash source `.zal19` before TIA processing;
+- use V21 `GlobalLibraries.RetrieveWithUpgrade(...)` for the old compressed archive;
+- save the upgraded library and archive it as explicit `.zal21` with `LibraryArchivationMode.Compressed`;
+- derive deterministic qualification identity from source SHA256 + TIA/Openness build;
+- fail on identity/hash mismatch instead of silent overwrite;
+- verify the result using current-version `GlobalLibraries.Retrieve(...)`, not another upgrade;
+- record machine-readable manifest/diagnostics and hashes only; vendor payload stays outside GitHub;
+- no normal generator path performs migration.
+
+### Current operational blocker
+
+The repository workflow itself is ready, but the currently connected GitHub API/connector does not expose GitHub Actions `workflow_dispatch` creation. Therefore connected ChatGPT cannot directly start `Autonomous Agent` in task mode through the available connector.
+
+Do **not** work around this by using issue-mode `agent-ready`: issue mode intentionally does not receive the trusted `TiaV21Worker` task opt-in and would correctly reject the OLQ candidate.
+
+The next mechanical action is to run `.github/workflows/agent.yml` / **Autonomous Agent** with:
+
+- `source = task`
+- `task_path = tasks/OLQ-001.json`
+- `issue_number` left empty
+
+Once that run exists, connected ChatGPT resumes autonomous orchestration: inspect agent result/PR, independently review the exact coding-agent candidate, repair if required, and perform the delegated technical merge when gates pass.
 
 ## Required order of work
 
-Do not deviate without a concrete blocker/review decision.
-
-1. **DONE:** merge accepted architecture PR #17.
-2. **DONE:** finish, exact-TIA-validate, and merge PLC-001 PR #16.
-3. Make the smallest owner-controlled HIGH-risk workflow alignment required by OLQ-001; because ChatGPT authors this trust-boundary change, Gemini is the independent reviewer.
-4. After that review and human merge, add `tasks/OLQ-001.json` to trusted `main` with explicit bounded opt-in for `src/TiaV21Worker/**`.
-5. Start the coding agent for OLQ-001.
+1. **DONE:** ARCH-001 merged.
+2. **DONE:** PLC-001 merged after exact TIA validation.
+3. **DONE:** bounded OLQ workflow alignment independently reviewed and merged as PR #21.
+4. **DONE:** `tasks/OLQ-001.json` added to trusted `main`.
+5. **NEXT:** start `Autonomous Agent` in task mode for `tasks/OLQ-001.json`.
 6. ChatGPT independently reviews the exact coding-agent candidate.
-7. Human merges approved qualification code.
+7. ChatGPT merges approved qualification code under delegated technical merge authority.
 8. Run qualification from trusted `main` on the TIA V21 runner with the actual external `.zal19` input.
-9. Persist qualification manifest/diagnostics; human accepts the qualified profile.
+9. Persist qualification manifest/diagnostics; human acceptance is required before the resulting library profile becomes a normal generator dependency.
 10. Continue roadmap: `OL-001` -> `OL-002` -> PLC compiler foundations -> `GEN-001` WaterSystem valve vertical slice.
 
 ## Non-goals / hard boundaries
@@ -155,6 +182,6 @@ Do not deviate without a concrete blocker/review decision.
 
 ## Fresh-chat rule
 
-When asked to inspect the repository/reviews/agent state, connected ChatGPT must inspect GitHub itself, process authorized pending ChatGPT review/orchestration work, persist durable results, and report only what matters operationally.
+When asked to inspect the repository/reviews/agent state, connected ChatGPT must inspect GitHub itself, process authorized pending ChatGPT review/orchestration work, apply delegated technical merge authority when gates pass, persist durable results, and report only what matters operationally.
 
 If Gemini is required, ChatGPT must not impersonate Gemini; it prepares a complete ready-to-paste request bound to the exact candidate SHA.
