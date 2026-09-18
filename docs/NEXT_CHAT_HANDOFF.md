@@ -12,31 +12,29 @@ Read, in order:
 2. `docs/PROJECT_STATE.md`
 3. this file
 4. `docs/AI_COLLABORATION_MODEL.md`
-5. `docs/EXTERNAL_REVIEW_PROTOCOL.md`
+5. `docs/DEVELOPMENT_METHODOLOGY.md`
+6. latest relevant entries in `docs/METHODOLOGY_JOURNAL.md`
+7. `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work
 
-Then inspect current PRs, Actions, versioned tasks, issue #19 and pending external-review requests.
+Then inspect live GitHub state: current PRs, Actions, tasks, issue #19, methodology issue #25 and pending external-review requests.
 
 `IndustrialMDE` is outside scope and must not be touched.
 
 ## Roles and authority
 
 - coding provider: OpenRouter first, official DeepSeek `deepseek-flash` fallback;
-- primary connected ChatGPT: Senior Architect + normal coding-agent reviewer + orchestrator + delegated technical merge authority;
+- primary connected ChatGPT: Senior Architect + normal coding-agent reviewer + orchestrator + methodology curator + delegated technical merge authority;
 - `chatgpt-secondary`: fresh isolated ChatGPT used when primary ChatGPT materially authored/co-authored the candidate or when explicit independent escalation is requested;
 - Gemini: no standing project role;
 - real TIA Portal V21 compile/Openness execution: authoritative Siemens acceptance.
 
-One independent external reviewer is the default even for HIGH risk. Coding-agent-authored candidate -> primary `chatgpt` when independent. Primary-ChatGPT-authored/co-authored candidate -> `chatgpt-secondary`. Additional simultaneous review is escalation only.
+One independent external reviewer is the default even for HIGH risk. Coding-agent-authored candidate -> primary `chatgpt` when independent. Primary-ChatGPT-authored/co-authored candidate -> `chatgpt-secondary`.
 
 Human input is reserved for strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution choices and unresolved reviewer conflict/ambiguity.
 
-## Current state
+## Current architecture
 
-### Architecture
-
-PR #17 is merged at `db8e1bcacc6febb15fa5817a2d2b22d15ccbe58e`. Issue #18 is closed.
-
-Accepted direction remains:
+Accepted product direction:
 
 ```text
 React/React Flow/table views
@@ -51,63 +49,108 @@ React/React Flow/table views
  -> TIA Portal V21
 ```
 
-### PLC-001
+PR #17 is merged at `db8e1bcacc6febb15fa5817a2d2b22d15ccbe58e`.
 
-PR #16 merged at `64daa260416b7a4163f7627b668ae155db694919` after exact trusted TIA Portal V21 compile: **0 errors / 0 warnings**.
+PLC-001 PR #16 merged at `64daa260416b7a4163f7627b668ae155db694919` after exact trusted TIA Portal V21 compile: **0 errors / 0 warnings**.
 
-### OLQ infrastructure
+## OLQ infrastructure already merged
 
-- PR #21 merged at `7430f83140de4bdf4d4b53c564373b15d14fb378` — task-gated `TiaV21Worker` candidate support and trusted-main-only Windows/TIA execution.
+- PR #21 merged at `7430f83140de4bdf4d4b53c564373b15d14fb378` — task-gated `TiaV21Worker` candidate support and protected orchestration.
 - PR #23 merged at `6ca057eb5dddf3986e1b00ef8e653c044c998938` — bounded HIGH repair support.
 
-### OLQ-001 candidate
+## PR #22 — OLQ-001 implementation candidate
 
 Canonical task: `tasks/OLQ-001.json`.
 
-PR #22 is the active implementation candidate.
-
-Current exact code head after two autonomous repair attempts plus one bounded primary-ChatGPT maintainer repair:
+PR #22 exact code head remains:
 
 `4354bebbf2a3bf745b09589d6abac0938d5b5664`
 
 CI #164 / run `35366781733`: PASS.
 
-The code-level defects F001-F008 are considered resolved by the latest independent external review. The remaining blocker is reviewer-slot governance: primary ChatGPT became a material co-author and therefore cannot independently approve PR #22.
+Two autonomous repairs exhausted trusted `maxRepairAttempts=2`. Primary ChatGPT then made one bounded maintainer repair for the final C# cleanup-control-flow compile defect. Therefore primary ChatGPT is a material co-author and cannot independently approve PR #22.
 
-### Reviewer-policy change
+Code findings F001-F008 are considered resolved. PR #22 waits for governance PR #24 to make `chatgpt-secondary` an authorized reviewer on trusted `main`.
 
-The human operator explicitly replaced Gemini with a second isolated ChatGPT reviewer because Gemini's GitHub access was unreliable for this workflow.
+## PR #24 — current active blocker
 
-Governance PR #24 is active. It changes the project policy so that:
+PR #24 is now a broad but coherent governance/infrastructure hardening candidate authored by primary ChatGPT.
 
-- coding-agent candidate -> primary `chatgpt` when independent;
-- primary-ChatGPT-authored/co-authored candidate -> `chatgpt-secondary`;
-- Gemini has no standing role;
-- one independent reviewer remains sufficient by default;
-- `tasks/OLQ-001.json` authorizes both `chatgpt` and `chatgpt-secondary`, allowing authorship-based reviewer transition without introducing mandatory dual review.
+It includes:
 
-Primary ChatGPT authors PR #24, so #24 itself requires a clean independent `chatgpt-secondary` review before merge.
+- authorship-based `chatgpt` / `chatgpt-secondary` review;
+- Gemini removal from standing review runtime;
+- fail-closed exact-SHA reviewer authorization;
+- every candidate-changing repair returns to fresh external review;
+- deterministic Candidate Validation only after exact-SHA APPROVE;
+- single repository-wide Candidate Validation dispatch source;
+- legacy I5 validation bypass retirement;
+- `INFRA-001` migration into reviewed task semantics;
+- main-only trusted Windows/TIA manual workflows;
+- trusted coding-agent context bundle shared by OpenRouter and DeepSeek;
+- methodology-as-a-product docs and automatic telemetry.
 
-## Immediate next action
+Independent secondary review rounds F001-F010 found real defects and shaped these controls. F010 found that manual self-hosted TIA workflows could operate on a selected non-main ref; current PR #24 code now adds both a `refs/heads/main` job guard and explicit `ref: main` checkout, with repository-wide test coverage.
 
-1. Inspect current PR #24 head and CI.
-2. Prepare/obtain an independent `chatgpt-secondary` review for exact PR #24 SHA.
-3. If APPROVE + CI green, primary ChatGPT performs delegated merge of #24.
-4. Re-run independent `chatgpt-secondary` review for unchanged PR #22 code candidate under the now-authorized trusted task slot.
-5. If APPROVE + exact-SHA CI green, primary ChatGPT merges #22.
-6. Build trusted `main` `TiaV21Worker` on Windows/TIA V21.
-7. Run OLQ qualification against the actual external `.zal19` and repeat once for deterministic reuse proof.
-8. Persist manifest/diagnostics/hashes only; never commit vendor `.zal19/.zal21` payload.
-9. Human accepts the resulting qualified library profile before it becomes a normal generator dependency.
+Important: **do not use any old PR #24 review payload as the final gate.** The PR has changed after every prior review, including after the trusted-context and methodology additions. Inspect the live PR #24 head SHA and live exact-SHA CI first.
 
-## Roadmap after OLQ-001
+Because primary ChatGPT authored/co-authored PR #24, final approval must come from a fresh isolated `chatgpt-secondary` review for the exact current head.
 
-`OL-001` -> `OL-002` -> PLC compiler foundations -> `GEN-001` WaterSystem/fbValve_Solenoid vertical slice.
+## Trusted coding context
 
-Do not add broad UI, generic plugin infrastructure, F-safety generation or unrelated hardware generation ahead of this sequence.
+PR #24 introduces `agents/runtime/build-coder-context.py` and `docs/CODING_AGENT_CONTEXT.md`.
+
+Before provider selection, coding work receives a bounded context from trusted Git state containing core rules/state plus the trusted work prompt. Tasks may declare focused `contextFiles` such as qualified Siemens/Open Library contracts.
+
+OpenRouter and DeepSeek receive the same enriched context. Candidate workspace versions cannot redefine trusted context. The provider audit records context identities/hashes.
+
+No RAG/vector database is currently required.
+
+## Development methodology — second project output
+
+The user explicitly wants the software-development method itself developed, measured and documented alongside the generator.
+
+Durable surfaces:
+
+- `docs/DEVELOPMENT_METHODOLOGY.md` — living reusable rules/experiments;
+- `docs/METHODOLOGY_JOURNAL.md` — curated chronological lessons;
+- issue #25 — append-only raw automated methodology telemetry;
+- `.github/workflows/methodology-telemetry.yml` — records selected workflow completions and PR lifecycle events automatically after merge;
+- `docs/INFRASTRUCTURE_LOG.md` — concise infrastructure chronology.
+
+Primary ChatGPT must perform methodology checkpoints automatically at logical milestones; the user should not need to remind it.
+
+## Immediate next action for the new chat
+
+1. Read the mandatory files above.
+2. Inspect live PR #24 head, changed files, comments and exact-SHA CI. Do not assume the SHA from this document is current.
+3. If CI is not green, diagnose/fix before review.
+4. Because primary ChatGPT authored PR #24, prepare a complete fresh `chatgpt-secondary` review package for the exact current head.
+5. If that independent review returns APPROVE and the head/CI remain unchanged, primary ChatGPT performs delegated merge of #24 without asking the user for routine merge permission.
+6. Re-open PR #22 under trusted main governance and obtain fresh `chatgpt-secondary` review for exact `4354bebbf2a3bf745b09589d6abac0938d5b5664`.
+7. If APPROVE + CI green, primary ChatGPT merges PR #22.
+8. From trusted `main`, build `TiaV21Worker` on Windows/TIA V21.
+9. Qualify the operator-controlled Siemens Open Library V19 `.zal19`, then repeat the same qualification identity once to prove deterministic reuse/no silent replacement.
+10. Persist manifest/diagnostics/hashes only; never commit `.zal19/.zal21` vendor payload.
+11. Human acceptance is required before the qualified library profile becomes a normal generator dependency.
+12. Continue roadmap: `OL-001` -> `OL-002` -> PLC compiler foundations -> `GEN-001`.
+13. At each completed milestone, update methodology journal/rules and project state from GitHub evidence; raw events should already be appearing in issue #25 once telemetry is merged.
+
+## Hard boundaries
+
+- no broad UI/HMI expansion before the PLC/Open Library vertical slice is stable;
+- no generic multi-vendor plugin architecture now;
+- no F-safety generation;
+- no arbitrary hardware-from-scratch MVP expansion;
+- no candidate source execution on trusted Windows/TIA before independent approval + merge;
+- self-hosted manual TIA workflows are main-only;
+- no vendor archive payloads in Git;
+- do not modify `IndustrialMDE`.
 
 ## Fresh-chat behavior
 
-When asked to inspect the repo/reviews/agent state, primary connected ChatGPT should inspect GitHub directly, process authorized pending work and merge technically accepted PRs without separate merge prompts.
+When asked to continue the project, inspect GitHub directly and act on the live state. Do not repeat questions already answered by repository evidence.
 
-If primary ChatGPT is not independent, it prepares a complete ready-to-paste request for a fresh `chatgpt-secondary` session and never self-approves.
+When primary ChatGPT is independent, it reviews/merges within delegated gates. When it is not independent, it prepares the complete `chatgpt-secondary` package and never self-approves.
+
+Treat methodology capture as part of normal completion, not optional documentation cleanup.
