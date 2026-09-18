@@ -86,7 +86,7 @@ The generator does not scatter Open Library block names through business logic.
 
 The Siemens backend owns a versioned machine-readable catalog describing exact released block/type versions, parameter directions, Siemens data types, dependencies, HMI/Error UDTs, mode/simulation behavior and optional HMI metadata.
 
-The catalog should ultimately be extracted from the actual trusted V21-opened/upgraded library through TIA Openness rather than maintained manually at scale.
+The catalog should ultimately be extracted/verified from the actual trusted V21-opened/upgraded library through TIA Openness materialization/export/inspection rather than maintained manually at scale.
 
 ### 2.6 TIA Openness is assembly/orchestration, not the semantic compiler
 
@@ -95,6 +95,12 @@ Compiler decisions are made before the Windows/TIA boundary.
 `TiaV21Worker` receives a bounded declarative package and performs only trusted operations: prepare target, materialize required library objects, import/generate sources, compile, save, and emit diagnostics.
 
 Candidate source code is never executed on the trusted Windows/TIA host.
+
+### 2.7 Modularity is bounded, not maximal nesting
+
+Open Library's multi-instance guidance should be applied inside meaningful subsystem/unit memory boundaries, not recursively to the entire plant.
+
+A very large root FB whose single instance DB contains every unit/device would increase memory size, recompilation blast radius and coupling. The default scalable boundary is therefore one application instance DB per logical unit/subsystem, with device FBs inside that unit as multi-instances.
 
 ## 3. Siemens Open Library rules that shape the design
 
@@ -115,11 +121,11 @@ For example, `fbValve_Solenoid` includes scalar inputs such as `Time`, `Int`, an
 
 Therefore a Siemens mapping must describe a complete library object contract, not only the FB name.
 
-### 3.2 Multi-instance memory is the default
+### 3.2 Multi-instance memory is the default for normal device FBs
 
 Open Library documentation recommends multi-instance FB usage to reduce the number of instance DBs and improve project structure.
 
-The generated architecture therefore uses application/unit FBs whose `VAR_STATIC` section contains Open Library device FB instances. Single-instance DBs are reserved for cases where a library object or Siemens technology explicitly requires them.
+The generated architecture therefore uses application/unit FBs whose `VAR_STATIC` section contains Open Library device FB instances. A unit/application FB itself normally has one explicit instance DB, creating a bounded memory domain. Single-instance device DBs are reserved for cases where a library object or Siemens technology explicitly requires them.
 
 ### 3.3 Internal FB memory is private
 
@@ -154,6 +160,8 @@ The canonical model should preserve condition identity/name and condition-set se
 ### 3.9 Sequencers are stateful high-level semantics
 
 `fbStepSequencer` is intentionally used multiple times while sharing one instance memory allocation for a sequence. This is not equivalent to a generic stateless node. Sequencers/state machines are later, higher-risk compiler features and must receive explicit semantic design before implementation.
+
+Detailed generator implications are maintained in `docs/OPEN_LIBRARY_INTEGRATION_RULES.md` within this proposal.
 
 ## 4. Canonical automation model
 
@@ -219,12 +227,14 @@ No Siemens block name appears here.
 Ports represent runtime signal/data flow and have:
 
 - stable port ID;
-- direction: Input / Output / InOut where domain semantics need it;
+- direction: normally Input or Output at the domain level; bidirectional shared data is used only where it is a real domain concept, not merely because a Siemens FB uses `IN_OUT`;
 - type;
 - semantic role;
 - required/optional cardinality.
 
-Parameters are compile-time engineering configuration such as timeout/default mode/scaling limits. A parameter must not be represented as a graph wire simply because the UI can draw one.
+Parameters are compile-time engineering configuration such as timeout/default/scaling values. A parameter must not be represented as a graph wire simply because the UI can draw one.
+
+Siemens-only `IN_OUT` implementation details such as an Open Library HMI UDT belong to the Siemens binding, not the visual device contract by default.
 
 ### 4.4 Connections
 
@@ -263,6 +273,31 @@ Physical I/O mapping is separate from logical device topology. A device port can
 
 Initial product scope should support S7-1500 standard PLC logic. F-safety program generation is explicitly out of scope until separately designed and validated.
 
+### 4.8 Project persistence and UI layout
+
+The canonical project format is a versioned portable engineering representation, initially JSON-based and Git-friendly.
+
+Recommended separation:
+
+```text
+project.json / semantic project files
+  schemaVersion
+  hierarchy
+  devices
+  connections
+  logic
+  IO/configuration
+
+layout.json / layout section
+  canvas coordinates
+  viewport/group visual state
+  purely presentational metadata
+```
+
+For very large projects the same logical schema may be split into deterministic files by controller/unit, but storage partitioning must not change semantics.
+
+SQLite may later be used as a local index/cache for search/cross-reference/performance. It should not become the only opaque source format during the early product phase.
+
 ## 5. Compiler architecture
 
 The compiler should be multi-pass and deterministic.
@@ -298,7 +333,7 @@ PlcTypeRef
   Struct(...)
 ```
 
-This prevents the backend from depending on frontend/domain enum growth and allows HMI/Error named UDT references at the Siemens-lowering stage without contaminating the domain.
+This prevents the backend from depending on frontend/domain enum growth and allows target lowering to introduce target-specific named types without contaminating the domain.
 
 ### 5.2 Proposed PLC Program IR
 
@@ -337,8 +372,8 @@ SiemensProgramModel
         +--> required library objects/types
         +--> generated UDTs
         +--> generated FBs
-        +--> generated DBs
-        +--> OB/root call plan
+        +--> generated DBs/instance DB plan
+        +--> OB/root orchestration plan
         +--> source map
         v
 SCL AST
@@ -356,6 +391,7 @@ library identity + archive/source hash
 library type name
 exact version/GUID/release state
 block kind
+memory model exception (if any)
 parameters[]:
   name
   direction
@@ -371,15 +407,15 @@ optional HMI/SiVArc metadata
 
 The catalog is versioned and pinned. Generation must not silently bind to "latest available" library types.
 
-### 6.2 Catalog extraction
+### 6.2 Catalog extraction/verification
 
-At scale, the catalog should be derived from the actual library through trusted TIA V21 Openness inspection.
+At scale, the catalog should be derived/verified from the actual library through trusted TIA V21 Openness operations.
 
-The supplied V19 library should be upgraded/retrieved into V21 in a trusted/cached step, then exact released type versions and dependencies inspected. This removes manual drift between documentation and installed library contents.
+The supplied V19 archive should be upgraded/retrieved into V21 in a trusted/cached step, then exact released type versions and dependencies inspected. If direct metadata is insufficient for parameter-interface extraction, the trusted process may instantiate/export the object and derive the descriptor from the resulting supported source/SimaticML representation. The extraction mechanism itself must be tested against known Open Library documentation.
 
 ### 6.3 Library materialization
 
-TIA V21 supports creating project instances from specific global-library type versions and synchronizes required dependent elements into the project library. Openness also supports creating supported objects from master copies.
+TIA V21 supports creating project instances from specific global-library type versions and synchronizes required dependent elements into the project library. Openness also supports creating supported objects from master copies, including PLC tag tables/user constants.
 
 The worker should use exact versions and explicit conflict/path behavior, never arbitrary drag/drop-like "current default" behavior.
 
@@ -404,25 +440,29 @@ One generated `.scl` file may contain multiple declarations. Keeping a single bo
 
 ## 8. Modular generated TIA project structure
 
-The recommended application layout is hierarchical and multi-instance oriented.
+The recommended application layout is hierarchical but uses **bounded subsystem instance memory**, not one recursively nested plant-wide instance DB.
 
 ```text
-Program blocks
-  Generated/
-    OB_Main                       # minimal entry point
-    FB_GeneratedRoot
-    FB_<AreaOrUnitType>...
-    DB_GeneratedRoot              # single top-level instance DB
+Program blocks / Generated
+  OB_Main                         # minimal entry point
+  FC_GeneratedRoot                # optional stateless orchestration
 
-PLC data types
-  Generated/
-    project-owned generated UDTs
+  FB_WaterSystem
+  FB_AirSystem
+  FB_ConveyorArea
 
-Data blocks
-  Generated/
-    DB_HMI_<Unit>
-    DB_Errors_<Unit>
-    DB_Config_<Unit>              # only where needed
+  DB_WaterSystem                  # instance DB of FB_WaterSystem
+  DB_AirSystem                    # instance DB of FB_AirSystem
+  DB_ConveyorArea                 # instance DB of FB_ConveyorArea
+
+PLC data types / Generated
+  project-owned generated UDTs
+
+Global data / Generated
+  DB_HMI_WaterSystem
+  DB_Errors_WaterSystem
+  DB_Config_WaterSystem           # only where needed
+  ... equivalent per unit
 
 Library objects/types
   Open Library/...                # materialized from pinned library versions
@@ -431,21 +471,41 @@ User/
   manually maintained extension blocks; generator never overwrites
 ```
 
-### 8.1 Root and unit hierarchy
+### 8.1 Unit/subsystem is the default memory boundary
 
-`OB_Main` should contain minimal orchestration, ideally one root application call.
+`OB_Main` should contain only orchestration, either direct unit calls or a small stateless/root orchestration FC.
 
-`FB_GeneratedRoot` contains generated child unit/application FBs as multi-instances. A unit FB contains Open Library device FBs as multi-instance statics.
+Each logical unit/subsystem has an application FB with its own instance DB. That application FB contains the ordinary Open Library device FBs as multi-instance statics.
 
-This mirrors Open Library memory guidance and avoids hundreds/thousands of single-instance device DBs.
+Example:
 
-### 8.2 Do not create one wrapper FB per device instance
+```text
+OB_Main
+  -> DB_WaterSystem   (instance of FB_WaterSystem)
+  -> DB_AirSystem     (instance of FB_AirSystem)
+
+FB_WaterSystem / DB_WaterSystem
+  VAR_STATIC
+    V101 : fbValve_Solenoid
+    V102 : fbValve_Solenoid
+    P101 : <Open Library motor FB>
+```
+
+This preserves Open Library's multi-instance benefits while preventing a single enormous recursive root instance DB.
+
+### 8.2 Reusable unit types may share code but not state
+
+If multiple units are truly identical, they may share one generated/reusable FB type while each unit receives a distinct instance DB.
+
+Unique units may receive distinct generated FBs. The compiler should not force artificial type reuse when logic differs, but must avoid generating a unique wrapper FB per individual field device.
+
+### 8.3 Do not create one wrapper FB per device instance
 
 A generated wrapper per physical valve/motor would explode project size and reduce maintainability.
 
-Prefer reusable generated application/unit FB types and multi-instance device instances. If semantic wrappers are required, create them per reusable device/application type, not per physical instance.
+Prefer unit/application FB types and multi-instance device instances. If semantic device wrappers are required, create them per reusable device/application type/pattern, not per physical instance.
 
-### 8.3 HMI and Error DB grouping
+### 8.4 HMI and Error DB grouping
 
 Each subsystem/unit should normally own structured global DBs containing per-device HMI/Error UDT variables, for example:
 
@@ -461,17 +521,21 @@ DB_Errors_WaterSystem
 
 This aligns with Open Library examples, makes operator/HMI integration predictable, and keeps FB internal memory private.
 
-### 8.4 Modes and simulation
+### 8.5 Modes and simulation
 
 Each unit/subsystem owns or references its mode domain and passes mode to all relevant Open Library instances.
 
 Simulation is propagated from unit/system context to each simulatable device's `bInSimulate` input.
 
-### 8.5 Generated versus manual ownership
+### 8.6 Generated versus manual ownership
 
 Generated paths are fully generator-owned and may be replaced deterministically.
 
 Manual/user paths are never rewritten. Cross-boundary integration must happen through documented interfaces, not by editing generated code manually.
+
+### 8.7 Partitioning remains explicit for very large projects
+
+Controller and unit partitioning is a compiler concern. A future target profile may impose practical limits on unit size, instance DB size, number of generated objects or scan-time budget. The compiler should be able to report those limits rather than silently collapsing everything into one block/DB.
 
 ## 9. TIA V21 worker evolution
 
@@ -613,14 +677,16 @@ Open Library mapping -> fbValve_Solenoid
         v
 Generated FB_WaterSystem
   multi-instance V101 : fbValve_Solenoid
-  explicit parameter bindings
+Generated DB_WaterSystem
+  instance DB of FB_WaterSystem
 Generated DB_HMI_WaterSystem
 Generated DB_Errors_WaterSystem
-Minimal root/OB call
+Minimal OB/root orchestration call
         |
         v
 trusted TIA V21 worker
   exact pinned Open Library dependencies
+  project prerequisites
   import generated SCL
   compile
   save
@@ -638,7 +704,8 @@ This proposal should be accepted only if independent review agrees that:
 - Domain remains independent of React Flow and Siemens;
 - PLC scan semantics are explicit and testable;
 - Open Library versions/dependencies are reproducible;
-- generated TIA project organization follows multi-instance and subsystem guidance;
+- generated TIA project organization follows multi-instance guidance inside bounded unit/subsystem instance memory;
+- project partitioning can scale without one giant plant-wide instance DB;
 - the Windows/TIA trust boundary stays narrow and declarative;
 - generated/manual ownership is clear;
 - diagnostics can map back to engineering objects;
