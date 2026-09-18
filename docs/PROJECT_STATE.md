@@ -1,6 +1,6 @@
 # Project State — Authoritative Operational Snapshot
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 GitHub is the only durable source of truth. Fresh sessions recover state from this file, `AGENTS.md`, `docs/NEXT_CHAT_HANDOFF.md`, `docs/AI_COLLABORATION_MODEL.md`, `docs/DEVELOPMENT_METHODOLOGY.md`, current tasks/PRs/Actions and methodology telemetry issue #25.
 
@@ -64,41 +64,41 @@ PR #32 is primary-authored and defines the permanent exceptional bootstrap lane.
 Review history:
 
 - round 1 candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` -> `CHANGES_REQUIRED`, major F001-F004;
-- round 2 candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED`, major F005.
+- round 2 candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED`, major F005;
+- round 3 candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` -> `CHANGES_REQUIRED`, major F006-F007.
 
-F001-F004 established that bootstrap must be semantic, issue scope must be complete inside the fingerprinted body, candidate self-authorization must remain impossible, and both human root authority and secondary APPROVE provenance must be separated from primary.
+F001-F005 established semantic bootstrap eligibility, complete fingerprinted issue scope, candidate self-authorization exclusion, provenance separation for both human authority and secondary APPROVE, and positive SSH-signed human authentication instead of negative app-attribution checks.
 
-F005 established that owner authorship plus `performed_via_github_app == null` is still only negative attribution, not positive human authentication. The direct owner comment `5736439687` is therefore historical evidence only and no longer satisfies the repaired authority model.
+Round 3 independently confirmed F001-F005 repaired and found two remaining permanent-protocol defects:
 
-Issue #31 has been rewritten for the second/final candidate-changing repair. Current exact UTF-8 body SHA-256:
+- F006: canonical scope/review attestation schemas hard-coded issue `31` and task `GOV-BOOT-001`, which would recreate recursion for a future bootstrap invocation;
+- F007: the global fail-closed rule required the post-APPROVE review attestation even before an APPROVE existed, creating a sequencing deadlock/ambiguity.
 
-`c037d2a568644813cbeaa0c626761c845c2ca046c8a6d7ba557573491ae49099`
+The default two candidate-changing bootstrap repairs were exhausted before round 3. On 2026-09-19 the human explicitly authorized **exactly one additional candidate-changing repair round**, strictly for F006 and F007 and without scope widening. This does not change the permanent default repair budget.
 
-Current repaired rule:
+Current repair rule:
 
+- canonical attestation schemas are invocation-generic: repository, frozen issue number and task identity come from the current bounded bootstrap authority and are verified for exact equality;
+- GOV-BOOT-001 values are a current-instance example, not permanent constants;
+- fail-closed behavior is stage-specific: pre-review evidence does not require a review attestation that cannot yet exist; CHANGES_REQUIRED grants no authority; after APPROVE the exact candidate remains frozen while the signed review attestation is pending, and missing/invalid/stale attestation blocks any attempt to consume APPROVE as authority or merge;
 - normal task-backed automation remains unchanged and fail-closed;
-- bootstrap eligibility is semantic and limited to genuine recursion in the repository's normative authority/review-control model;
-- the frozen issue body carries the bounded task/risk/reviewer/Windows/repository/scope contract;
-- positive human scope authorization is an **SSH-signed Git attestation commit** created outside ChatGPT/Codex/project automation with a human-controlled signing key unavailable to project automation;
-- verifier requires GitHub `verification.verified=true`, `reason=valid`, an SSH signature (not web-flow), owner `al-gri` author/committer identity, exact attestation payload and matching live issue-body hash;
-- candidate files cannot authorize the same candidate;
-- primary-authored candidate requires HIGH-risk exact-SHA CI and fresh isolated `chatgpt-secondary` review;
-- an authority-bearing secondary `APPROVE` must be contained in a separate SSH-signed review-attestation commit bound to exact request/candidate/round/JSON hash;
-- no candidate Windows/TIA execution and no `IndustrialMDE` scope;
-- attestation branches are evidence transport only and are never merged into `main`.
+- candidate source never executes on trusted Windows/TIA through bootstrap;
+- `IndustrialMDE` remains out of scope.
 
-The default two candidate-changing bootstrap repairs are now consumed. After this repaired candidate is frozen, any further candidate-changing repair requires a new explicit human decision; otherwise state is `BLOCKED`.
+Human scope authority must remain bound to the current exact issue #31 body via a valid SSH-signed scope-attestation commit. If issue #31 is materially updated to durably record the bounded F006/F007 repair authorization, the earlier signed scope attestation for the prior body becomes historical/stale and a fresh SSH-signed scope attestation for the new exact body hash is required before another independent review.
 
-Current branch: `chatgpt/gov-boot-001-bootstrap-lane`.
+Current branch: `chatgpt/gov-boot-001-bootstrap-lane`. Always read the exact live PR head from GitHub; do not copy an in-progress SHA from this file.
 
 Next gates:
 
-1. freeze the repaired exact head and obtain exact-SHA CI PASS;
-2. human creates a valid SSH-signed scope-attestation commit for issue-body hash `c037d2a568644813cbeaa0c626761c845c2ca046c8a6d7ba557573491ae49099` on the dedicated non-merged attestation branch;
-3. primary verifies raw GitHub commit signature metadata and exact payload;
-4. fresh isolated `chatgpt-secondary` round-3 review;
+1. finish the single human-authorized F006/F007 repair without widening scope;
+2. freeze the resulting exact head and obtain exact-SHA CI PASS;
+3. verify a valid SSH-signed human scope attestation for the current exact issue #31 body hash;
+4. obtain a fresh isolated `chatgpt-secondary` review against the new exact candidate;
 5. if APPROVE, human creates a separate SSH-signed review-attestation commit containing the exact JSON and its hash;
 6. primary verifies all exact-candidate gates and delegated-merges without another routine decision.
+
+Any candidate-changing repair after this specifically authorized F006/F007 round requires another fresh explicit human decision; otherwise state is `BLOCKED`.
 
 ## OLQ-001 — implementation merged; real qualification pending
 
