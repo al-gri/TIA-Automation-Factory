@@ -75,9 +75,9 @@ namespace TiaAutomationFactory.TiaV21Worker
             string manifestPathRaw = args[3];
             string workRootRaw = args.Length == 5 ? args[4] : Path.Combine(Path.GetTempPath(), "TiaAutomationFactory");
 
-            if (!Path.IsPathRooted(sourceArchivePathRaw) || !Path.IsPathRooted(qualificationOutputRootRaw) || !Path.IsPathRooted(manifestPathRaw) || !Path.IsPathRooted(workRootRaw))
+            if (!IsFullyQualifiedAbsolutePath(sourceArchivePathRaw) || !IsFullyQualifiedAbsolutePath(qualificationOutputRootRaw) || !IsFullyQualifiedAbsolutePath(manifestPathRaw) || !IsFullyQualifiedAbsolutePath(workRootRaw))
             {
-                Console.Error.WriteLine("All paths must be absolute.");
+                Console.Error.WriteLine("All paths must be absolute (drive-absolute X:\\... or UNC \\\\server\\share\\...).");
                 return 64;
             }
 
@@ -130,6 +130,20 @@ namespace TiaAutomationFactory.TiaV21Worker
                 throw new FileNotFoundException("TIA Portal Openness assembly version does not match the referenced version.", filePath);
 
             return loadedAssembly;
+        }
+
+        private static bool IsFullyQualifiedAbsolutePath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            if (path.StartsWith(@"\\"))
+                return true;
+
+            if (path.Length >= 3 && char.IsLetter(path[0]) && path[1] == ':' && path[2] == '\\')
+                return true;
+
+            return false;
         }
     }
 
@@ -411,7 +425,16 @@ namespace TiaAutomationFactory.TiaV21Worker
                 {
                     if (userGlobalLibrary != null)
                     {
-                        try { userGlobalLibrary.Close(); } catch { }
+                        try
+                        {
+                            userGlobalLibrary.Close();
+                        }
+                        catch (Exception closeEx)
+                        {
+                            manifest.Failure = "Failed to close upgraded library cleanly.";
+                            manifest.FailureDetails = closeEx.ToString();
+                            return manifest;
+                        }
                     }
                 }
             }
@@ -448,7 +471,16 @@ namespace TiaAutomationFactory.TiaV21Worker
 
                     if (verifiedLibrary != null)
                     {
-                        try { verifiedLibrary.Close(); } catch { }
+                        try
+                        {
+                            verifiedLibrary.Close();
+                        }
+                        catch (Exception closeEx)
+                        {
+                            manifest.Failure = "Failed to close verified library cleanly.";
+                            manifest.FailureDetails = closeEx.ToString();
+                            return manifest;
+                        }
                         verifiedLibrary = null;
                     }
                 }
@@ -457,7 +489,16 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 if (verifiedLibrary != null)
                 {
-                    try { verifiedLibrary.Close(); } catch { }
+                    try
+                    {
+                        verifiedLibrary.Close();
+                    }
+                    catch (Exception closeEx)
+                    {
+                        manifest.Failure = "Failed to close verified library cleanly in finally.";
+                        manifest.FailureDetails = closeEx.ToString();
+                        return manifest;
+                    }
                 }
             }
 
