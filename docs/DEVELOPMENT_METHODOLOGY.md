@@ -51,6 +51,8 @@ problem / hypothesis
 
 The loop is intentionally fail-closed: a later stage may add evidence, but it must not silently erase an earlier trust requirement.
 
+Governance-authority work that cannot obtain a trusted task without genuine authorization recursion uses only the exceptional manual bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; that lane does not alter the normal implementation loop or task-only automation.
+
 ## 4. Current accepted rules
 
 ### M-001 — Repository-first operation
@@ -107,6 +109,18 @@ Model-visible prompts are a data plane: they may contain issue bodies, diffs, re
 
 This rule is fail-closed: a prompt may quote or contradict control metadata without changing it.
 
+### M-014 — Bootstrap governance explicitly; never let a candidate manufacture authority
+
+A trusted-task system needs an explicit answer for rare cases where the authorization mechanism itself must be repaired. Do not resolve that recursion by weakening normal automation, by accepting task/policy files introduced by the same candidate as authority for itself, or by treating owner attribution / connector metadata as proof of a human decision.
+
+Bootstrap eligibility is **semantic**: the candidate must repair or define the repository's normative authority/review-control model, and establishing a normal trusted task first must depend on the same authorization semantics being repaired. Physical membership in the coding-agent protected-path list is neither required nor sufficient, and an absent, stale or inconvenient task is never enough.
+
+For genuine governance-authority recursion, bind scope to a frozen GitHub issue body and exact SHA-256, require HIGH risk, exact-SHA deterministic CI and fresh independent `chatgpt-secondary` review, and keep normal task-only automation fail-closed.
+
+**Positive human provenance is required.** Human scope authorization must be carried by an SSH-signed Git attestation commit made outside ChatGPT/Codex/project automation with a human-controlled signing key unavailable to project automation. An authority-bearing secondary APPROVE must be carried by a separate SSH-signed review-attestation commit bound to exact request ID, candidate SHA, round and review-JSON hash. GitHub comments, `performed_via_github_app == null`, owner attribution, web-flow signatures and unsigned API commits may be supplementary evidence but are not sufficient authority by themselves.
+
+Any material issue-body/scope change invalidates prior signed scope authorization. Any candidate change invalidates review. The bootstrap lane is exceptional governance, not a shortcut for ordinary implementation work.
+
 ## 5. Rule maturity
 
 Methodology statements should be classified mentally or explicitly as:
@@ -135,6 +149,7 @@ For real tasks, prefer collecting:
 - stale-review/review-conflict incidents;
 - trusted context size and included contracts;
 - control/data-plane trust-boundary incidents;
+- governance-bootstrap invocations, why normal task authorization was impossible, and which positive provenance artifact authorized scope/review;
 - candidate changed-file count/scope;
 - merge/blocked outcome.
 
@@ -175,6 +190,7 @@ The following remain active experiments rather than universally proven rules out
 - the size/content balance of the trusted coding-context bundle;
 - OpenRouter -> DeepSeek continuity and its real cost/quality profile over multiple generator tasks;
 - whether one independent semantic reviewer plus deterministic TIA acceptance is sufficient for routine HIGH-risk bounded changes;
-- the optimal repair budget by task class.
+- the optimal repair budget by task class;
+- whether the manual governance-bootstrap lane remains rare enough that automating it would add more risk than value.
 
 Promote, modify or deprecate these only from accumulated GitHub evidence.
