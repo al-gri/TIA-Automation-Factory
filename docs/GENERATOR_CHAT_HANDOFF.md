@@ -1,115 +1,121 @@
 # Generator development handoff
 
-This document is the operating handoff from infrastructure setup to generator development.
+This document is the generator-focused companion to `docs/NEXT_CHAT_HANDOFF.md`.
+
+For a brand-new ChatGPT session, start with:
+
+1. `AGENTS.md`
+2. `docs/PROJECT_STATE.md`
+3. `docs/NEXT_CHAT_HANDOFF.md`
+4. this document when focusing on generator/domain/compiler work
+
+GitHub is the only durable source of truth. Prior chat history is not required.
 
 ## Goal
 
-Develop the Siemens PLC code generator through bounded autonomous Git tasks while keeping real TIA Portal V21 as the final deterministic acceptance gate.
+Develop the Siemens PLC code generator through small versioned Git tasks while keeping real TIA Portal V21 as the final deterministic Siemens acceptance gate.
 
-Target loop:
-
-```text
-versioned task in Git
-  -> coding agent on GitHub Linux
-  -> candidate branch + PR
-  -> Requirements Reviewer
-  -> Linux PLC artifact package
-  -> trusted Windows/TIA V21 acceptance
-  -> PLC/TIA Reviewer
-  -> PASS
-     or bounded repair -> same PR -> revalidation
-     or BLOCKED after maxRepairAttempts
-```
-
-## Repository boundary
-
-Work only in `al-gri/TIA-Automation-Factory`.
+Repository: `al-gri/TIA-Automation-Factory`.
 
 Do not modify `al-gri/IndustrialMDE`.
 
-Vendor-neutral projects must not reference `Siemens.Engineering`. Siemens Openness integration remains isolated in `src/TiaV21Worker`.
-
-## Current software path
+## Architecture
 
 ```text
-src/Domain
-  -> src/PlcCompiler
+Automation input / future visual designer
+  -> src/Domain
+  -> src/PlcCompiler / PLC IR
   -> src/SiemensBackend
   -> src/GeneratorCli
-  -> generated SCL
-  -> src/TiaV21Worker on trusted Windows runner
+  -> generated PLC/SCL artifact
+  -> trusted src/TiaV21Worker on Windows
   -> TIA Portal V21
+  -> diagnostics
 ```
 
-The current generator slice can deserialize an `AutomationDevice`, compile it to PLC IR, and generate Siemens SCL UDT source.
+Vendor-neutral code must not reference `Siemens.Engineering`. TIA Openness stays isolated in `src/TiaV21Worker` targeting .NET Framework 4.8.
 
-## Trusted automation
+## Current generator baseline
 
-### `.github/workflows/agent.yml` — Autonomous Agent
+The current slice can:
 
-Starts implementation from either:
-- a versioned task under `tasks/*.json`; or
-- a GitHub Issue.
+- deserialize an `AutomationDevice` from JSON;
+- validate basic device structure and reject duplicate field names case-insensitively;
+- compile to vendor-neutral PLC IR;
+- generate Siemens SCL UDT source;
+- generate artifacts through `GeneratorCli`;
+- import and compile the exact artifact through real TIA Portal V21;
+- emit deterministic TIA diagnostics.
 
-For the full TIA-validated path, prefer versioned Git tasks.
+This is only the baseline. The next development focus is the real domain/compiler model and Siemens Open Library integration, not additional orchestration for its own sake.
 
-The coding agent runs only on a disposable GitHub-hosted Linux runner. It may edit task-scoped source/test/example files but may not edit trusted infrastructure or `src/TiaV21Worker`.
+## Coding provider order
 
-### `.github/workflows/candidate-validation.yml` — Candidate Validation
-
-For a task candidate it performs, in order:
-1. protected-path guard;
-2. deterministic Linux tests/generator evidence;
-3. independent Requirements Reviewer;
-4. generation and hashing of the candidate PLC artifact;
-5. trusted Windows/TIA V21 acceptance;
-6. independent PLC/TIA Reviewer;
-7. PASS / repair / BLOCKED decision.
-
-The Windows job checks out trusted `main`; it never executes candidate C# code. Only the generated PLC package is transferred to Windows.
-
-### `.github/workflows/agent-repair.yml` — Autonomous Repair
-
-Triggered only after a failed candidate validation while repair budget remains.
-
-The repair agent receives:
-- trusted task specification;
-- current candidate diff;
-- recent reviewer comments;
-- failed validation logs;
-- prior `tia-diagnostics.json` when available;
-- repair attempt number and maximum.
-
-It edits and pushes the same candidate branch/PR, then dispatches a fresh trusted validation.
-
-The task field `maxRepairAttempts` bounds the loop. Once exhausted, the candidate becomes `BLOCKED`; no infinite retry loop is permitted.
-
-### `.github/workflows/i5-repair-smoke.yml`
-
-Manual regression smoke for the repair mechanism. It intentionally creates an incomplete candidate. Do not use it for normal generator development.
-
-## Agent prompts
-
-Trusted prompts are versioned under:
+Routine implementation is now:
 
 ```text
-agents/prompts/coder.md
-agents/prompts/repair.md
-agents/prompts/reviewer-requirements.md
-agents/prompts/reviewer-tia.md
+OpenRouter first
+  -> if unavailable/quota/rate limit/timeout
+DeepSeek official API: deepseek-flash
 ```
 
-Do not embed task-specific implementation instructions into workflow YAML. Put work intent and acceptance criteria in the versioned task.
+Current OpenRouter coding model:
 
-## Task format
+```text
+nvidia/nemotron-3-ultra-550b-a55b:free
+```
 
-Use `tasks/INFRA-001.json` as the current schema example.
+If OpenRouter produces useful repository changes before quota exhaustion, those changes are preserved and DeepSeek continues the same bounded workspace.
 
-Important fields:
+Gemini is not a routine coding fallback. It is reserved for independent review / red-team escalation.
+
+## Review model
+
+ChatGPT is the Senior Architect and primary connected external reviewer.
+
+The user can simply say `проверь репозиторий` or `проверь запросы DeepSeek`; ChatGPT must recover the task, PR, SHA, diff, tests and TIA evidence from GitHub itself, perform the authorized `chatgpt` review slot, and write the structured result back to GitHub.
+
+Risk policy:
+
+- LOW: coder -> ChatGPT -> deterministic/TIA gates.
+- MEDIUM: coder -> ChatGPT -> Gemini only if escalation is justified.
+- HIGH / architecture / PLC semantics / security: independent ChatGPT + Gemini review.
+
+If Gemini is required, ChatGPT must provide one complete ready-to-paste Gemini message assembled from GitHub context. ChatGPT must not impersonate the Gemini reviewer.
+
+## Trusted task and validation path
+
+For normal generator work use a versioned task under `tasks/*.json`.
+
+Trusted path:
+
+```text
+versioned task in main
+  -> coding agent on disposable Linux
+  -> candidate PR
+  -> connected external ChatGPT review
+  -> APPROVE or bounded repair
+  -> Candidate Validation
+  -> trusted task resolved from main
+  -> Linux tests/generation
+  -> Requirements Reviewer
+  -> exact PLC artifact package
+  -> trusted Windows/TIA V21
+  -> PLC/TIA Reviewer
+  -> DONE / bounded repair / BLOCKED
+```
+
+Important trust rule: candidate source is never executed on the Windows/TIA runner. Windows checks out trusted `main` and receives only the bounded PLC artifact package.
+
+No automatic merge.
+
+## Task shape
+
+Use explicit acceptance criteria and risk metadata:
 
 ```json
 {
-  "id": "...",
+  "id": "PLC-001",
   "title": "...",
   "goal": "...",
   "scope": [],
@@ -121,88 +127,52 @@ Important fields:
     "requirements": [],
     "tia": []
   },
+  "review": {
+    "riskClass": "LOW|MEDIUM|HIGH",
+    "reviewType": "CODE_REVIEW|PLC_REVIEW",
+    "reviewerSlots": ["chatgpt"]
+  },
   "protectedPaths": [],
   "maxRepairAttempts": 3
 }
 ```
 
-`acceptance.requirements` is evaluated before Windows/TIA. `acceptance.tia` is evaluated only after the exact candidate PLC artifact has been tested by real TIA Portal V21.
+The task `maxRepairAttempts` is authoritative. Never create an unbounded repair loop.
 
-## LLM providers
+## Proven Phase 2 path
 
-Coder runtime is provider-resilient:
-1. Gemini CLI is attempted first with requested model `gemini-3.8-flash`;
-2. actual Gemini usage is audited because Google may serve another model;
-3. quota/provider failure discards that attempt's workspace edits;
-4. fallback uses OpenRouter/OpenCode.
+`tasks/PHASE2-001.json` / PR #13 proved the connected review model.
 
-Current fallback model:
+Connected ChatGPT recovered the review from GitHub and submitted `APPROVE`. After the trusted-task source bug was fixed, Candidate Validation run `35322785146` passed Linux checks, Requirements Reviewer, PLC packaging, trusted Windows/TIA acceptance, PLC/TIA Reviewer and final finish gate.
 
-```text
-nvidia/nemotron-3-ultra-550b-a55b:free
-```
+TIA V21 compiled the exact `UDT_Motor.scl` artifact with 0 errors / 0 warnings.
 
-Required repository Actions secrets currently configured:
+See:
 
-```text
-GEMINI_API_KEY
-OPENROUTER_API_KEY
-```
+- `docs/PROJECT_STATE.md`
+- `docs/PHASE2_PROOF_2026-09-18.md`
+- `docs/NEXT_CHAT_HANDOFF.md`
+- `docs/INFRASTRUCTURE_LOG.md`
 
-Do not put API keys in tasks, prompts, issues, commits, logs, or chat messages.
+## Normal operating procedure from now on
 
-## Windows / TIA boundary
+1. Define one small real generator task in `tasks/`.
+2. Keep acceptance deterministic and explicit.
+3. Run the autonomous coder: OpenRouter first, DeepSeek fallback.
+4. Let connected ChatGPT review from GitHub; do not manually copy context unless the connector is unavailable.
+5. If `CHANGES_REQUIRED`, let bounded repair continue on the same PR.
+6. If Gemini is required, use the complete prompt prepared by ChatGPT.
+7. Require deterministic Linux evidence and real TIA V21 acceptance where applicable.
+8. Merge only after human approval of a passing candidate.
+9. Record meaningful decisions/results back to GitHub.
+10. Treat infrastructure as frozen unless a concrete generator task exposes a real blocker.
 
-Runner labels:
+## Next engineering focus
 
-```text
-self-hosted
-Windows
-X64
-tia-v21
-```
+Return to the original product problem:
 
-Runner name observed during acceptance: `TIA-V21-PC`.
-
-`TiaV21Worker` targets .NET Framework 4.8 and loads TIA Portal V21 Openness assemblies from the V21 PublicAPI installation.
-
-The trusted worker currently creates a temporary project, creates an S7-1500 station, imports the candidate SCL source, compiles the PLC software, and emits `tia-diagnostics.json`.
-
-A successful acceptance requires at minimum:
-
-```json
-{
-  "success": true,
-  "errors": 0
-}
-```
-
-Warnings are reported separately.
-
-## Proven infrastructure milestones
-
-- Real TIA V21 E2E Motor smoke: PASS, 0 errors / 0 warnings.
-- Git task + coder + provider fallback: PASS.
-- Requirements Reviewer: PASS in clean smoke and correctly rejected an incomplete smoke candidate.
-- Safe Linux artifact -> trusted Windows/TIA bridge: PASS.
-- PLC/TIA Reviewer: PASS.
-- Bounded repair loop: PASS. PR #6 was intentionally incomplete, was rejected, repaired in attempt 1/3 on the same PR, then passed real TIA V21 with 0 errors / 0 warnings.
-
-See `docs/INFRASTRUCTURE_LOG.md` for chronological details.
-
-## Normal operating procedure for generator development
-
-1. Create or update one small versioned task in `tasks/` with explicit acceptance criteria.
-2. Keep the task narrow enough to review and test deterministically.
-3. Start `Autonomous Agent` with `source=task` and the task path.
-4. Do not manually edit the candidate branch while autonomous validation/repair is running.
-5. Read the PR comments from Requirements Reviewer and PLC/TIA Reviewer.
-6. Treat `PASS` only as the state where deterministic checks and required TIA criteria pass.
-7. If the loop reaches `BLOCKED`, diagnose the blocker before increasing the attempt budget or changing infrastructure.
-8. Merge only after human review of a passing candidate; autonomous workflows do not self-merge.
-
-## Infrastructure freeze rule
-
-After the final I6 clean smoke, treat the infrastructure as frozen. Change workflows, runtimes, prompts, provider plumbing, or the Windows/TIA boundary only when a concrete generator-development task is blocked by infrastructure.
-
-The next chat should focus on the generator/domain/compiler/Open Library model rather than expanding orchestration for its own sake.
+- model automation devices and relationships;
+- define the vendor-neutral domain/IR needed for real systems;
+- map Siemens Open Library concepts into the generator backend;
+- decide how future visual authoring input maps into the domain model;
+- build the next generator features as small versioned tasks with deterministic/TIA acceptance.
