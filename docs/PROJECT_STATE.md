@@ -14,7 +14,7 @@ Repository: `al-gri/TIA-Automation-Factory`
 
 Purpose: build an automation engineering software factory that converts vendor-neutral automation models into Siemens PLC artifacts and verifies them through a trusted TIA Portal V21 / TIA Openness boundary.
 
-Architecture:
+Architecture baseline:
 
 ```text
 Automation input
@@ -72,7 +72,7 @@ Repository-first / OpenRouter-first policy implementation was merged in PR #15. 
 
 That change also fixed Candidate Validation so trusted task JSON is always resolved from `main` rather than from the candidate checkout.
 
-The exact OpenRouter -> DeepSeek continuation path is configured and ready. The next normal generator-development tasks should be used to collect live provider-order/fallback metrics rather than adding infrastructure-only smoke tests without a concrete need.
+The exact OpenRouter -> DeepSeek continuation path is configured and ready. Normal generator-development tasks should collect live provider-order/fallback metrics rather than adding infrastructure-only smoke tests without a concrete need.
 
 ## Connected ChatGPT -> TIA proof
 
@@ -114,7 +114,64 @@ TIA V21 diagnostics for the exact `UDT_Motor.scl` candidate artifact:
 
 Detailed proof record: `docs/PHASE2_PROOF_2026-09-18.md`.
 
-This proves the intended human interaction pattern: the user can ask ChatGPT in a clean connected chat to inspect the repository / pending AI work; ChatGPT can independently review and write its decision back to GitHub; the unchanged approved candidate then continues through trusted deterministic gates and real TIA Portal V21.
+## First real generator task — PLC-001
+
+Task: `tasks/PLC-001.json`
+
+Candidate PR: #16
+
+Candidate SHA: `e5d92e3dba337aa055b2dfc3aadd91e3217fab90`
+
+Goal: add the first Open-Library-driven scalar prerequisite, `TIME`, through the full JSON -> Domain -> PLC IR -> Siemens SCL -> TIA V21 path.
+
+Observed state:
+
+- coding provider: OpenRouter free model; DeepSeek fallback was not needed;
+- deterministic Linux tests: PASS;
+- Motor regression generation: PASS;
+- connected ChatGPT external review: APPROVE;
+- exact `UDT_ValveConfig.scl` candidate transferred through the trusted Windows boundary: PASS;
+- TIA Portal V21 import/generation/compile: PASS;
+- TIA result: 0 errors / 0 warnings.
+
+PR #16 remains a human merge decision; passing automation does not auto-merge.
+
+## Open Library architecture analysis
+
+`docs/OPEN_LIBRARY_BASELINE.md` records the first accepted research baseline from the supplied Siemens Open Library V19 archive.
+
+Important confirmed principles include:
+
+- normal Open Library FB integration favors multi-instance memory;
+- internal FB instance memory is private and must not become an application API;
+- HMI/Error UDTs and explicit outputs are the external contract;
+- `iStatus` and scrolling `iErrorCode` are HMI display values, not PLC-control state;
+- mode is normally organized per subsystem for medium/large systems;
+- simulation is propagated as PLC context through `bInSimulate`;
+- Open Library constants/tag table and CPU System/Clock memory are project prerequisites;
+- `fbInterlock`/`fbPermissive` preserve named condition semantics;
+- sequencer blocks have special shared-instance semantics and require separate design.
+
+## Target architecture proposal under review
+
+Draft PR: #17
+
+Tracking issue: #18
+
+Current proposal head: `f546185080b5505ed89fcc907ed7af30e076ebb2`
+
+Risk: **HIGH**.
+
+The proposal is documentation-only and is **not yet accepted architecture**. It contains:
+
+- `docs/TARGET_ARCHITECTURE.md`;
+- `docs/OPEN_LIBRARY_INTEGRATION_RULES.md`;
+- `docs/ENGINEERING_RULES.md`;
+- `docs/GENERATOR_ROADMAP.md`.
+
+It proposes the route from React/React Flow through a canonical UI-independent automation model, deterministic compiler/PLC IR, Siemens/Open-Library catalog/bindings and modular multi-instance application generation to a future narrow trusted TIA V21 ProjectAssembler.
+
+Before PR #17 can be merged, repository HIGH-risk policy requires independent ChatGPT + independent Gemini architecture review. Issue #18 contains the ready-to-paste Gemini review package bound to the exact proposal SHA. A reviewer disagreement must be treated as `REVIEW_CONFLICT`, not silently resolved.
 
 ## Risk / Gemini policy
 
@@ -124,13 +181,23 @@ MEDIUM risk: OpenRouter/DeepSeek coder -> ChatGPT review -> Gemini only if findi
 
 HIGH risk / architecture / PLC semantics / security: independent ChatGPT and Gemini reviews are required. Reviewer disagreement produces `REVIEW_CONFLICT` and blocks automatic acceptance.
 
-`PHASE2-001` is LOW risk and did not require Gemini.
-
 ## Current phase and next work
 
-Core Phase 2 plumbing is operational. The project should now move from infrastructure work to actual PLC generator development.
+Core Phase 2 plumbing is operational and frozen. Work is now in generator architecture / compiler / Siemens Open Library development.
 
-For normal work:
+Current order of work:
+
+1. Human decides whether to merge passing PLC-001 PR #16.
+2. Complete HIGH-risk independent architecture review for PR #17, including the Gemini review package in issue #18.
+3. Resolve any architecture findings before merging PR #17.
+4. After architecture is accepted, create the next small versioned implementation task from the accepted roadmap rather than adding ad-hoc features.
+5. Proposed next compiler tasks are: give PLC IR its own type system, then introduce a minimal structural SCL AST while preserving existing generated output.
+6. Then prove trusted V21 upgrade/inspection/materialization of the supplied Open Library and exact `fbValve_Solenoid` dependencies before broad catalog expansion.
+7. First major generator milestone is the real vertical slice: vendor-neutral `TwoPositionValve` -> pinned `fbValve_Solenoid` mapping -> multi-instance subsystem FB + HMI/Error DB -> real TIA V21 compile with zero errors.
+8. React Flow/product UI work follows that proof; React Flow must remain an editor adapter rather than the canonical PLC semantics model.
+9. Continue collecting provider/model/token/cache/cost/duration/repair metrics on real tasks; do not add provider/infrastructure complexity without measured need.
+
+For normal implementation work:
 
 1. create / use a versioned task under `tasks/`;
 2. coding agent attempts OpenRouter first and DeepSeek second;
@@ -141,13 +208,6 @@ For normal work:
 7. Gemini is invoked only when risk policy requires an independent second reviewer;
 8. no automatic merge.
 
-Immediate engineering focus:
-
-- return to generator/domain/compiler design;
-- analyze how Siemens Open Library concepts should map into the vendor-neutral model and Siemens backend;
-- define the first real small generator task with explicit deterministic and TIA acceptance criteria;
-- collect provider/model/token/cache/cost/duration/repair metrics over several real tasks before considering LiteLLM or more complex provider pooling.
-
 ## Required documents
 
 - `AGENTS.md` — mandatory clean-chat / agent entry point and user-command semantics.
@@ -156,12 +216,15 @@ Immediate engineering focus:
 - `docs/NEXT_CHAT_HANDOFF.md` — full fresh-chat project handoff and work order.
 - `docs/AI_COLLABORATION_MODEL.md` — roles, provider cascade, risk policy.
 - `docs/EXTERNAL_REVIEW_PROTOCOL.md` — normative external-review protocol.
+- `docs/OPEN_LIBRARY_BASELINE.md` — current accepted Open Library research baseline.
 - `docs/PHASE2_PROOF_2026-09-18.md` — completed connected-review/TIA proof.
 - `docs/INFRASTRUCTURE_LOG.md` — chronological infrastructure history.
 - `docs/GENERATOR_CHAT_HANDOFF.md` — generator/domain/compiler focused handoff.
 - `tasks/*.json` — trusted executable task specifications.
 - `reviews/` — review templates and machine-readable response schema.
 - `.github/workflows/` — trusted orchestration implementation.
+
+Proposal documents in PR #17 are not normative until that PR passes HIGH-risk review and is merged.
 
 ## Human-facing response policy
 
