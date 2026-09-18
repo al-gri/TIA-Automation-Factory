@@ -1,6 +1,6 @@
 # Generator Engineering Rules
 
-Status: **PROPOSED — review round 2 required**
+Status: **PROPOSED — review round 3 required**
 
 These rules become the development contract only after the architecture proposal is independently approved and merged.
 
@@ -45,18 +45,40 @@ Forbidden:
 
 The compiler must make PLC scan behavior explicit.
 
+### 4.1 Dependency latency
+
 - single writer by default;
 - no silent coercion/merge/latch;
-- explicit stateful primitives define scan-to-scan boundaries;
-- SCC analysis is mandatory for combinational partitions;
-- combinational cycles/self-loops are compilation errors unless cut by an explicit stateful boundary;
-- after stateful edges are removed, each combinational partition must be a DAG;
-- executable combinational statements are emitted from a **stable topological sort**;
-- scheduling ties use deterministic semantic IDs/order, never UI position or accidental JSON order;
-- same-scan propagation semantics are documented and tested;
-- equivalent semantic models with different layout/order produce equivalent schedules.
+- every scheduling dependency is classified as `SameScan` or `PreviousState`;
+- only `PreviousState` dependencies cut a same-scan cycle;
+- a stateful primitive is not automatically a one-scan delay and is not removed wholesale from SCC analysis;
+- each stateful primitive declares which outputs depend on current inputs, which depend on previous state and what state is committed for the next scan;
+- semantic lowering follows the observable order `read previous state -> compute current outputs -> commit next state`;
+- edge, timer, latch/reset and feedback primitives require dedicated temporal tests rather than a generic `stateful = delayed` assumption.
 
-PLC semantic changes are HIGH risk when they establish/change scheduling or state behavior.
+A stateful FB with current-input feed-through must retain those current-input dependencies in the same-scan graph.
+
+### 4.2 Same-controller scheduling
+
+- build one controller-level graph containing all `SameScan` dependencies;
+- area/unit ownership boundaries do not cut scheduling dependencies;
+- SCC analysis is mandatory on the controller-level same-scan graph;
+- SCCs with more than one node and self-loops are compilation errors unless the cycle is actually cut by `PreviousState`;
+- after previous-state dependencies are excluded, the controller same-scan graph must be a DAG;
+- executable statements and unit/application invocations are emitted from a **stable topological sort**;
+- scheduling ties use deterministic semantic IDs/order, never UI position, unit declaration order or accidental JSON order;
+- same-scan propagation means a downstream consumer observes the value produced earlier in that deterministic schedule;
+- same-controller cross-unit dependencies determine orchestration call order; a cycle across units is rejected unless explicitly delayed.
+
+Equivalent semantic models with different layout, input order or unit declaration order must produce equivalent schedules.
+
+### 4.3 Cross-controller semantics
+
+Ordinary runtime connections do not have same-scan semantics across controllers.
+
+A cross-controller dependency requires an explicit communication primitive/profile defining transport, buffering, stale/error behavior and update latency. Until such a primitive exists, ordinary cross-controller runtime connections are compilation errors.
+
+PLC semantic changes are HIGH risk when they establish/change scheduling, state behavior or communication latency.
 
 ## 5. Open Library version rules
 
@@ -112,6 +134,7 @@ Unchanged canonical project + generator version + target profile + qualified lib
 - naming is centralized/tested;
 - layout changes cannot alter PLC output;
 - explicit ordering for maps/collections;
+- unit/area declaration order cannot change scan semantics;
 - manifests record generator/library/target identities;
 - regeneration must not duplicate generated TIA objects.
 
@@ -148,12 +171,13 @@ The generator may consume an already-engineered E-stop/safety status as a normal
 
 1. Domain/compiler unit tests;
 2. schema/type/graph validation;
-3. SCC/topological scheduler tests;
-4. PLC IR golden tests;
-5. Siemens SCL AST/emitter golden tests;
-6. GeneratorCli/package tests on Linux;
-7. exact candidate artifact/package in real TIA V21;
-8. later HMI/reference-project tests when applicable.
+3. temporal-dependency tests for edge/timer/latch/reset/feedback primitives;
+4. controller-global SCC/topological scheduler tests, including cross-unit ordering and cycles;
+5. PLC IR golden tests;
+6. Siemens SCL AST/emitter golden tests;
+7. GeneratorCli/package tests on Linux;
+8. exact candidate artifact/package in real TIA V21;
+9. later HMI/reference-project tests when applicable.
 
 Use the cheapest authoritative layer, but never omit real TIA acceptance for changed Siemens behavior.
 
@@ -161,7 +185,7 @@ Use the cheapest authoritative layer, but never omit real TIA acceptance for cha
 
 - LOW: isolated scalar/format/data mapping with established semantics.
 - MEDIUM: internal type/AST representation preserving established behavior.
-- HIGH: canonical schema, scan semantics, Open Library qualification/materialization, target preflight, TIA trust boundary, safety scope, major architecture.
+- HIGH: canonical schema, scan semantics, Open Library qualification/materialization, target preflight, TIA trust boundary, safety scope, cross-controller communication semantics, major architecture.
 
 HIGH-risk work requires independent ChatGPT and Gemini review of the same exact candidate SHA. Reviewer conflict blocks acceptance.
 
