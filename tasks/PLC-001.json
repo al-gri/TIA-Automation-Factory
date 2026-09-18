@@ -1,0 +1,47 @@
+{
+  "id": "PLC-001",
+  "title": "Add TIME scalar support for Open Library-oriented generation",
+  "goal": "Add the smallest Siemens Open Library-driven datatype prerequisite by supporting PLC TIME end-to-end from JSON input through vendor-neutral IR and Siemens SCL generation, with real TIA Portal V21 acceptance.",
+  "scope": [
+    "Add Time to the vendor-neutral AutomationType set; do not introduce Siemens.Engineering or Siemens-specific dependencies into Domain/PlcCompiler.",
+    "Map AutomationType.Time to Siemens SCL Time in SiemensBackend.",
+    "Add examples/valve-config.json using the existing AutomationDevice schema with at least Timeout: Time, Mode: Int, Enable: Bool, and CommandWork: Bool.",
+    "Add deterministic automated coverage for Time generation while keeping existing Motor behavior green.",
+    "Do not introduce block-call, catalog, port-direction, or Open Library wrapper abstractions in this task; those are separate later tasks."
+  ],
+  "generator": {
+    "input": "examples/valve-config.json",
+    "expectedArtifact": "UDT_ValveConfig.scl"
+  },
+  "acceptance": {
+    "requirements": [
+      "AutomationType.Time exists in the vendor-neutral domain type set.",
+      "SclDataTypeGenerator emits Siemens SCL Time for a Time field and no Siemens.Engineering dependency is introduced outside src/TiaV21Worker.",
+      "examples/valve-config.json deserializes through GeneratorCli and produces UDT_ValveConfig.scl containing Timeout : Time;, Mode : Int;, Enable : Bool;, and CommandWork : Bool;.",
+      "Deterministic tests cover Time mapping and all existing SiemensBackend/PlcCompiler tests remain green.",
+      "examples/motor.json still generates UDT_Motor.scl with unchanged behavior."
+    ],
+    "tia": [
+      "The exact generated UDT_ValveConfig.scl candidate artifact is transferred through the trusted Windows acceptance boundary.",
+      "TIA Portal V21 imports/generates the tested UDT_ValveConfig.scl artifact and compiles with zero errors."
+    ]
+  },
+  "review": {
+    "riskClass": "LOW",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json",
+    "src/TiaV21Worker/**"
+  ],
+  "maxRepairAttempts": 2
+}
