@@ -1,0 +1,9 @@
+{
+  "name": "ValveConfig",
+  "fields": [
+    { "name": "Timeout", "type": "Time" },
+    { "name": "Mode", "type": "Int" },
+    { "name": "Enable", "type": "Bool" },
+    { "name": "CommandWork", "type": "Bool" }
+  ]
+}
