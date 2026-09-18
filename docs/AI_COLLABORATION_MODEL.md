@@ -58,9 +58,9 @@ The secondary chat receives a self-contained package generated from GitHub sourc
 
 ### Human operator
 
-The human is strategic/risk authority and has delegated routine technical merge decisions to primary connected ChatGPT. Human input is reserved for strategic/materially irreversible decisions, project-goal changes, risk waivers, destructive external actions, licensing/vendor-distribution choices, governance-bootstrap scope authorization/reauthorization and unresolved reviewer conflict/ambiguity.
+The human is strategic/risk authority and has delegated routine technical merge decisions to primary connected ChatGPT. Human input is reserved for strategic/materially irreversible decisions, project-goal changes, risk waivers, destructive external actions, licensing/vendor-distribution choices, governance-bootstrap scope authorization/reauthorization, repair-budget extension and unresolved reviewer conflict/ambiguity.
 
-For the exceptional bootstrap lane, the human root authorization must be visible as a direct GitHub action whose API metadata is not app-mediated. Primary/connector-authored assertions of approval are not substitutes.
+For the exceptional bootstrap lane, positive human authority is represented by an SSH-signed Git attestation commit created outside ChatGPT/Codex/project automation with a human-controlled signing key. Owner attribution, comments, app-attribution metadata and unsigned API actions are not substitutes.
 
 ## Independence rule
 
@@ -92,7 +92,7 @@ For a normal repository/review request primary ChatGPT should:
 8. persist durable new blockers/decisions to GitHub;
 9. report only operationally useful results to the user.
 
-For the exceptional governance-bootstrap lane, replace step 4's trusted-task scope check with validation of the frozen issue-body fingerprint, a direct-human authorization comment whose API metadata is not app-mediated, and `docs/GOVERNANCE_BOOTSTRAP.md`. A primary-authored bootstrap candidate uses fresh `chatgpt-secondary`; an authority-bearing APPROVE must also be relayed/attested into GitHub through the provenance-separated human path defined by the bootstrap policy. Normal task-only automation remains unchanged and must fail closed when the task is absent.
+For the exceptional governance-bootstrap lane, replace step 4's trusted-task scope check with validation of the frozen issue-body fingerprint, the exact SSH-signed human scope-attestation commit and `docs/GOVERNANCE_BOOTSTRAP.md`. A primary-authored bootstrap candidate uses fresh `chatgpt-secondary`; an authority-bearing APPROVE must also be contained in a separate SSH-signed human review-attestation commit. Normal task-only automation remains unchanged and must fail closed when the task is absent.
 
 ## Risk-based review policy
 
@@ -122,13 +122,13 @@ Reviewer selection:
 
 No standing dual-review requirement exists.
 
-Governance bootstrap is also HIGH risk. It additionally requires semantic authorization-recursion eligibility, a frozen issue-body fingerprint, direct origin-verifiable human scope authorization, exact-SHA CI, reviewer independence and provenance-separated authority-bearing secondary evidence.
+Governance bootstrap is also HIGH risk. It additionally requires semantic authorization-recursion eligibility, a frozen issue-body fingerprint, positive SSH-signed human scope authorization, exact-SHA CI, reviewer independence and a separate SSH-signed authority-bearing secondary review attestation.
 
 ## External Review Protocol
 
 Normative mechanics are in `docs/EXTERNAL_REVIEW_PROTOCOL.md`.
 
-Every external review package must be self-contained and contain the exact task/acceptance criteria, risk class, review type, candidate SHA/PR identity, bounded diff/source context, Linux evidence, TIA evidence when available, prior findings relevant to the round, explicit objectives and exact response contract. For bootstrap governance, the frozen issue + fingerprint + direct-human authorization provenance replace the absent trusted task for manual review only.
+Every external review package must be self-contained and contain the exact task/acceptance criteria, risk class, review type, candidate SHA/PR identity, bounded diff/source context, Linux evidence, TIA evidence when available, prior findings relevant to the round, explicit objectives and exact response contract. For bootstrap governance, the frozen issue + fingerprint + signed scope-attestation evidence replace the absent trusted task for manual review only.
 
 Responses are validated against `reviews/schemas/external-review-response.schema.json` and bound to request ID, reviewer slot, task, candidate SHA, review type and round.
 
@@ -139,7 +139,7 @@ Outcomes:
 - `BLOCKED` -> external/human/architecture decision;
 - conflicting intentionally requested reviews -> `REVIEW_CONFLICT`.
 
-No unbounded repair loop is allowed; task `maxRepairAttempts` is authoritative. Bootstrap repairs use the bounded budget in `docs/GOVERNANCE_BOOTSTRAP.md`; a material issue-body/scope change invalidates prior human authorization and requires direct reauthorization.
+No unbounded repair loop is allowed; task `maxRepairAttempts` is authoritative. Bootstrap repairs use the bounded budget in `docs/GOVERNANCE_BOOTSTRAP.md`; a material issue-body/scope change invalidates prior signed scope authorization and requires fresh signed reauthorization.
 
 ## Delegated technical merge gate
 
@@ -149,8 +149,8 @@ Primary connected ChatGPT may merge without separate human confirmation only whe
 - deterministic CI/tests are green;
 - required TIA/Openness evidence is green unless the trusted task explicitly makes it post-merge;
 - no unresolved `critical`/`major` finding, `BLOCKED` or `REVIEW_CONFLICT` exists;
-- candidate scope matches trusted task and architecture, or for governance bootstrap matches the still-valid **direct-human-authorized** issue fingerprint and bootstrap policy;
-- bootstrap APPROVE evidence has provenance separated from the candidate author as defined by the bootstrap policy;
+- candidate scope matches trusted task and architecture, or for governance bootstrap matches the still-valid **SSH-signed human-authorized** issue fingerprint and bootstrap policy;
+- bootstrap APPROVE evidence is contained in the required separate SSH-signed review-attestation commit;
 - evidence is not stale.
 
 No workflow, coding agent, reviewer or PR author self-merges automatically.
@@ -159,7 +159,7 @@ No workflow, coding agent, reviewer or PR author self-merges automatically.
 
 The bootstrap lane exists only to repair genuine recursion in the repository's normative authority/review-control model. Eligibility is semantic, not determined by whether changed files happen to appear in the coding-agent protected-path list. It is not a fallback for missing, inconvenient or stale tasks.
 
-Normal review automation remains task-only and fail-closed. Candidate-branch tasks/policy files cannot authorize that same candidate. Human authorization is bound to a frozen GitHub issue body through SHA-256 and a direct non-app-mediated GitHub comment; material scope changes require fresh direct authorization. A primary-authored bootstrap candidate requires fresh isolated `chatgpt-secondary` review and exact-SHA green CI. An authority-bearing secondary APPROVE must reach GitHub through a provenance-separated direct human relay/attestation. Candidate source never executes on trusted Windows/TIA through this lane.
+Normal review automation remains task-only and fail-closed. Candidate-branch tasks/policy files cannot authorize that same candidate. Human authorization is bound to a frozen GitHub issue body through SHA-256 plus a valid SSH-signed scope-attestation commit under a human-controlled key unavailable to project automation. A primary-authored bootstrap candidate requires fresh isolated `chatgpt-secondary` review and exact-SHA green CI. An authority-bearing secondary APPROVE must be bound into a separate SSH-signed review-attestation commit. Candidate source never executes on trusted Windows/TIA through this lane.
 
 ## Provider/cost strategy
 
