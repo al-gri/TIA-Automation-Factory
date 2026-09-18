@@ -8,16 +8,29 @@ OPENROUTER_MODEL="${OPENROUTER_MODEL:-nvidia/nemotron-3-ultra-550b-a55b:free}"
 OPENROUTER_TIMEOUT_MINUTES="${OPENROUTER_TIMEOUT_MINUTES:-30}"
 DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-flash}"
 DEEPSEEK_TIMEOUT_MINUTES="${DEEPSEEK_TIMEOUT_MINUTES:-30}"
+CODER_TRUSTED_GIT_REF="${CODER_TRUSTED_GIT_REF:-origin/main}"
 
 OPENROUTER_OUTPUT="${RUNNER_TEMP:-/tmp}/coder-openrouter.jsonl"
 OPENROUTER_ERROR="${RUNNER_TEMP:-/tmp}/coder-openrouter.stderr.log"
 DEEPSEEK_OUTPUT="${RUNNER_TEMP:-/tmp}/coder-deepseek.jsonl"
 DEEPSEEK_ERROR="${RUNNER_TEMP:-/tmp}/coder-deepseek.stderr.log"
+TRUSTED_CONTEXT_PROMPT="${RUNNER_TEMP:-/tmp}/coder-trusted-context.md"
+TRUSTED_CONTEXT_MANIFEST="${RUNNER_TEMP:-/tmp}/coder-trusted-context.json"
 
 if [[ ! -f "$PROMPT_PATH" ]]; then
   echo "Prompt file not found: $PROMPT_PATH" >&2
   exit 2
 fi
+
+python3 agents/runtime/build-coder-context.py \
+  --git-ref "$CODER_TRUSTED_GIT_REF" \
+  --prompt-input "$PROMPT_PATH" \
+  --output "$TRUSTED_CONTEXT_PROMPT" \
+  --manifest "$TRUSTED_CONTEXT_MANIFEST"
+PROMPT_PATH="$TRUSTED_CONTEXT_PROMPT"
+
+echo "Trusted coding context manifest:"
+cat "$TRUSTED_CONTEXT_MANIFEST"
 
 summarize_opencode_usage() {
   local path="$1"
@@ -55,6 +68,8 @@ write_audit() {
   local selected_provider="$1"
   local selected_model="$2"
   local final_outcome="$3"
+  local context_bundle
+  context_bundle=$(cat "$TRUSTED_CONTEXT_MANIFEST")
 
   jq -n \
     --arg selected_provider "$selected_provider" \
@@ -70,12 +85,14 @@ write_audit() {
     --arg deepseek_reason "$DEEPSEEK_REASON" \
     --argjson deepseek_status "$DEEPSEEK_STATUS" \
     --argjson deepseek_usage "$DEEPSEEK_USAGE" \
+    --argjson context_bundle "$context_bundle" \
     '{
       selected_provider:$selected_provider,
       selected_model:$selected_model,
       final_outcome:$final_outcome,
       provider_order:["openrouter","deepseek"],
       policy:"Use OpenRouter while available; on quota/rate exhaustion continue with DeepSeek. A fresh secondary ChatGPT is reserved for independent review when the primary ChatGPT is not independent; it is not a coding fallback.",
+      context_bundle:$context_bundle,
       openrouter:{requested:$openrouter_requested,outcome:$openrouter_outcome,reason:$openrouter_reason,exit_status:$openrouter_status,usage:$openrouter_usage},
       deepseek:{requested:$deepseek_requested,outcome:$deepseek_outcome,reason:$deepseek_reason,exit_status:$deepseek_status,usage:$deepseek_usage},
       secondary_chatgpt:{role:"independent_review_only",outcome:"not_used_by_coder"}
