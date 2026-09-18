@@ -9,12 +9,13 @@ Do not implement code. Evaluate whether the proposed decision preserves the esta
 ## Review identity
 
 - Protocol version: `1.0`
+- Review request ID: `{{REVIEW_REQUEST_ID}}`
+- Reviewer slot: `{{REVIEWER_SLOT}}`
 - Task ID: `{{TASK_ID}}`
 - Candidate SHA: `{{CANDIDATE_SHA}}`
 - Review type: `ARCHITECTURE_REVIEW`
 - Review round: `{{REVIEW_ROUND}}`
 - Risk class: `HIGH`
-- Reviewer slot: `{{REVIEWER_SLOT}}`
 
 ## Project context
 
@@ -93,6 +94,8 @@ Use:
 ```json
 {
   "protocolVersion": "1.0",
+  "reviewRequestId": "{{REVIEW_REQUEST_ID}}",
+  "reviewerSlot": "{{REVIEWER_SLOT}}",
   "taskId": "{{TASK_ID}}",
   "candidateSha": "{{CANDIDATE_SHA}}",
   "reviewType": "ARCHITECTURE_REVIEW",
