@@ -51,15 +51,14 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Require at least one LLM provider
+      - name: Require at least one coding provider
         shell: bash
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          if [ -z "$DEEPSEEK_API_KEY" ] && [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "Configure DEEPSEEK_API_KEY and/or fallback provider keys as repository Actions secrets."
+          if [ -z "$OPENROUTER_API_KEY" ] && [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "Configure OPENROUTER_API_KEY and/or DEEPSEEK_API_KEY as repository Actions secrets."
             exit 1
           fi
 
@@ -151,11 +150,10 @@ jobs:
             } >> "$RUNNER_TEMP/agent-task.md"
           fi
 
-      - name: Install coding runtimes
+      - name: Install coding runtime
         shell: bash
         run: |
-          npm install --global @google/gemini-cli@0.60.0 opencode-ai@1.18.31
-          gemini --version
+          npm install --global opencode-ai@1.18.31
           opencode --version
           opencode models deepseek | grep -F 'deepseek/deepseek-flash'
 
@@ -163,14 +161,12 @@ jobs:
         id: agent
         shell: bash
         env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GEMINI_CLI_TRUST_WORKSPACE: 'true'
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENROUTER_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
+          OPENROUTER_TIMEOUT_MINUTES: '30'
           DEEPSEEK_MODEL: deepseek-flash
           DEEPSEEK_TIMEOUT_MINUTES: '30'
-          GEMINI_MODEL: gemini-3.8-flash
-          OPENROUTER_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
         run: |
           bash agents/runtime/run-coder.sh \
             "$RUNNER_TEMP/agent-task.md" \
@@ -189,6 +185,9 @@ jobs:
           COMPACT=$(jq -c . "$AUDIT")
           SELECTED_PROVIDER=$(jq -r '.selected_provider // "none"' "$AUDIT")
           SELECTED_MODEL=$(jq -r '.selected_model // "none"' "$AUDIT")
+          OPENROUTER_COST=$(jq -r '.openrouter.usage.reported_cost_usd // 0' "$AUDIT")
+          OPENROUTER_INPUT=$(jq -r '.openrouter.usage.input_tokens // 0' "$AUDIT")
+          OPENROUTER_OUTPUT=$(jq -r '.openrouter.usage.output_tokens // 0' "$AUDIT")
           DEEPSEEK_COST=$(jq -r '.deepseek.usage.reported_cost_usd // 0' "$AUDIT")
           DEEPSEEK_INPUT=$(jq -r '.deepseek.usage.input_tokens // 0' "$AUDIT")
           DEEPSEEK_OUTPUT=$(jq -r '.deepseek.usage.output_tokens // 0' "$AUDIT")
@@ -200,6 +199,8 @@ jobs:
             echo
             echo "- Selected provider: \`$SELECTED_PROVIDER\`"
             echo "- Selected model: \`$SELECTED_MODEL\`"
+            echo "- OpenRouter reported cost: \`\$${OPENROUTER_COST}\`"
+            echo "- OpenRouter input/output tokens: \`${OPENROUTER_INPUT}/${OPENROUTER_OUTPUT}\`"
             echo "- DeepSeek reported cost: \`\$${DEEPSEEK_COST}\`"
             echo "- DeepSeek input/output tokens: \`${DEEPSEEK_INPUT}/${DEEPSEEK_OUTPUT}\`"
             echo
