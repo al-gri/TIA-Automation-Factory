@@ -18,7 +18,7 @@ For a fresh ChatGPT session that continues project work:
 4. Read `docs/AI_COLLABORATION_MODEL.md`.
 5. Read `docs/DEVELOPMENT_METHODOLOGY.md` and the latest relevant entries in `docs/METHODOLOGY_JOURNAL.md`.
 6. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work.
-7. Read the active task under `tasks/`; if the active work is an explicitly human-authorized protected-governance bootstrap with no non-recursive trusted task, read `docs/GOVERNANCE_BOOTSTRAP.md` and the authorized GitHub issue instead.
+7. Read the active task under `tasks/`; if the active work is an explicitly human-authorized governance-authority bootstrap with no non-recursive trusted task, read `docs/GOVERNANCE_BOOTSTRAP.md` and the authorized GitHub issue instead.
 8. Inspect relevant PRs, current candidate SHA, changed files, comments and Actions evidence.
 9. Inspect methodology telemetry issue #25 when recent workflow/PR evidence may affect methodology conclusions.
 10. Use GitHub state, not chat history, to decide the next action.
@@ -69,13 +69,17 @@ A second simultaneous reviewer is escalation only for unresolved uncertainty, di
 
 Independence is based on authorship and evidence separation, not model branding.
 
-## Protected-governance bootstrap exception
+## Governance-authority bootstrap exception
 
 Normal work is authorized by a trusted versioned task on `main`. The only exception is the fail-closed manual governance-bootstrap lane defined in `docs/GOVERNANCE_BOOTSTRAP.md`.
 
-That lane may be used only when protected governance/control-plane work cannot be authorized by a pre-existing trusted task without creating the same authorization recursion being repaired. It requires explicit human authorization of a bounded GitHub issue, a recorded SHA-256 fingerprint of the authorized issue body, HIGH risk, fresh independent `chatgpt-secondary` review for the exact candidate SHA, green deterministic CI, and manual evidence validation by primary ChatGPT.
+That lane is semantic, not path-name based. It may be used only when the repository's normative authority/review-control model itself must be repaired or defined and a normal trusted task cannot be established first without depending on the same authorization semantics being repaired. Missing or inconvenient tasks are not sufficient.
 
-Task-only trusted automation must remain task-only and must not infer or invent bootstrap authorization. A bootstrap candidate may not authorize itself. Any material scope change after the authorized issue-body fingerprint requires fresh human authorization.
+Bootstrap requires HIGH risk, a frozen bounded GitHub issue, a SHA-256 fingerprint of its exact body, and a **direct human GitHub authorization comment whose API metadata is not app-mediated**. Primary/connector-authored claims of human approval are not authority. A primary-authored candidate then requires exact-SHA green deterministic CI and fresh isolated `chatgpt-secondary` review.
+
+For an authority-bearing bootstrap `APPROVE`, the exact secondary JSON must also enter GitHub through a provenance-separated direct human relay/attestation as defined by `docs/GOVERNANCE_BOOTSTRAP.md`; primary may validate and consume it but cannot be its sole GitHub origin.
+
+Task-only trusted automation remains task-only and must not infer or invent bootstrap authorization. A bootstrap candidate may not authorize itself. Any material scope/body change invalidates the human authorization and requires a new direct authorization bound to the new body hash.
 
 ## User command semantics
 
@@ -101,10 +105,11 @@ Primary ChatGPT may merge without separate human confirmation only when all appl
 - deterministic CI/tests are green;
 - required TIA/Openness acceptance is green, or the trusted task explicitly defines Windows/TIA execution as post-merge;
 - no unresolved `critical`/`major` finding, `BLOCKED` or `REVIEW_CONFLICT` exists;
-- scope still matches the trusted task and accepted architecture, or for the exceptional governance-bootstrap lane the live authorized issue body still matches its recorded fingerprint and the diff remains inside that human-authorized scope;
+- scope still matches the trusted task and accepted architecture, or for the exceptional governance-bootstrap lane the live issue body still matches the **direct-human-authorized** fingerprint and the diff remains inside that authorized scope;
+- for bootstrap, the exact independent APPROVE evidence has provenance separated from the candidate author as required by `docs/GOVERNANCE_BOOTSTRAP.md`;
 - review/evidence is not stale relative to the current head.
 
-Primary ChatGPT must stop for the human on strategic or materially irreversible decisions, project-goal changes, risk waivers, destructive external actions, licensing/vendor-distribution decisions, or unresolved reviewer conflict/ambiguity.
+Primary ChatGPT must stop for the human on strategic or materially irreversible decisions, project-goal changes, risk waivers, destructive external actions, licensing/vendor-distribution decisions, bootstrap scope authorization/reauthorization, or unresolved reviewer conflict/ambiguity.
 
 No coding agent, reviewer, GitHub Action, or PR author may self-merge automatically.
 
@@ -156,7 +161,9 @@ Trust boundary:
 
 When `chatgpt-secondary` is required, primary ChatGPT must prepare the complete review request. The user should only have to paste it into a fresh ChatGPT chat and return the JSON response.
 
-The package must contain the exact task, candidate SHA/PR, bounded diff/source context, deterministic evidence, TIA evidence when available, prior findings relevant to the round, explicit objectives and the exact response schema/identity. For the exceptional governance-bootstrap lane, the authorized issue, issue-body fingerprint, human-authorization record and `docs/GOVERNANCE_BOOTSTRAP.md` replace the otherwise missing trusted task as scope evidence for manual review only.
+The package must contain the exact task, candidate SHA/PR, bounded diff/source context, deterministic evidence, TIA evidence when available, prior findings relevant to the round, explicit objectives and the exact response schema/identity. For the exceptional governance-bootstrap lane, the frozen issue/body fingerprint, direct human-authorization comment with provenance metadata, prior bootstrap findings and `docs/GOVERNANCE_BOOTSTRAP.md` replace the otherwise missing trusted task as manual scope evidence.
+
+For bootstrap only, returning the JSON to primary chat is sufficient to diagnose or repair conservatively, but an authority-bearing `APPROVE` does not satisfy the merge gate until the human directly relays/attests that exact JSON into GitHub through the provenance-separated path defined by `docs/GOVERNANCE_BOOTSTRAP.md`.
 
 The secondary chat must be instructed that GitHub is the sole source of truth and that it has no prior conversation context.
 
