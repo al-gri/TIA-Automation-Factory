@@ -4,7 +4,7 @@ Status: accepted and active Phase 2 design. I6 baseline is frozen; external-revi
 
 ## Goal
 
-Run the software factory autonomously for most implementation work while keeping architecture and critical verification under independent review. Minimize paid inference without weakening deterministic Linux/TIA acceptance.
+Run the software factory autonomously for most implementation work while keeping architecture and critical verification under independent review. Minimize paid inference and human coordination without weakening deterministic Linux/TIA acceptance.
 
 ## Repository-first context discipline
 
@@ -49,32 +49,48 @@ The coding agent must not approve its own work and must not make unreviewed arch
 
 ### ChatGPT — Senior Architect and primary external reviewer
 
-ChatGPT may operate in either of two equivalent reviewer modes:
+ChatGPT may operate in either of two modes:
 
-- connected mode: the user asks ChatGPT to check pending coding-agent / DeepSeek requests; ChatGPT reads the GitHub source of truth, performs the authorized review, and writes the structured response back to GitHub;
-- copy/paste fallback: a self-contained review package is pasted into a fresh chat and the returned JSON is pasted back into GitHub.
+- connected mode: the user asks ChatGPT to inspect pending coding-agent / DeepSeek requests; ChatGPT reads the GitHub source of truth, performs the authorized review, and writes the structured response back to GitHub;
+- isolated fallback: a self-contained review package is pasted into a clean reviewer chat only when deliberate isolation is useful or a connector is unavailable.
 
 Primary responsibilities:
 
-- architecture and API-boundary review;
+- architecture and API-boundary design/review;
 - code-quality and maintainability review;
 - difficult debugging and root-cause analysis;
 - review of compiler/domain design decisions;
 - arbitration of complex implementation choices.
 
+ChatGPT may author architecture or bounded repairs. When it materially authored or co-authored the candidate under review, it must not approve that same candidate as the required independent reviewer.
+
 ### Gemini — independent verification / red-team reviewer
 
-Gemini is reserved for independent review and escalation, especially when a change is risky, architecture-sensitive, PLC-semantic, security-related, large, or disputed.
+Gemini is reserved for independent review and escalation, especially when a change is risky, architecture-sensitive, PLC-semantic, security-related, large, disputed, or authored by the primary ChatGPT architect.
 
-Gemini is **not** a routine coding fallback. This preserves independence between implementer and reviewer roles.
+Gemini is **not** a routine coding fallback. This preserves independence between implementer/author and reviewer roles.
 
 When Gemini is required, ChatGPT must prepare a complete ready-to-paste Gemini message from GitHub source of truth. The human must not have to manually collect task context, diffs, evidence, architecture rules, or the response schema.
 
 ### Human operator
 
-The human remains the approval authority but should not have to manually assemble technical context. In connected ChatGPT mode the normal interaction is simply to ask for pending reviews and read the resulting decision/status. The GitHub copy/paste flow remains available when a connector is unavailable or an intentionally isolated fresh reviewer chat is desired.
+The human remains the merge/approval authority but should not have to manually assemble technical context. In connected ChatGPT mode the normal interaction is simply to ask for pending reviews and read the resulting decision/status. Copy/paste is kept only where an external isolated reviewer is actually required.
 
 GitHub remains the source of truth for tasks, candidate diffs, review packages, reviewer feedback, and state transitions.
+
+## Independence rule
+
+The required reviewer must be independent of the candidate author/implementer.
+
+- The coding agent cannot approve its own candidate.
+- ChatGPT cannot fill the required independent-review slot for a candidate it materially authored or repaired.
+- Gemini cannot fill the required independent-review slot for a candidate it materially authored.
+- A second ChatGPT chat is **not** a standing project role and is never required merely to create another ChatGPT identity.
+- When the primary ChatGPT authored a HIGH-risk candidate, Gemini is the normal independent reviewer.
+- When the coding agent authored the candidate and ChatGPT did not materially co-author it, ChatGPT is the normal independent reviewer.
+- A second independent reviewer is added only for explicit escalation: unresolved uncertainty, disputed findings, security/safety-sensitive ambiguity, or a human request for another opinion.
+
+Independence is about authorship and evidence separation, not about multiplying chats.
 
 ## Connected ChatGPT operator console
 
@@ -86,14 +102,12 @@ For a general repository/review request ChatGPT should:
 2. inspect current tasks, open candidate PRs, pending `WAITING_FOR_EXTERNAL_REVIEW` requests, and failing/running trusted workflows;
 3. ignore stale requests whose candidate SHA no longer matches the current PR head or which already have a terminal response;
 4. read the trusted task, bounded candidate diff/source context, deterministic Linux evidence, generated artifact evidence, prior findings, and TIA evidence when present;
-5. independently decide `APPROVE`, `CHANGES_REQUIRED`, or `BLOCKED` for the authorized ChatGPT/reviewer slot;
+5. independently decide `APPROVE`, `CHANGES_REQUIRED`, or `BLOCKED` only when ChatGPT is eligible for the required reviewer slot under the independence rule;
 6. write a schema-valid `/external-review` response back to the same PR, preserving request ID, reviewer slot, task ID, candidate SHA, review type, and review round;
 7. persist any durable new blocker/decision in GitHub;
 8. report to the user only the operationally useful result: what was checked, the decision/failure, the next gate, and whether the user must do anything.
 
-ChatGPT must not answer the independent `gemini` slot. For HIGH-risk work it may complete only the ChatGPT slot; the Gemini slot must remain independently reviewed before aggregate acceptance.
-
-If Gemini is required, the ChatGPT response to the human must include the full ready-to-paste Gemini message. Do not merely tell the user to ask Gemini to review the PR.
+If ChatGPT is not independent because it materially authored the candidate, it must prepare the Gemini package instead of creating another mandatory ChatGPT chat.
 
 Connected review never authorizes automatic merge. A final merge remains a distinct human decision.
 
@@ -105,7 +119,7 @@ Examples: small mapper changes, simple UDT additions, isolated tests, straightfo
 
 Required path:
 
-`OpenRouter/DeepSeek coder -> deterministic Linux checks -> ChatGPT external review -> TIA when applicable`
+`OpenRouter/DeepSeek coder -> deterministic Linux checks -> one independent external review (ChatGPT by default) -> TIA when applicable`
 
 ### MEDIUM risk
 
@@ -113,7 +127,9 @@ Examples: PlcCompiler changes, new PLC IR behavior, non-trivial SiemensBackend c
 
 Required path:
 
-`OpenRouter/DeepSeek coder -> ChatGPT review -> Gemini if uncertainty/findings justify escalation -> TIA`
+`author/implementer -> deterministic checks -> one independent external review -> Gemini escalation only if uncertainty/findings justify it -> TIA when applicable`
+
+ChatGPT is the default reviewer for coding-agent work. If ChatGPT materially co-authored the candidate, use Gemini instead.
 
 ### HIGH risk
 
@@ -121,17 +137,22 @@ Examples: architecture changes, PLC semantics with safety implications, trust-bo
 
 Required path:
 
-`Architecture proposal -> independent ChatGPT review + independent Gemini review -> approved decision -> coding agent implementation -> independent implementation review -> deterministic gates -> TIA`
+`proposal/candidate -> one independent reviewer distinct from the author -> approved decision -> coding-agent implementation when applicable -> independent implementation review -> deterministic gates -> TIA when applicable -> human merge decision`
 
-ChatGPT and Gemini must review the same original package independently before seeing each other's conclusions.
+Reviewer selection:
 
-If their conclusions conflict, the task enters `REVIEW_CONFLICT`; it must not be automatically accepted.
+- ChatGPT-authored/co-authored candidate -> Gemini independent review;
+- coding-agent-authored candidate with ChatGPT independent -> ChatGPT review;
+- Gemini-authored candidate -> ChatGPT review;
+- second reviewer -> only explicit escalation, not a routine gate.
+
+When dual review is intentionally requested, both reviewers must see the same immutable original package independently before seeing each other's conclusions. If their conclusions conflict, the task enters `REVIEW_CONFLICT`; it must not be automatically accepted.
 
 ## External Review Protocol
 
 The normative protocol is versioned in `docs/EXTERNAL_REVIEW_PROTOCOL.md`.
 
-Every external review request must be self-contained so it can be reviewed from a brand-new chat with zero previous conversation context or through the connected ChatGPT console without relying on chat history.
+Every external review request must be self-contained so it can be reviewed from a brand-new reviewer context with zero previous conversation context or through the connected ChatGPT console without relying on chat history.
 
 A review package must contain:
 
@@ -158,7 +179,7 @@ The recognized outcomes are:
 - `APPROVE` -> next deterministic gate.
 - `CHANGES_REQUIRED` -> bounded repair on the same candidate.
 - `BLOCKED` -> human/architecture escalation.
-- conflicting independent reviews -> `REVIEW_CONFLICT`.
+- conflicting intentionally requested independent reviews -> `REVIEW_CONFLICT`.
 
 ## Optional Cline / editor-agent role
 
@@ -206,12 +227,13 @@ The current provider strategy is intentionally simple:
 
 - OpenRouter free coding model first;
 - DeepSeek official API / `deepseek-flash` as the paid continuity fallback;
-- ChatGPT as connected primary external reviewer;
-- Gemini only as independent verification/red-team reviewer when risk policy requires it;
+- ChatGPT as Senior Architect and default independent reviewer for coding-agent candidates;
+- Gemini as the independent reviewer when ChatGPT authored the candidate and as an escalation/red-team reviewer when risk policy justifies it;
+- no standing second-ChatGPT reviewer role;
 - record calls, tokens, cache hits, model/provider, fallback reason, and reported/estimated paid cost per task;
 - do not introduce a complex LiteLLM multi-provider gateway until measured usage shows that it is needed.
 
-The optimization target is reliable 24/7 progress with free quota consumed first and inexpensive paid inference used only when necessary.
+The optimization target is reliable 24/7 progress with free quota consumed first and inexpensive paid inference/review used only when necessary.
 
 ## Security and acceptance boundaries
 
@@ -232,9 +254,10 @@ This operating model does not change the trusted TIA boundary:
 2. Versioned external-review protocol, templates, response schema, trusted renderer/validator, and CI tests added.
 3. Explicit GitHub external-review state transitions and automatic self-contained package generation from task + diff + evidence added.
 4. Connected ChatGPT review and bounded repair loop added.
-5. Coding provider order changed to OpenRouter first, DeepSeek `deepseek-flash` second; Gemini reserved for independent review.
-6. Ensure trusted task state is always resolved from `main` during Candidate Validation.
-7. Measure real cost/throughput for several tasks.
-8. Add LiteLLM/provider pooling or deeper Cline automation only if measured usage shows clear benefit.
+5. Coding provider order changed to OpenRouter first, DeepSeek `deepseek-flash` second; Gemini reserved for independent review/escalation.
+6. Review policy simplified to one independent reviewer distinct from the author; no standing second-ChatGPT gate.
+7. Ensure trusted task state is always resolved from `main` during Candidate Validation.
+8. Measure real cost/throughput for several tasks.
+9. Add LiteLLM/provider pooling or deeper Cline automation only if measured usage shows clear benefit.
 
 Tracking issue: #7.
