@@ -21,19 +21,20 @@ Then inspect current PRs, Actions, versioned tasks, issue #19 and pending extern
 ## Roles and authority
 
 - coding provider: OpenRouter first, official DeepSeek `deepseek-flash` fallback;
-- ChatGPT: Senior Architect + primary connected reviewer + delegated technical merge authority;
-- Gemini: independent reviewer/red-team when authorship or escalation requires it;
-- TIA Portal V21 real compile/Openness execution: authoritative Siemens acceptance.
+- primary connected ChatGPT: Senior Architect + normal coding-agent reviewer + orchestrator + delegated technical merge authority;
+- `chatgpt-secondary`: fresh isolated ChatGPT used when primary ChatGPT materially authored/co-authored the candidate or when explicit independent escalation is requested;
+- Gemini: no standing project role;
+- real TIA Portal V21 compile/Openness execution: authoritative Siemens acceptance.
 
-Reviewer independence is authorship-based. One independent external reviewer is the default even for HIGH risk. Coding-agent-authored candidate -> ChatGPT; ChatGPT-authored/co-authored candidate -> Gemini. Add a second reviewer only by escalation or explicit human request.
+One independent external reviewer is the default even for HIGH risk. Coding-agent-authored candidate -> primary `chatgpt` when independent. Primary-ChatGPT-authored/co-authored candidate -> `chatgpt-secondary`. Additional simultaneous review is escalation only.
 
-The human has delegated routine technical merge/no-merge decisions to connected ChatGPT after exact-SHA gates pass. Human input is reserved for strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution choices, or unresolved review conflict/ambiguity.
+Human input is reserved for strategic/materially irreversible decisions, risk waivers, destructive external actions, licensing/vendor-distribution choices and unresolved reviewer conflict/ambiguity.
 
-## Current operational state
+## Current state
 
 ### Architecture
 
-PR #17 is merged. Architecture merge commit: `db8e1bcacc6febb15fa5817a2d2b22d15ccbe58e`. Issue #18 is closed.
+PR #17 is merged at `db8e1bcacc6febb15fa5817a2d2b22d15ccbe58e`. Issue #18 is closed.
 
 Accepted direction remains:
 
@@ -52,66 +53,61 @@ React/React Flow/table views
 
 ### PLC-001
 
-PR #16 is merged at merge commit `64daa260416b7a4163f7627b668ae155db694919`.
+PR #16 merged at `64daa260416b7a4163f7627b668ae155db694919` after exact trusted TIA Portal V21 compile: **0 errors / 0 warnings**.
 
-Exact reviewed candidate: `c4999464457eb5715c5b8590cb6b4d077002640f`.
+### OLQ infrastructure
 
-`TIME` support passed deterministic Linux tests, connected ChatGPT review and exact trusted TIA Portal V21 compile: **0 errors / 0 warnings**.
+- PR #21 merged at `7430f83140de4bdf4d4b53c564373b15d14fb378` — task-gated `TiaV21Worker` candidate support and trusted-main-only Windows/TIA execution.
+- PR #23 merged at `6ca057eb5dddf3986e1b00ef8e653c044c998938` — bounded HIGH repair support.
 
-### OLQ-001 workflow unblock
+### OLQ-001 candidate
 
-PR #21 is merged.
+Canonical task: `tasks/OLQ-001.json`.
 
-Exact Gemini-reviewed candidate: `3a66224e361c68ca065d3b3946a6278760b59138`.
+PR #22 is the active implementation candidate.
 
-Merge commit: `7430f83140de4bdf4d4b53c564373b15d14fb378`.
+Current exact code head after two autonomous repair attempts plus one bounded primary-ChatGPT maintainer repair:
 
-The merged change safely supports:
+`4354bebbf2a3bf745b09589d6abac0938d5b5664`
 
-- non-GeneratorCli tasks;
-- trusted task opt-in for bounded `src/TiaV21Worker/**` source changes;
-- no candidate changes to workflows/tasks/prompts;
-- one independent reviewer by authorship policy;
-- no pre-merge Windows/TIA execution of candidate worker code.
+CI #164 / run `35366781733`: PASS.
 
-### OLQ-001 versioned task
+The code-level defects F001-F008 are considered resolved by the latest independent external review. The remaining blocker is reviewer-slot governance: primary ChatGPT became a material co-author and therefore cannot independently approve PR #22.
 
-Canonical task exists on `main`:
+### Reviewer-policy change
 
-`tasks/OLQ-001.json`
+The human operator explicitly replaced Gemini with a second isolated ChatGPT reviewer because Gemini's GitHub access was unreliable for this workflow.
 
-Task commit: `48b7ae7e80505ef75fc05ceef3e48bef2cd836e8`.
+Governance PR #24 is active. It changes the project policy so that:
 
-It requires an explicit `qualify-library` path in `TiaV21Worker`, source `.zal19` SHA256, exact V21 build identity, `GlobalLibraries.RetrieveWithUpgrade(...)`, save + compressed explicit `.zal21` archive, deterministic qualification identity, native reopen with current-version `Retrieve(...)`, mismatch failure, and machine-readable manifest/diagnostics. Vendor library payload must never be committed.
+- coding-agent candidate -> primary `chatgpt` when independent;
+- primary-ChatGPT-authored/co-authored candidate -> `chatgpt-secondary`;
+- Gemini has no standing role;
+- one independent reviewer remains sufficient by default;
+- `tasks/OLQ-001.json` authorizes both `chatgpt` and `chatgpt-secondary`, allowing authorship-based reviewer transition without introducing mandatory dual review.
+
+Primary ChatGPT authors PR #24, so #24 itself requires a clean independent `chatgpt-secondary` review before merge.
 
 ## Immediate next action
 
-Start `.github/workflows/agent.yml` (**Autonomous Agent**) in task mode with:
-
-- `source = task`
-- `task_path = tasks/OLQ-001.json`
-- `issue_number` empty
-
-The current connected GitHub API surface does not expose creation of a `workflow_dispatch` event. This is an interface limitation, not a repository/workflow blocker. Do not bypass the trust model by using issue-mode `agent-ready`, because issue mode correctly lacks the trusted `TiaV21Worker` opt-in.
-
-After the task-mode run exists, connected ChatGPT should continue without separate merge prompts:
-
-1. inspect the coding-agent run and candidate PR;
-2. perform independent ChatGPT review of the exact coding-agent SHA;
-3. dispatch/handle bounded repair if needed;
-4. merge autonomously once review + deterministic gates satisfy policy;
-5. prepare/run trusted-main qualification on TIA V21 with the external `.zal19`;
-6. persist qualification manifest/diagnostics;
-7. request human input only when the qualified library profile itself requires final business/licensing acceptance before becoming a normal generator dependency.
+1. Inspect current PR #24 head and CI.
+2. Prepare/obtain an independent `chatgpt-secondary` review for exact PR #24 SHA.
+3. If APPROVE + CI green, primary ChatGPT performs delegated merge of #24.
+4. Re-run independent `chatgpt-secondary` review for unchanged PR #22 code candidate under the now-authorized trusted task slot.
+5. If APPROVE + exact-SHA CI green, primary ChatGPT merges #22.
+6. Build trusted `main` `TiaV21Worker` on Windows/TIA V21.
+7. Run OLQ qualification against the actual external `.zal19` and repeat once for deterministic reuse proof.
+8. Persist manifest/diagnostics/hashes only; never commit vendor `.zal19/.zal21` payload.
+9. Human accepts the resulting qualified library profile before it becomes a normal generator dependency.
 
 ## Roadmap after OLQ-001
 
 `OL-001` -> `OL-002` -> PLC compiler foundations -> `GEN-001` WaterSystem/fbValve_Solenoid vertical slice.
 
-Do not add broad UI, generic plugin infrastructure, F-safety generation, or unrelated hardware generation ahead of this sequence.
+Do not add broad UI, generic plugin infrastructure, F-safety generation or unrelated hardware generation ahead of this sequence.
 
 ## Fresh-chat behavior
 
-When the user says `проверь репозиторий`, `проверь запросы`, `что ждёт review?`, etc., inspect GitHub directly and process authorized pending ChatGPT review/orchestration/merge actions without asking the user to collect context.
+When asked to inspect the repo/reviews/agent state, primary connected ChatGPT should inspect GitHub directly, process authorized pending work and merge technically accepted PRs without separate merge prompts.
 
-If Gemini is required, provide a complete ready-to-paste request bound to the exact current SHA; never impersonate Gemini.
+If primary ChatGPT is not independent, it prepares a complete ready-to-paste request for a fresh `chatgpt-secondary` session and never self-approves.
