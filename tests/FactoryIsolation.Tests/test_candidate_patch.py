@@ -133,6 +133,18 @@ class CandidatePatchTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("allowTiaV21WorkerChanges=true", result.stderr)
 
+    def test_worker_scope_rejects_ancestor_wildcard_without_opt_in(self):
+        task = write_task(self.tmp / "task-worker-ancestor-off", ["src/**"], allow_worker=False)
+        result = self.run_helper("validate-current", "--task", task, "--base", self.base)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("allowTiaV21WorkerChanges=true", result.stderr)
+
+    def test_worker_scope_rejects_ancestor_wildcard_even_with_opt_in(self):
+        task = write_task(self.tmp / "task-worker-ancestor-on", ["src/**"], allow_worker=True)
+        result = self.run_helper("validate-current", "--task", task, "--base", self.base)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("ancestor-wide pattern is forbidden", result.stderr)
+
     def test_tampered_patch_path_is_rejected_by_fresh_publisher(self):
         task = write_task(self.tmp / "task-a", ["src/allowed.txt"])
         (self.repo / "src" / "allowed.txt").write_text("candidate\n", encoding="utf-8")
