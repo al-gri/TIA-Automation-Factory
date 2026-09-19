@@ -3,7 +3,7 @@
   "title": "Add privacy-safe phase diagnostics for Open Library qualification failures",
   "goal": "Instrument the trusted TIA V21 Open Library qualification path so a failed migration exposes only a stable operation phase, exception type and HRESULT through the existing public-safe failure field, while raw exception details remain runner-local and qualification/migration semantics remain unchanged.",
   "scope": [
-    "Primary-maintainer scope: modify only src/TiaV21Worker/Program.cs unless a tiny source-level test file is strictly necessary. Do not modify workflows, generator/domain/compiler semantics, agents, other tasks, runner configuration, secrets, vendor payloads, or IndustrialMDE.",
+    "Coding-agent candidate scope: modify only src/TiaV21Worker/Program.cs unless a tiny source-level test file is strictly necessary. Do not modify workflows, generator/domain/compiler semantics, agents, other tasks, runner configuration, secrets, vendor payloads, or IndustrialMDE.",
     "Preserve the exact migration sequence RetrieveWithUpgrade -> Save -> Archive -> current-version Retrieve verification. Do not add fallback APIs, retries, UI/headless changes, or vendor-specific semantic workarounds.",
     "Track stable sanitized phases sufficient to distinguish retrieve-with-upgrade, save, archive, upgrade-close, native-reopen and native-reopen-close failures.",
     "For caught qualification exceptions, expose through QualificationResult.Failure only bounded tokens: stable phase, exception type, and HRESULT rendered in hexadecimal. Do not expose exception Message, stack trace, source/output/work absolute paths, usernames, arbitrary Siemens text, or vendor contents.",
@@ -24,7 +24,7 @@
       "The candidate does not reinterpret migration failures as BLOCKED; BLOCKED remains a workflow-level timeout/configuration state.",
       "The candidate documents or otherwise makes explicit that Program.RunQualifyLibrary already returns exit code 1 when result.Success is false; no workflow change is included to chase the run1ExitCode observation.",
       "Exact candidate Linux CI is green before merge.",
-      "Because primary ChatGPT is expected to materially author this bounded diagnostic candidate, a fresh isolated chatgpt-secondary CODE_REVIEW APPROVE is required for the exact current candidate SHA before merge."
+      "Coding-agent-authored candidate requires one independent primary chatgpt CODE_REVIEW APPROVE for the exact current candidate SHA before merge. If primary ChatGPT later materially authors candidate code, reviewer selection must switch to chatgpt-secondary before approval."
     ],
     "tia": [
       "No candidate Windows/TIA execution occurs before independent review and merge.",
@@ -37,7 +37,7 @@
     "riskClass": "HIGH",
     "reviewType": "CODE_REVIEW",
     "reviewerSlots": [
-      "chatgpt-secondary"
+      "chatgpt"
     ]
   },
   "candidatePolicy": {
