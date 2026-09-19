@@ -153,12 +153,14 @@ jobs:
             $quotedWork = '"' + $WorkPath + '"'
             $arguments = "qualify-library $quotedSource $quotedOutput $quotedManifest $quotedWork"
 
-            $process = Start-Process \
-              -FilePath $Executable \
-              -ArgumentList $arguments \
-              -RedirectStandardOutput $StdoutPath \
-              -RedirectStandardError $StderrPath \
-              -PassThru
+            $startProcess = @{
+              FilePath = $Executable
+              ArgumentList = $arguments
+              RedirectStandardOutput = $StdoutPath
+              RedirectStandardError = $StderrPath
+              PassThru = $true
+            }
+            $process = Start-Process @startProcess
 
             $timeoutMilliseconds = [int][TimeSpan]::FromMinutes($TimeoutMinutes).TotalMilliseconds
             if (-not $process.WaitForExit($timeoutMilliseconds)) {
@@ -293,16 +295,18 @@ jobs:
               $run2Stdout = Join-Path $rawRoot 'run2-stdout.txt'
               $run2Stderr = Join-Path $rawRoot 'run2-stderr.txt'
 
-              $run1Process = Invoke-BoundedQualification \
-                -Phase 'run1' \
-                -Executable $exe \
-                -SourceArchive $source \
-                -OutputRoot $qualifiedRoot \
-                -ManifestPath $run1Manifest \
-                -WorkPath $run1Work \
-                -StdoutPath $run1Stdout \
-                -StderrPath $run1Stderr \
-                -TimeoutMinutes $timeoutMinutes
+              $run1Arguments = @{
+                Phase = 'run1'
+                Executable = $exe
+                SourceArchive = $source
+                OutputRoot = $qualifiedRoot
+                ManifestPath = $run1Manifest
+                WorkPath = $run1Work
+                StdoutPath = $run1Stdout
+                StderrPath = $run1Stderr
+                TimeoutMinutes = $timeoutMinutes
+              }
+              $run1Process = Invoke-BoundedQualification @run1Arguments
 
               if ($run1Process.TimedOut) {
                 $evidence.status = 'BLOCKED'
@@ -336,16 +340,18 @@ jobs:
                     }
                   }
                   else {
-                    $run2Process = Invoke-BoundedQualification \
-                      -Phase 'run2' \
-                      -Executable $exe \
-                      -SourceArchive $source \
-                      -OutputRoot $qualifiedRoot \
-                      -ManifestPath $run2Manifest \
-                      -WorkPath $run2Work \
-                      -StdoutPath $run2Stdout \
-                      -StderrPath $run2Stderr \
-                      -TimeoutMinutes $timeoutMinutes
+                    $run2Arguments = @{
+                      Phase = 'run2'
+                      Executable = $exe
+                      SourceArchive = $source
+                      OutputRoot = $qualifiedRoot
+                      ManifestPath = $run2Manifest
+                      WorkPath = $run2Work
+                      StdoutPath = $run2Stdout
+                      StderrPath = $run2Stderr
+                      TimeoutMinutes = $timeoutMinutes
+                    }
+                    $run2Process = Invoke-BoundedQualification @run2Arguments
 
                     if ($run2Process.TimedOut) {
                       $evidence.status = 'BLOCKED'
