@@ -39,7 +39,7 @@ function Get-WhitelistVersion {
 
 function Get-CurrentUserSid {
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-    return $identity.User.Value
+    return [System.Security.Principal.SecurityIdentifier]::new($identity.User.Value)
 }
 
 function Get-WhitelistKeyPath {
@@ -66,13 +66,13 @@ function Ensure-WhitelistKey {
 function Grant-MinimumPermissions {
     param(
         [string]$KeyPath,
-        [string]$UserSid
+        [System.Security.Principal.SecurityIdentifier]$UserSid
     )
 
     $acl = Get-Acl -Path $KeyPath
     # Minimum rights for self-sync: open existing Entry key (QueryValues) and set values (SetValue)
     # No CreateSubKey, no inheritance - rights apply only to the Entry key itself
-    $requiredRights = "SetValue, QueryValues"
+    $requiredRights = [System.Security.AccessControl.RegistryRights]::SetValue -bor [System.Security.AccessControl.RegistryRights]::QueryValues
     $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
         $UserSid,
         $requiredRights,
@@ -83,9 +83,9 @@ function Grant-MinimumPermissions {
 
     # Check if an equivalent Allow rule with exactly the required rights already exists
     $existingRule = $acl.Access | Where-Object {
-        $_.IdentityReference.Value -eq $UserSid -and
+        $_.IdentityReference.Value -eq $UserSid.Value -and
         $_.AccessControlType -eq "Allow" -and
-        $_.RegistryRights -eq ([System.Security.AccessControl.RegistryRights]::SetValue -bor [System.Security.AccessControl.RegistryRights]::QueryValues) -and
+        $_.RegistryRights -eq $requiredRights -and
         $_.InheritanceFlags -eq "None" -and
         $_.PropagationFlags -eq "None"
     }
