@@ -93,7 +93,10 @@ jobs:
           if state.get('state') != 'WAITING_FOR_EXTERNAL_REVIEW':
               raise SystemExit(f"Review request is not pending: {state.get('state')}")
 
-          required = ['taskId', 'candidateSha', 'reviewType', 'reviewRound', 'reviewerSlot', 'riskClass']
+          required = [
+              'baseSha', 'taskPath', 'taskSha256', 'taskId', 'candidateSha',
+              'reviewType', 'reviewRound', 'reviewerSlot', 'riskClass'
+          ]
           for key in required:
               if key not in state:
                   raise SystemExit(f'Missing trusted state field: {key}')
@@ -106,19 +109,23 @@ jobs:
           if not isinstance(branch, str) or not branch.startswith('agent/'):
               raise SystemExit('External review automation only resumes trusted agent/* candidate branches')
 
+          Path(os.environ['RUNNER_TEMP'], 'pending-review-state.json').write_text(
+              json.dumps(state, sort_keys=True), encoding='utf-8')
           out = Path(os.environ['GITHUB_OUTPUT'])
           with out.open('a', encoding='utf-8') as fh:
               for key, output_name in [
+                  ('baseSha','base_sha'), ('taskPath','task_path'), ('taskSha256','task_sha256'),
                   ('taskId','task_id'), ('candidateSha','candidate_sha'), ('reviewType','review_type'),
                   ('reviewRound','review_round'), ('reviewerSlot','reviewer_slot'), ('riskClass','risk_class')]:
                   fh.write(f'{output_name}={state[key]}\n')
               fh.write(f'branch={branch}\n')
           PY
 
+          BASE_SHA=${{ steps.state.outputs.base_sha }}
           CANDIDATE_SHA=$(jq -r .headRefOid "$RUNNER_TEMP/pr.json")
           REVIEWER_SLOT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["reviewerSlot"])' "$RUNNER_TEMP/external-review-response.json")
-          git fetch --no-tags origin "$CANDIDATE_SHA"
-          git log --format='%ae' "main..$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate-author-emails.txt"
+          git fetch --no-tags origin "$BASE_SHA" "$CANDIDATE_SHA"
+          git log --format='%ae' "$BASE_SHA..$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate-author-emails.txt"
           test -s "$RUNNER_TEMP/candidate-author-emails.txt"
           python3 agents/runtime/reviewer-policy.py validate-slot \
             --emails-file "$RUNNER_TEMP/candidate-author-emails.txt" \
@@ -145,10 +152,13 @@ jobs:
             --review-round "$REVIEW_ROUND" \
             --normalized-output "$RUNNER_TEMP/normalized-review.json"
 
-      - name: Resolve current trusted task authorization and repair bound
+      - name: Resolve exact trusted task authority and repair bound
         id: task
         shell: bash
         env:
+          BASE_SHA: ${{ steps.state.outputs.base_sha }}
+          TASK_PATH: ${{ steps.state.outputs.task_path }}
+          TASK_SHA256: ${{ steps.state.outputs.task_sha256 }}
           TASK_ID: ${{ steps.state.outputs.task_id }}
           REVIEW_ROUND: ${{ steps.state.outputs.review_round }}
           RISK_CLASS: ${{ steps.state.outputs.risk_class }}
@@ -156,28 +166,24 @@ jobs:
           REVIEWER_SLOT: ${{ steps.state.outputs.reviewer_slot }}
         run: |
           set -euo pipefail
-          : > "$RUNNER_TEMP/task-matches.txt"
-          while IFS= read -r path; do
-            if [ "$(jq -r '.id // empty' "$path")" = "$TASK_ID" ]; then
-              echo "$path" >> "$RUNNER_TEMP/task-matches.txt"
-            fi
-          done < <(find tasks -maxdepth 1 -type f -name '*.json' | sort)
-
-          COUNT=$(wc -l < "$RUNNER_TEMP/task-matches.txt")
-          if [ "$COUNT" -ne 1 ]; then
-            echo "Expected exactly one trusted task for id=$TASK_ID; found $COUNT"
-            cat "$RUNNER_TEMP/task-matches.txt"
-            exit 1
-          fi
-          TASK_PATH=$(cat "$RUNNER_TEMP/task-matches.txt")
-          TASK_RISK=$(jq -r '.review.riskClass' "$TASK_PATH")
-          TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$TASK_PATH")
+          CURRENT_MAIN_SHA=$(git rev-parse HEAD)
+          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid bound task path"; exit 1 ;; esac
+          git show "$BASE_SHA:$TASK_PATH" > "$RUNNER_TEMP/bound-task.json"
+          python3 agents/runtime/review-authority.py validate \
+            --state "$RUNNER_TEMP/pending-review-state.json" \
+            --current-base-sha "$CURRENT_MAIN_SHA" \
+            --task-path "$TASK_PATH" \
+            --task-file "$RUNNER_TEMP/bound-task.json"
+          test "$(python3 agents/runtime/review-authority.py task-sha --task "$RUNNER_TEMP/bound-task.json")" = "$TASK_SHA256"
+          test "$(jq -r .id "$RUNNER_TEMP/bound-task.json")" = "$TASK_ID"
+          TASK_RISK=$(jq -r '.review.riskClass' "$RUNNER_TEMP/bound-task.json")
+          TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$RUNNER_TEMP/bound-task.json")
           test "$TASK_RISK" = "$RISK_CLASS"
           test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
           python3 agents/runtime/reviewer-policy.py authorize-slot \
-            --task-file "$TASK_PATH" \
+            --task-file "$RUNNER_TEMP/bound-task.json" \
             --reviewer-slot "$REVIEWER_SLOT"
-          MAX_REPAIRS=$(jq -r '.maxRepairAttempts // 0' "$TASK_PATH")
+          MAX_REPAIRS=$(jq -r '.maxRepairAttempts // 0' "$RUNNER_TEMP/bound-task.json")
           [[ "$MAX_REPAIRS" =~ ^[0-9]+$ ]]
           [[ "$REVIEW_ROUND" =~ ^[1-9][0-9]*$ ]]
           echo "task_path=$TASK_PATH" >> "$GITHUB_OUTPUT"
@@ -191,6 +197,9 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           REQUEST_ID: ${{ steps.response.outputs.request_id }}
           REVIEWER_SLOT: ${{ steps.state.outputs.reviewer_slot }}
+          BASE_SHA: ${{ steps.state.outputs.base_sha }}
+          TASK_PATH: ${{ steps.state.outputs.task_path }}
+          TASK_SHA256: ${{ steps.state.outputs.task_sha256 }}
           TASK_ID: ${{ steps.state.outputs.task_id }}
           CANDIDATE_SHA: ${{ steps.state.outputs.candidate_sha }}
           REVIEW_TYPE: ${{ steps.state.outputs.review_type }}
@@ -214,6 +223,9 @@ jobs:
               'protocolVersion': '1.0',
               'reviewRequestId': os.environ['REQUEST_ID'],
               'reviewerSlot': os.environ['REVIEWER_SLOT'],
+              'baseSha': os.environ['BASE_SHA'],
+              'taskPath': os.environ['TASK_PATH'],
+              'taskSha256': os.environ['TASK_SHA256'],
               'taskId': os.environ['TASK_ID'],
               'candidateSha': os.environ['CANDIDATE_SHA'],
               'reviewType': os.environ['REVIEW_TYPE'],
