@@ -1,9 +1,8 @@
 using System;
-using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Win32;
 
 namespace TiaAutomationFactory.TiaV21Worker
@@ -13,14 +12,14 @@ namespace TiaAutomationFactory.TiaV21Worker
         private const string ApplicationName = "TiaV21Worker.exe";
         private const string WhitelistBasePath = @"SOFTWARE\Siemens\Automation\Openness\Whitelist";
 
-        public static void SynchronizeWhitelist()
+        public static WhitelistSyncResult SynchronizeWhitelist()
         {
             string version = GetWhitelistVersion();
             string executablePath = GetExecutablePath();
             string fileHash = ComputeFileHash(executablePath);
             string dateModified = GetDateModified(executablePath);
 
-            string entryKeyPath = $@"{WhitelistBasePath}\{version}\Entries\{ApplicationName}";
+            string entryKeyPath = $@"{WhitelistBasePath}\{version}\Entries\{ApplicationName}\Entry";
 
             try
             {
@@ -29,9 +28,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 {
                     if (entryKey == null)
                     {
-                        throw new UnauthorizedAccessException(
-                            $"Whitelist entry key not found or not writable: {entryKeyPath}. " +
-                            "Run the elevated bootstrap script to grant permissions.");
+                        return WhitelistSyncResult.BootstrapRequired();
                     }
 
                     entryKey.SetValue("Path", executablePath, RegistryValueKind.String);
@@ -41,12 +38,14 @@ namespace TiaAutomationFactory.TiaV21Worker
             }
             catch (UnauthorizedAccessException)
             {
-                throw;
+                return WhitelistSyncResult.BootstrapRequired();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                throw new InvalidOperationException($"Failed to synchronize whitelist: {ex.Message}", ex);
+                return WhitelistSyncResult.BootstrapRequired();
             }
+
+            return WhitelistSyncResult.Success();
         }
 
         private static string GetWhitelistVersion()
@@ -75,30 +74,31 @@ namespace TiaAutomationFactory.TiaV21Worker
         private static string GetDateModified(string filePath)
         {
             DateTime lastWriteUtc = File.GetLastWriteTimeUtc(filePath);
-            return lastWriteUtc.ToString("yyyy/MM/dd HH:mm:ss.fff");
+            return lastWriteUtc.ToString("yyyy/MM/dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+        }
+    }
+
+    internal sealed class WhitelistSyncResult
+    {
+        public bool Success { get; private set; }
+        public bool BootstrapRequired { get; private set; }
+        public string Message { get; private set; }
+
+        private WhitelistSyncResult(bool success, bool bootstrapRequired, string message)
+        {
+            Success = success;
+            BootstrapRequired = bootstrapRequired;
+            Message = message;
         }
 
-        public static bool IsBootstrapRequired()
+        public static WhitelistSyncResult Success()
         {
-            string version = GetWhitelistVersion();
-            string entryKeyPath = $@"{WhitelistBasePath}\{version}\Entries\{ApplicationName}";
+            return new WhitelistSyncResult(true, false, null);
+        }
 
-            try
-            {
-                using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
-                using (RegistryKey entryKey = baseKey.OpenSubKey(entryKeyPath, writable: true))
-                {
-                    return entryKey == null;
-                }
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return true;
-            }
-            catch
-            {
-                return true;
-            }
+        public static WhitelistSyncResult BootstrapRequired()
+        {
+            return new WhitelistSyncResult(false, true, "Whitelist synchronization requires elevated bootstrap. Run the bootstrap script to grant registry permissions.");
         }
     }
 }
