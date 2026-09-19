@@ -64,7 +64,7 @@ jobs:
     needs: authorize-trigger
     if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Windows, X64, tia-v21]
-    timeout-minutes: 165
+    timeout-minutes: 180
     env:
       OLQ_INVOCATION_TIMEOUT_MINUTES: '75'
 
@@ -147,10 +147,14 @@ jobs:
               [int]$TimeoutMinutes
             )
 
-            $quotedSource = '"' + $SourceArchive + '"'
-            $quotedOutput = '"' + $OutputRoot + '"'
-            $quotedManifest = '"' + $ManifestPath + '"'
-            $quotedWork = '"' + $WorkPath + '"'
+            $quotedSource = '"' -replace '\\', ''
+            $quotedSource = $quotedSource + $SourceArchive + $quotedSource
+            $quotedOutput = '"' -replace '\\', ''
+            $quotedOutput = $quotedOutput + $OutputRoot + $quotedOutput
+            $quotedManifest = '"' -replace '\\', ''
+            $quotedManifest = $quotedManifest + $ManifestPath + $quotedManifest
+            $quotedWork = '"' -replace '\\', ''
+            $quotedWork = $quotedWork + $WorkPath + $quotedWork
             $arguments = "qualify-library $quotedSource $quotedOutput $quotedManifest $quotedWork"
 
             $startProcess = @{
@@ -170,12 +174,14 @@ jobs:
                   & $taskkill /PID $process.Id /T /F *> $null
                 }
               }
-              catch {
-                try {
+              catch { }
+
+              try {
+                if (-not $process.HasExited) {
                   Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
                 }
-                catch { }
               }
+              catch { }
 
               try { $process.WaitForExit(10000) | Out-Null } catch { }
 
