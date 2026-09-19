@@ -152,7 +152,7 @@ jobs:
             --review-round "$REVIEW_ROUND" \
             --normalized-output "$RUNNER_TEMP/normalized-review.json"
 
-      - name: Resolve exact trusted task authority and repair bound
+      - name: Resolve current trusted task authorization and repair bound
         id: task
         shell: bash
         env:
