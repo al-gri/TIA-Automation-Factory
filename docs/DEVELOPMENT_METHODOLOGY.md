@@ -121,6 +121,18 @@ For genuine governance-authority recursion, bind scope to a frozen GitHub issue 
 
 Any material issue-body/scope change invalidates prior signed scope authorization. Any candidate change invalidates review. The bootstrap lane is exceptional governance, not a shortcut for ordinary implementation work.
 
+### M-015 — Chat handoff is a transactional freshness checkpoint
+
+A primary-chat replacement must transfer **verified repository state and role**, not transcript memory.
+
+When the human requests a move to a fresh chat, the old primary freezes discretionary work, re-reads live GitHub, reconciles chat claims against durable evidence, updates factual operational snapshots/methodology where authorized, detects any exact-SHA/base/review invalidation, and only then emits the compact bootstrap prompt defined by `docs/CHAT_HANDOFF_PROTOCOL.md`.
+
+The fresh chat re-runs the repository startup sequence and independently verifies live state before exercising primary authority.
+
+Repository writes performed during handoff require an explicit verified target ref/branch. Omitting or assuming the target branch is unsafe because even a quickly reverted write can move `main`, stale a review base, and invalidate an otherwise correct exact-SHA package.
+
+Handoff may synchronize facts but must not smuggle new architecture, permissions, reviewer policy, risk waivers, repair-budget extensions or merge-gate changes into an operational checkpoint. Normative changes remain separate trusted tasks with normal review.
+
 ## 5. Rule maturity
 
 Methodology statements should be classified mentally or explicitly as:
@@ -150,6 +162,7 @@ For real tasks, prefer collecting:
 - trusted context size and included contracts;
 - control/data-plane trust-boundary incidents;
 - governance-bootstrap invocations, why normal task authorization was impossible, and which positive provenance artifact authorized scope/review;
+- chat-handoff incidents, stale snapshot corrections, target-ref write mistakes and review invalidations detected during transfer;
 - candidate changed-file count/scope;
 - merge/blocked outcome.
 
@@ -167,6 +180,8 @@ At every logical milestone, primary connected ChatGPT must, without waiting for 
 6. avoid copying secrets, vendor payloads or unnecessary large logs into Git.
 
 A fresh primary ChatGPT session must treat this checkpoint duty as part of normal orchestration, not as an optional documentation task.
+
+When a chat handoff is requested, the methodology checkpoint and freshness audit are part of handoff completion rather than optional follow-up.
 
 ## 8. Automated telemetry contract
 
@@ -191,6 +206,7 @@ The following remain active experiments rather than universally proven rules out
 - OpenRouter -> DeepSeek continuity and its real cost/quality profile over multiple generator tasks;
 - whether one independent semantic reviewer plus deterministic TIA acceptance is sufficient for routine HIGH-risk bounded changes;
 - the optimal repair budget by task class;
-- whether the manual governance-bootstrap lane remains rare enough that automating it would add more risk than value.
+- whether the manual governance-bootstrap lane remains rare enough that automating it would add more risk than value;
+- whether transactional repository-first chat handoff reliably eliminates context-window discontinuity without creating excessive state-document churn.
 
 Promote, modify or deprecate these only from accumulated GitHub evidence.

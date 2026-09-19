@@ -18,11 +18,12 @@ For a fresh ChatGPT session that continues project work:
 4. Read `docs/AI_COLLABORATION_MODEL.md`.
 5. Read `docs/DEVELOPMENT_METHODOLOGY.md` and the latest relevant entries in `docs/METHODOLOGY_JOURNAL.md`.
 6. Read `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work.
-7. Read the active task under `tasks/`; if the active work is an explicitly human-authorized governance-authority bootstrap with no non-recursive trusted task, read `docs/GOVERNANCE_BOOTSTRAP.md` and the authorized GitHub issue instead.
-8. Inspect relevant PRs, current candidate SHA, changed files, comments and Actions evidence.
-9. Inspect methodology telemetry issue #25 when recent workflow/PR evidence may affect methodology conclusions.
-10. Use GitHub state, not chat history, to decide the next action.
-11. Persist meaningful decisions, operational state changes and methodology lessons back to GitHub.
+7. Read `docs/CHAT_HANDOFF_PROTOCOL.md` when assuming the primary role from another chat or when the human requests a chat transfer.
+8. Read the active task under `tasks/`; if the active work is an explicitly human-authorized governance-authority bootstrap with no non-recursive trusted task, read `docs/GOVERNANCE_BOOTSTRAP.md` and the authorized GitHub issue instead.
+9. Inspect relevant PRs, current candidate SHA, changed files, comments and Actions evidence.
+10. Inspect methodology telemetry issue #25 when recent workflow/PR evidence may affect methodology conclusions.
+11. Use GitHub state, not chat history, to decide the next action.
+12. Persist meaningful decisions, operational state changes and methodology lessons back to GitHub.
 
 Do not ask the user to manually assemble context already present in GitHub.
 
@@ -94,6 +95,22 @@ Find active coding-agent candidates and pending external-review requests. For re
 If primary ChatGPT is not independent, prepare a ready-to-paste `chatgpt-secondary` package instead of self-approving.
 
 Possible verdicts are `APPROVE`, `CHANGES_REQUIRED` and `BLOCKED`.
+
+### `переходим в другой чат` / `переходим в новый чат` / `готовь handoff`
+
+Treat any unambiguous request to move project work to a fresh primary ChatGPT chat as activation of `docs/CHAT_HANDOFF_PROTOCOL.md`.
+
+Do not ask the human to reconstruct context already present in GitHub. The current primary must:
+
+1. stop starting discretionary new work;
+2. perform the live GitHub freshness audit defined by the handoff protocol;
+3. reconcile chat claims against GitHub and detect stale operational snapshots/review evidence;
+4. finish only safe atomic already-authorized orchestration needed to leave a coherent state;
+5. persist factual project/handoff/methodology state where authorized;
+6. explicitly mark any exact-SHA/base review invalidated by the checkpoint;
+7. return one compact ready-to-paste bootstrap prompt for the fresh chat.
+
+The fresh chat assumes the same primary role but independently verifies GitHub before acting. Transfer is repository-state transfer, not transcript or memory transfer.
 
 ## Delegated technical merge authority
 

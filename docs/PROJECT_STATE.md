@@ -1,18 +1,15 @@
 # Project State — Authoritative Operational Snapshot
 
 Last updated: 2026-09-19
+Trusted `main` checkpoint: `f6357be194266a787e7c3b3384e2cae8a3366b64`
 
-GitHub is the only durable source of truth. Fresh sessions recover state from this file, `AGENTS.md`, `docs/NEXT_CHAT_HANDOFF.md`, `docs/AI_COLLABORATION_MODEL.md`, `docs/DEVELOPMENT_METHODOLOGY.md`, current tasks/PRs/Actions and methodology telemetry issue #25.
+GitHub is the only durable source of truth. Fresh sessions must re-fetch live refs, PRs, tasks, Actions and issue state before acting. `IndustrialMDE` is outside scope and must not be modified.
 
-## Project
+## Project goal
 
-Repository: `al-gri/TIA-Automation-Factory`
+Build a production engineering system that converts a vendor-neutral automation model into modular Siemens PLC code/projects and verifies/assembles them through TIA Portal V21 Openness.
 
-Purpose: build a production engineering system that converts a vendor-neutral automation model into modular Siemens PLC code/projects and verifies/assembles them through TIA Portal V21 Openness.
-
-A second explicit output is the reusable AI-assisted software-development methodology described in `docs/DEVELOPMENT_METHODOLOGY.md` and `docs/METHODOLOGY_JOURNAL.md`.
-
-Baseline product flow:
+Baseline path:
 
 ```text
 Engineering UI
@@ -21,142 +18,140 @@ Engineering UI
  -> PLC Compiler / PLC IR
  -> Siemens Backend / qualified Open Library bindings
  -> generated PLC artifact/package
- -> trusted TIA V21 Worker / ProjectAssembler
+ -> trusted TiaV21Worker / ProjectAssembler
  -> TIA Portal V21
- -> compile/save/diagnostics
 ```
 
-`IndustrialMDE` is outside scope and must not be modified.
-
-Domain/compiler/backend must not reference `Siemens.Engineering`; Openness remains isolated in `src/TiaV21Worker` targeting .NET Framework 4.8.
+A second first-class output is the reusable AI-assisted development methodology, but process work must not unnecessarily delay generator delivery.
 
 ## Operating model
 
-- Coding provider order: OpenRouter first, official DeepSeek `deepseek-flash` fallback.
-- Primary connected ChatGPT: Senior Architect, normal coding-agent reviewer when independent, orchestrator, methodology curator and delegated technical merge authority.
-- `chatgpt-secondary`: fresh isolated reviewer when primary ChatGPT materially authored/co-authored a candidate.
-- Gemini has no standing project role.
-- One independent external reviewer is required by default for LOW/MEDIUM/HIGH work.
-- Real TIA Portal V21 compile/Openness evidence is authoritative Siemens acceptance.
-- Normal implementation/review authorization comes from trusted versioned tasks on `main`.
-- Rare governance-authority recursion uses only the manual bootstrap lane in `docs/GOVERNANCE_BOOTSTRAP.md`; task-only automation remains fail-closed and bootstrap authority uses positive SSH-signed human provenance.
+- Coding providers: OpenRouter first, official DeepSeek `deepseek-flash` fallback.
+- Routine source changes should be authored by the coding agent; primary connected ChatGPT should normally remain the independent reviewer/orchestrator rather than manually writing candidate code.
+- Primary connected ChatGPT: Senior Architect, task designer, normal independent reviewer when authorship permits, root-cause analyst, methodology curator and delegated routine technical merge authority.
+- `chatgpt-secondary` is escalation/independence support when primary materially authored/co-authored a candidate; the human must not routinely act as a message bus between AI agents.
+- One independent reviewer is required by default; exact-SHA review semantics remain authoritative.
+- Candidate code executes only on disposable Linux before merge; trusted Windows/TIA checks out trusted `main` only.
+- Real TIA Portal V21 evidence is authoritative Siemens acceptance.
+- Vendor archives and raw Siemens diagnostics remain outside GitHub.
 
-## Accepted architecture — ARCH-001
+## Durable completed milestones relevant to current work
 
-PR #17 merged at `db8e1bcacc6febb15fa5817a2d2b22d15ccbe58e`; issue #18 is closed.
+- ARCH-001 PR #17 merged at `db8e1bcacc6febb15fa5817a2d2b22d15ccbe58e`.
+- PLC-001 PR #16 merged at `64daa260416b7a4163f7627b668ae155db694919` after TIA V21 compile 0 errors / 0 warnings.
+- GOV-BOOT-001 PR #32 merged; permanent bootstrap lane exists.
+- OLQ-001 implementation PR #22, OLQ-INFRA-002 PR #27 and OLQ-INFRA-003 PR #37 are merged.
+- CODER-RUNTIME-001 PR #43 and CODER-REPAIR-RUNTIME-001 PR #45 are merged; large prompts use stdin and repair orchestration is pinned to immutable trusted-main state.
+- OLQ-DIAG-001 PR #41 merged as `9275025fc0aa60f76081f0b2a2e7846296f22718`. A one-time human waiver applied only to that exact candidate because primary had manually repaired it; this did not change standing reviewer policy.
 
-Important accepted constraints include SameScan/PreviousState semantics, global SCC/DAG validation, atomic once-per-scan containers, explicit cross-unit interfaces, no cross-controller runtime links without communication semantics, separate HIGH-risk V19 -> V21 Open Library qualification, native qualified V21 profiles as normal generator dependencies, explicit DB access mode, target-profile CPU memory requirements, and a narrow trusted `TiaV21Worker` Openness boundary.
+## Current OLQ evidence
 
-## PLC-001 — completed
+Trusted OLQ run `35444033247` / run #30 executed trusted main `9275025fc0aa60f76081f0b2a2e7846296f22718` and completed with final qualification failure after publishing sanitized evidence.
 
-PR #16 merged at `64daa260416b7a4163f7627b668ae155db694919` after exact trusted TIA Portal V21 compile with **0 errors / 0 warnings**.
+Current actionable diagnostic:
 
-## Governance hardening — PR #24 and GOV-CTX-001 completed
+```text
+phase:retrieve-with-upgrade
+type:EngineeringTargetInvocationException
+hresult:0x80131500
+```
 
-PR #24 merged at `ef7e5a00e74a9d3b994c23637aab6fc2ae2546f5`; exact merged candidate head was `a7062ac85c7b3c3fbcbe93380ea1c8e2f33d79ac` after green exact-SHA CI and independent `chatgpt-secondary` approval.
+During that run the operator also observed Siemens dialog `Openness access (0033:000666)` for the freshly built `TiaV21Worker.exe`.
 
-GOV-CTX-001 / issue #28 repaired a later-confirmed trust-origin defect in the coding-context bundle. PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b` from exact reviewed candidate `e3d2912d74cf83256aafe1bd597f49f360411d34` after CI #224 PASS and fresh independent `chatgpt-secondary` APPROVE. Human granted a one-time exact-SHA governance waiver because the permanent bootstrap path did not yet exist. Issue #28 is closed.
+Important separation:
 
-## GOV-BOOT-001 / issue #31 / PR #32 — active governance blocker
+- the popup is an autonomy/runner authorization defect;
+- the `RetrieveWithUpgrade` exception is a separate Siemens/Open Library migration defect;
+- fixing the popup does not imply OLQ PASS.
 
-PR #32 is primary-authored and defines the permanent exceptional bootstrap lane.
+## ACTIVE priority — TIA-AUTH-001 / issue #46
 
-Review history:
+Trusted task: `tasks/TIA-AUTH-001.json`.
+Risk: HIGH.
+Issue: #46.
 
-- round 1 candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` -> `CHANGES_REQUIRED`, major F001-F004;
-- round 2 candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED`, major F005;
-- round 3 candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` -> `CHANGES_REQUIRED`, major F006-F007.
+Goal: eliminate the interactive TIA Openness authorization popup for trusted-main `TiaV21Worker.exe` without weakening UAC/TIA security or the candidate->Windows trust boundary.
 
-F001-F005 established semantic bootstrap eligibility, complete fingerprinted issue scope, candidate self-authorization exclusion, provenance separation for both human authority and secondary APPROVE, and positive SSH-signed human authentication instead of negative app-attribution checks.
+Authorized coding-agent scope:
 
-Round 3 independently confirmed F001-F005 repaired and found two remaining permanent-protocol defects:
+- `src/TiaV21Worker/**`;
+- one narrowly scoped bootstrap script under `scripts/windows/**`;
+- no `.github/**`, `agents/**`, `tasks/**`, runner config, secrets, generator/domain/compiler semantics, vendor payloads or `IndustrialMDE` changes.
 
-- F006: canonical scope/review attestation schemas hard-coded issue `31` and task `GOV-BOOT-001`, which would recreate recursion for a future bootstrap invocation;
-- F007: the global fail-closed rule required the post-APPROVE review attestation even before an APPROVE existed, creating a sequencing deadlock/ambiguity.
+The task allows bounded TiaV21Worker changes with `candidatePolicy.allowTiaV21WorkerChanges=true` and requires primary `chatgpt` review because the intended author is the coding agent.
 
-The default two candidate-changing bootstrap repairs were exhausted before round 3. On 2026-09-19 the human explicitly authorized **exactly one additional candidate-changing repair round**, strictly for F006 and F007 and without scope widening. This does not change the permanent default repair budget.
+At this checkpoint there is **no implementation PR for TIA-AUTH-001**. The only open PR is draft PR #39.
 
-Current repair rule:
+### Next safe action
 
-- canonical attestation schemas are invocation-generic: repository, frozen issue number and task identity come from the current bounded bootstrap authority and are verified for exact equality;
-- GOV-BOOT-001 values are a current-instance example, not permanent constants;
-- fail-closed behavior is stage-specific: pre-review evidence does not require a review attestation that cannot yet exist; CHANGES_REQUIRED grants no authority; after APPROVE the exact candidate remains frozen while the signed review attestation is pending, and missing/invalid/stale attestation blocks any attempt to consume APPROVE as authority or merge;
-- normal task-backed automation remains unchanged and fail-closed;
-- candidate source never executes on trusted Windows/TIA through bootstrap;
-- `IndustrialMDE` remains out of scope.
+Start `Autonomous Agent` in **task mode** with:
 
-Human scope authority must remain bound to the current exact issue #31 body via a valid SSH-signed scope-attestation commit. If issue #31 is materially updated to durably record the bounded F006/F007 repair authorization, the earlier signed scope attestation for the prior body becomes historical/stale and a fresh SSH-signed scope attestation for the new exact body hash is required before another independent review.
+- branch/ref: `main`;
+- `source=task`;
+- `task_path=tasks/TIA-AUTH-001.json`;
+- empty `issue_number`.
 
-Current branch: `chatgpt/gov-boot-001-bootstrap-lane`. Always read the exact live PR head from GitHub; do not copy an in-progress SHA from this file.
+The connected GitHub connector did not expose new `workflow_dispatch` creation at the previous checkpoint. A fresh primary should re-check available GitHub tools first. If dispatch is still unavailable, ask the human only for this single GitHub UI click. Do **not** ask the human to install `gh`, configure a terminal, or shuttle JSON between chats.
 
-Next gates:
+After the agent creates a candidate:
 
-1. finish the single human-authorized F006/F007 repair without widening scope;
-2. freeze the resulting exact head and obtain exact-SHA CI PASS;
-3. verify a valid SSH-signed human scope attestation for the current exact issue #31 body hash;
-4. obtain a fresh isolated `chatgpt-secondary` review against the new exact candidate;
-5. if APPROVE, human creates a separate SSH-signed review-attestation commit containing the exact JSON and its hash;
-6. primary verifies all exact-candidate gates and delegated-merges without another routine decision.
+1. primary re-fetches exact PR head/scope/provider audit/CI;
+2. primary performs independent exact-SHA CODE_REVIEW;
+3. bounded coding-agent repair if needed;
+4. delegated merge when gates are green;
+5. if worker reports bootstrap-required, provide one minimal elevated Windows bootstrap action to the operator;
+6. rerun trusted `/run-olq-001` from issue #19 and verify no Openness popup appears.
 
-Any candidate-changing repair after this specifically authorized F006/F007 round requires another fresh explicit human decision; otherwise state is `BLOCKED`.
+If `retrieve-with-upgrade` still fails afterward, create a separate bounded Siemens/Open Library migration task based on the exact phase/type/HRESULT evidence. Do not broaden TIA-AUTH-001.
 
-## OLQ-001 — implementation merged; real qualification pending
+## Periodic independent repository audit — created, execution deferred
 
-Tracking issue: #19. Canonical task: `tasks/OLQ-001.json`. Risk: HIGH.
+Standing procedure now exists:
 
-PR #22 merged at `5c8c957e6abb7004e4ee9e9382de97347ebfc9c6` from exact candidate `4354bebbf2a3bf745b09589d6abac0938d5b5664` after CI #164 / run `35366781733` PASS and validated `chatgpt-secondary` round-4 APPROVE.
+- `tasks/REPO-AUDIT-001.json`;
+- `docs/INDEPENDENT_REPOSITORY_AUDIT.md`;
+- tracking issue #47;
+- `reviews/repository-audits/` report location.
 
-The merged worker provides the bounded V19 `.zal19` -> native V21 `.zal21` qualification command, deterministic source/build identity, archive hashing, native-current-version reopen verification and machine-readable evidence. Windows/TIA build and real vendor-library qualification are deliberately post-merge acceptance gates.
+Trial cadence: before a new roadmap milestone or after every 5 merged implementation PRs, whichever comes first, plus selected out-of-cycle trust/prompt/architecture incidents.
 
-## OLQ-INFRA-002 / PR #27 — paused behind GOV-BOOT-001
+The human explicitly deferred the first full audit until later. It is **not** the current blocker and must not delay TIA-AUTH-001 / OLQ / generator progress.
 
-Issue #26 / PR #27 adds the trusted-main Windows/TIA harness required to run OLQ-001 twice against the runner-local external Siemens Open Library archive while publishing sanitized evidence only.
+## CHAT-HANDOFF-001 / issue #38 / PR #39
 
-Last known head before governance refresh: `86b1b3f1b2cabca227d2976fa537ba00f572d960`; CI #223 / run `35387244950`: PASS.
+Trusted task `tasks/CHAT-HANDOFF-001.json` is on `main`.
 
-PR #27 is primary-ChatGPT-authored. It must be re-read against the current `main` after GOV-BOOT-001 is resolved. Its previous review package was prepared against the pre-PR30 base and must not be reused blindly.
+PR #39 is still draft, primary-authored and documentation/process-only. Live checkpoint before this handoff showed:
 
-## Methodology system
+- branch `chatgpt/chat-handoff-protocol`;
+- head before the current snapshot refresh: `e9f3146bf0af6244d50c1ae1e2900ba9c6cd631d`;
+- old base snapshot `69f554445003975279a391d6c2672d45054ab418`;
+- mergeable but far behind current `main`.
 
-- `docs/DEVELOPMENT_METHODOLOGY.md` — curated reusable rules and experiments.
-- `docs/METHODOLOGY_JOURNAL.md` — milestone-level lessons.
-- issue #25 — append-only raw methodology telemetry.
-- `.github/workflows/methodology-telemetry.yml` — selected workflow/PR lifecycle telemetry.
-- `docs/INFRASTRUCTURE_LOG.md` — concise infrastructure chronology.
+This handoff refresh updates its state snapshots again. PR #39 must eventually be synchronized with current `main`, receive fresh exact-head CI and isolated `chatgpt-secondary` review before merge. It does **not** block current generator/OLQ work.
 
-Current new rules:
+## Queued product path
 
-- **M-013** — control-plane authority must remain separate from mixed model-visible prompt content.
-- **M-014** — governance bootstrap uses semantic eligibility plus positive cryptographic human provenance; a candidate/author-controlled connector must never manufacture its own authority.
+After removing the popup and resolving the real Open Library migration blocker:
 
-## Accepted next operating-model initiative
+1. achieve real deterministic OLQ PASS;
+2. stop for explicit human acceptance of OLQ-001;
+3. `OL-001` inspect qualified V21 valve contract;
+4. `OL-002` target profile/preflight/materialization;
+5. PLC compiler foundations;
+6. `GEN-001` first real generated valve application in TIA V21.
 
-Issue #35 `AUTO-001` records the accepted hybrid autonomy model: routine OpenRouter/DeepSeek implementation runs to explicit checkpoints; `WAITING_FOR_REVIEW` means primary connected ChatGPT performs a full semantic/code/architecture review when independent; primary-authored candidates route to `chatgpt-secondary`. AUTO-001 must not merge before GOV-BOOT-001 is resolved.
-
-## Required order of work
-
-1. **ACTIVE:** finish GOV-BOOT-001 / issue #31 / PR #32 under the signed-attestation gates above.
-2. Re-check PR #27 against the resulting trusted `main`; refresh exact-SHA independent review as required, then delegated merge if gates pass.
-3. From trusted `main`, run the OLQ-001 Windows/TIA qualification harness.
-4. Build `TiaV21Worker` against installed TIA V21 net48 Openness assemblies.
-5. Qualify the real operator-controlled Siemens Open Library V19 `.zal19` twice and verify deterministic source/build/qualification/archive identity plus native reopen.
-6. Persist sanitized hashes/manifest/status only; never commit/upload `.zal19/.zal21` vendor payload.
-7. Human acceptance is required before the resulting qualified profile becomes a normal generator dependency.
-8. Implement AUTO-001 using the post-bootstrap trusted governance state.
-9. Continue roadmap: `OL-001` -> `OL-002` -> PLC compiler foundations -> `GEN-001`.
-10. Perform methodology checkpoint at every logical milestone.
+AUTO-001 / issue #35 and PR #39 should not be put in front of this product path unless a concrete trust defect requires it.
 
 ## Hard boundaries
 
 - no Siemens F-safety generation/validation;
-- no arbitrary hardware-from-scratch generation for MVP;
+- no arbitrary hardware-from-scratch MVP expansion;
 - no generic multi-vendor plugin architecture now;
-- no broad UI/HMI expansion before the PLC/Open Library vertical slice is stable;
-- no candidate execution on trusted Windows/TIA before independent approval + merge;
-- self-hosted manual TIA workflows must be main-only;
-- no vendor archive payloads in Git;
+- no broad UI/HMI expansion before PLC/Open Library vertical slice stability;
+- no candidate execution on trusted Windows/TIA before review + merge;
+- self-hosted TIA workflows execute trusted `main` only;
+- no vendor `.zal19/.zal21` payload in Git/GitHub artifacts;
+- no raw Siemens exception/path publication;
+- no secret/private signing material in repository/CI/runners;
 - do not modify `IndustrialMDE`.
-
-## Fresh-chat rule
-
-Connected primary ChatGPT inspects GitHub itself, processes authorized review/orchestration work, maintains methodology checkpoints, and applies delegated technical merge authority when gates pass. When primary ChatGPT is not independent, it prepares a complete fresh `chatgpt-secondary` package and never self-approves. If governance bootstrap is active, it must verify semantic eligibility, the frozen issue-body fingerprint, exact SSH-signed scope/review attestation commits, raw GitHub signature metadata and `docs/GOVERNANCE_BOOTSTRAP.md` before accepting authority-bearing review evidence or merge.
