@@ -19,6 +19,7 @@ jobs:
           bash -n agents/runtime/run-coder.sh
           python3 -m py_compile agents/runtime/build-coder-context.py
           python3 -m py_compile agents/runtime/candidate-patch.py
+          python3 -m py_compile agents/runtime/review-authority.py
           python3 -m py_compile agents/runtime/reviewer-policy.py
           python3 -m py_compile agents/runtime/external-review.py
           python3 -m json.tool reviews/schemas/external-review-response.schema.json >/dev/null
