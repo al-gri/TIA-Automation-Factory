@@ -52,5 +52,13 @@
     ".gitignore",
     "opencode.json"
   ],
-  "maxRepairAttempts": 2
+  "repairBudgetExtension": {
+    "authorizedOn": "2026-09-19",
+    "attempt": 3,
+    "findingIds": [
+      "F008"
+    ],
+    "scope": "Exactly one additional candidate-changing repair attempt, limited to F008 only, with no scope widening."
+  },
+  "maxRepairAttempts": 3
 }
