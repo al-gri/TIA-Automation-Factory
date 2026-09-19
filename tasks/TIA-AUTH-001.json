@@ -1,0 +1,56 @@
+{
+  "id": "TIA-AUTH-001",
+  "title": "Eliminate interactive TIA Openness access popup for trusted worker",
+  "goal": "Make trusted Windows/TIA execution non-interactive by synchronizing the current TiaV21Worker.exe Siemens Openness whitelist entry before any TIA Portal connection, with a one-time narrowly-scoped elevated bootstrap for registry ACLs.",
+  "scope": [
+    "Coding-agent scope: src/TiaV21Worker/** and a narrowly-scoped Windows bootstrap script under scripts/windows/** only.",
+    "Before every code path that creates or attaches a Siemens.Engineering.TiaPortal instance, synchronize the current executable's own Siemens Openness whitelist Entry values: Path, DateModified, FileHash.",
+    "Derive the whitelist version from the loaded Siemens.Engineering assembly major/minor where practical (V21 => 21.0); do not silently target unrelated TIA versions.",
+    "Compute FileHash as SHA-256 of the executable encoded Base64 and DateModified from LastWriteTimeUtc formatted yyyy/MM/dd HH:mm:ss.fff, matching Siemens documented whitelist identity semantics.",
+    "Modify only the application-specific TiaV21Worker.exe whitelist key. Do not disable UAC, firewall, TIA security, or grant write rights to the whole Siemens Openness registry tree.",
+    "Provide an idempotent one-time elevated PowerShell bootstrap that creates/locates only the TiaV21Worker.exe application key and grants the current runner Windows identity the minimum registry rights needed for subsequent worker self-sync.",
+    "If whitelist self-sync is not permitted, fail before any TIA Portal connection with a sanitized bootstrap-required diagnostic; do not fall through to the interactive Siemens Openness access prompt.",
+    "Do not modify .github/**, agents/**, tasks/**, runner configuration, secrets, vendor library payload handling, generator/domain/compiler semantics, or IndustrialMDE."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate changes stay within src/TiaV21Worker/** and scripts/windows/**.",
+      "No candidate Windows/TIA execution occurs; candidate validation is Linux-only.",
+      "All TiaPortal create/attach paths are guarded by whitelist synchronization before Openness access.",
+      "Whitelist synchronization writes only Path, DateModified, and FileHash beneath this application's own TiaV21Worker.exe Entry key.",
+      "FileHash uses SHA-256 Base64 and DateModified uses UTC yyyy/MM/dd HH:mm:ss.fff.",
+      "Registry version selection is deterministic from Siemens.Engineering assembly major/minor or an equivalently bounded V21-safe mechanism.",
+      "Access denied or missing bootstrap permission exits before TIA connection and exposes no user-profile/full runner path in public-facing failure text.",
+      "Bootstrap script requires elevation, is idempotent, and grants minimum rights only on the TiaV21Worker.exe application key, never the parent Whitelist/Openness tree.",
+      "No UAC/firewall/security control is disabled and no global registry ACL is loosened.",
+      "Linux deterministic CI remains green.",
+      "Primary connected ChatGPT performs independent exact-SHA CODE_REVIEW because candidate code is authored by the coding agent."
+    ],
+    "tia": [
+      "After merge, perform the one-time elevated bootstrap on TIA-V21-PC if the worker reports bootstrap-required.",
+      "Run trusted-main /run-olq-001 from issue #19.",
+      "No interactive Openness access (0033:000666) dialog may appear during the trusted run.",
+      "This task does not require OLQ-001 PASS; the existing retrieve-with-upgrade EngineeringTargetInvocationException is a separate migration defect."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2
+}
