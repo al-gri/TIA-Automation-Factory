@@ -1,0 +1,52 @@
+{
+  "id": "TIA-AUTH-IDEMP-001",
+  "title": "Make TIA whitelist bootstrap ACL detection idempotent",
+  "goal": "Fix the one-time elevated whitelist bootstrap so a second run under the same runner identity recognizes the already-present exact ACL rule and performs no redundant ACL write.",
+  "scope": [
+    "Coding-agent candidate scope is exactly scripts/windows/Configure-TiaV21WorkerWhitelist.ps1 and no other file.",
+    "Preserve the exact registry target HKLM:\\SOFTWARE\\Siemens\\Automation\\Openness\\Whitelist\\21.0\\Entries\\TiaV21Worker.exe\\Entry and the existing version-selection behavior.",
+    "Preserve the exact required rights RegistryRights.SetValue | RegistryRights.QueryValues, AccessControlType Allow, InheritanceFlags None and PropagationFlags None. Do not broaden rights, principals, inheritance, parent-key ACLs or registry scope.",
+    "When checking existing ACL rules, normalize each rule IdentityReference to a SecurityIdentifier before comparing with the current-user SecurityIdentifier. Do not compare NTAccount display text directly with the SID string. Translation failure for an unrelated ACL rule must not broaden permissions or cause that unrelated rule to be treated as a match.",
+    "Preserve the SID-object construction used to avoid RegistryAccessRule string-overload identity translation failures and preserve the corrected parenthesized RegistryRights comparison semantics.",
+    "If an equivalent exact rule already exists, print the existing 'Minimum registry permissions already granted...' path and do not call AddAccessRule/Set-Acl for that rule. If no equivalent exact rule exists, preserve the existing minimum grant behavior.",
+    "Do not modify src/TiaV21Worker/**, .github/**, agents/**, other tasks, runner configuration, secrets, generator/domain/compiler code, Siemens library payloads, or IndustrialMDE."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate diff contains only scripts/windows/Configure-TiaV21WorkerWhitelist.ps1.",
+      "Existing-rule identity comparison translates/normalizes IdentityReference to SecurityIdentifier and compares SID values.",
+      "Exact rights remain SetValue | QueryValues only, with Allow and no inheritance/propagation; target key is unchanged.",
+      "No ACL is granted to Users, Everyone, Administrators, parent Siemens keys, or any broader principal/scope.",
+      "SID-object RegistryAccessRule construction and the fixed RegistryRights expression remain intact.",
+      "Unrelated/untranslatable ACL entries cannot be mistaken for the required current-user rule.",
+      "Linux deterministic CI remains green; no candidate Windows/TIA execution occurs.",
+      "Primary connected ChatGPT performs independent exact-SHA CODE_REVIEW because the candidate is authored by the coding agent."
+    ],
+    "tia": [
+      "After merge, run scripts/windows/Configure-TiaV21WorkerWhitelist.ps1 elevated twice consecutively under the same Windows identity used by TIA-V21-PC.",
+      "The first run may grant if needed and must complete successfully; the second run must report that minimum registry permissions are already granted and must not re-add/reapply the ACL.",
+      "A subsequent trusted-main OLQ run must still not return phase:bootstrap-required. OLQ migration PASS is not required by this task."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 53
+}
