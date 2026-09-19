@@ -1,0 +1,49 @@
+{
+  "id": "FACTORY-ISOLATION-001",
+  "title": "Isolate candidate execution from repository publication and premerge TIA",
+  "goal": "Restore a real authority boundary between AI candidate execution and GitHub/TIA privileges while preserving the existing bounded-task, provider-fallback, exact-SHA review and merged-main TIA operating model.",
+  "scope": [
+    "This is a protected-infrastructure task. It must not be implemented through the current Autonomous Agent or Agent Repair lane because those lanes are the subject of the containment change. Primary ChatGPT/infrastructure maintainer may author the candidate; material primary authorship requires an independent chatgpt-secondary review before merge.",
+    "Split candidate implementation/testing from privileged publication for .github/workflows/agent.yml and .github/workflows/agent-repair.yml. Candidate execution must run without GitHub write authority. A fresh publisher environment may hold write authority but must never execute candidate code or inherit candidate workspace state, .git hooks/config, processes, or runtime files.",
+    "Transfer only bounded candidate patch/data into the publisher. Validate the final proposed patch against an immutable trusted baseline using positive task-authorized paths, including deletions, untracked files, file modes and symlink/path-escape rejection. Stage only validated authorized paths; do not use git add -A as the scope decision after candidate execution.",
+    "Pin the complete trusted runtime/helper chain used by implementation and repair to one immutable trusted SHA. In particular, run-coder.sh must not transitively execute agents/runtime/build-coder-context.py from the mutable candidate workspace.",
+    "Remove the LOW/MEDIUM premerge Windows/TIA bridge. No unmerged candidate PLC artifact or candidate executable/source may be processed by the self-hosted Windows/TIA runner. Windows/TIA validation occurs only from independently reviewed merged main with explicit artifact/profile identity.",
+    "Review-request preparation/publication must not rely on candidate-executed workspace state for privileged GitHub actions. Preserve exact-SHA review semantics while moving privileged publication into clean trusted execution.",
+    "Add deterministic harmless regression fixtures proving isolation from candidate-created git hooks, stale trusted-helper copies, extra generated files/byproducts, unsupported symlinks/modes, and moving/out-of-scope paths.",
+    "Do not redesign provider selection, telemetry, product Domain/Compiler/Backend semantics, TiaV21Worker behavior, private vendor assets, runner configuration, or IndustrialMDE in this task. Reuse the existing issue #50 scope/byproduct lesson rather than creating a parallel repair-scope mechanism."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate implementation/test jobs have no GitHub contents/pull-request write token or equivalent publication credential; provider credentials are the only secrets required by the coding process.",
+      "Privileged publisher jobs/environments start from a clean trusted checkout and never execute candidate commands, tests, generated scripts, git hooks, or workspace runtime helpers.",
+      "The publisher verifies a bounded patch against an immutable baseline and a positive task-authorized path set, rejects unsupported symlinks/modes/path escapes and unexpected files, and stages only validated paths.",
+      "Repair publication obeys the same clean boundary and positive final-patch validation; the historical git add -A/byproduct failure mode from issue #50 is covered by regression tests.",
+      "All transitive coding runtime helpers are materialized/invoked from one immutable trusted SHA; a deliberately stale candidate build-coder-context.py cannot influence trusted repair execution.",
+      "No LOW/MEDIUM review outcome dispatches unmerged candidate artifacts to candidate-validation Windows/TIA execution. Candidate checks remain Linux-only until merge; merged-main TIA gates remain available.",
+      "Exact candidate/base/task/policy identities remain bound through review and publication; existing OpenRouter-first/DeepSeek-fallback behavior and bounded versioned tasks remain functional.",
+      "Relevant Linux workflow/runtime/governance tests are green and include harmless hook/helper/byproduct/symlink/out-of-scope fixtures demonstrating the new boundary.",
+      "Because primary ChatGPT is expected to materially author protected-infrastructure changes, a fresh independent chatgpt-secondary exact-SHA CODE_REVIEW or ARCHITECTURE_REVIEW must APPROVE before merge."
+    ],
+    "tia": [
+      "No candidate Windows/TIA execution is permitted or required for this containment task.",
+      "After merge, trusted merged-main TIA workflows remain callable and consume only trusted-main identities/artifacts according to their existing acceptance contracts."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "ARCHITECTURE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2
+}
