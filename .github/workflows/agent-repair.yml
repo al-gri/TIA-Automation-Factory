@@ -187,6 +187,13 @@ jobs:
           opencode --version
           opencode models deepseek | grep -F 'deepseek/deepseek-flash'
 
+      - name: Materialize trusted-main coding runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show origin/main:agents/runtime/run-coder.sh > "$RUNNER_TEMP/trusted-run-coder.sh"
+          chmod +x "$RUNNER_TEMP/trusted-run-coder.sh"
+
       - name: Run repair agent with provider fallback
         shell: bash
         env:
@@ -197,7 +204,7 @@ jobs:
           DEEPSEEK_MODEL: deepseek-flash
           DEEPSEEK_TIMEOUT_MINUTES: '30'
         run: |
-          bash agents/runtime/run-coder.sh \
+          bash "$RUNNER_TEMP/trusted-run-coder.sh" \
             "$RUNNER_TEMP/repair-task.md" \
             "$RUNNER_TEMP/repair-provider-audit.json"
 
