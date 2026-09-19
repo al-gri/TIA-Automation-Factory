@@ -1,7 +1,7 @@
 # TIA Automation Factory — Fresh Chat Handoff
 
 Checkpoint date: 2026-09-19
-Trusted `main` at checkpoint: `454ead3ed72cc00cda5d60dcffa23d347e00932e`
+Trusted `main` at checkpoint: `f6357be194266a787e7c3b3384e2cae8a3366b64`
 
 GitHub is the sole durable source of truth. This is an operational checkpoint, not permission to trust stale snapshots. A fresh primary chat must independently re-fetch live GitHub before acting.
 
@@ -10,94 +10,217 @@ GitHub is the sole durable source of truth. This is an operational checkpoint, n
 Read in order:
 
 1. `AGENTS.md` from trusted `main`.
-2. `docs/PROJECT_STATE.md` and `docs/NEXT_CHAT_HANDOFF.md`; note that the versions on `main` are stale until CHAT-HANDOFF-001 / PR #39 merges, so also inspect the current PR #39 candidate versions.
+2. `docs/PROJECT_STATE.md` and `docs/NEXT_CHAT_HANDOFF.md`; note that `main` still has stale pre-handoff snapshots until CHAT-HANDOFF-001 / PR #39 merges, so also inspect the current PR #39 candidate versions.
 3. `docs/AI_COLLABORATION_MODEL.md`.
 4. `docs/DEVELOPMENT_METHODOLOGY.md` and recent `docs/METHODOLOGY_JOURNAL.md` entries.
 5. `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work.
-6. Active trusted tasks and live PR/issue/Actions state.
+6. Active trusted tasks and live PR/issues/Actions state.
 7. Methodology telemetry issue #25 when recent workflow evidence matters.
 
 `IndustrialMDE` is outside scope and must not be touched.
 
 ## Role transferred
 
-The fresh chat assumes the connected **primary ChatGPT** role: Senior Architect, orchestrator, normal independent reviewer when authorship permits, methodology curator and delegated routine technical merge authority.
+The fresh chat assumes the connected **primary ChatGPT** role: Senior Architect, task designer, orchestrator, normal independent reviewer when authorship permits, methodology curator and delegated routine technical merge authority.
 
-Primary must not independently approve code it materially authored. Such candidates require fresh isolated `chatgpt-secondary` review.
+Preferred normal operating model from this checkpoint forward:
+
+```text
+OpenRouter / DeepSeek write code
+ -> primary ChatGPT reviews/orchestrates
+ -> coding provider repairs if needed
+ -> primary ChatGPT re-reviews
+ -> merge
+ -> trusted-main TIA when applicable
+```
+
+The human is strategic/risk/physical-machine authority, not a routine message bus. Do not ask the human to copy review JSON between chats in normal coding-agent work.
 
 ## Current objective
 
-Finish real Siemens Open Library V19 -> native TIA Portal V21 qualification with deterministic sanitized evidence, then stop for explicit human acceptance before the qualified profile becomes a normal generator dependency.
+Resume product progress with minimum extra process work:
 
-## Completed in the outgoing chat
+1. eliminate the interactive TIA Openness access popup from trusted worker execution;
+2. rerun OLQ qualification non-interactively;
+3. resolve the real `RetrieveWithUpgrade` Siemens/Open Library migration defect if it remains;
+4. achieve deterministic OLQ PASS and request explicit human acceptance;
+5. move directly into `OL-001 -> OL-002 -> compiler foundations -> GEN-001`.
 
-- OLQ-INFRA-003 / PR #37 merged at `6f34fdf1898bd36b772d117af90208a3e270602e` from exact reviewed candidate `ffd75e0951f27567044470991422ac86f51e256e`.
-- Trusted OLQ run `35430943663` proved the bounded-timeout harness works: checkout/build/evidence publication completed and the run did **not** time out. It failed qualification with public-safe `Library upgrade/archive operation failed.`, no qualified archive, `nativeReopen=false`, and no second run. Raw Siemens details remained runner-local.
-- Issue #40 / trusted task `tasks/OLQ-DIAG-001.json` created to add privacy-safe phase + exception type + HRESULT diagnostics without changing migration semantics.
-- Coding-agent PR #41 created at head `1470b2e6d85ca6e54ec3fae7c929a6dd441f97c1`, changing only `src/TiaV21Worker/Program.cs`.
-- Primary review of PR #41 returned `CHANGES_REQUIRED`: F001 semantic sequencing bug (Archive could run after failed RetrieveWithUpgrade because guard checked only `saveException == null`) plus stable-token naming issue. Repair attempt 1 never changed candidate code because coding runtime failed before provider startup with `/usr/bin/timeout: Argument list too long`.
-- CODER-RUNTIME-001 / PR #43 fixed large prompt transport by streaming the complete trusted prompt through stdin. PR #43 merged at `ccb2c32ae63184317cb61eeb949cc24341111175`; issue #42 remains intentionally open until PR #41 repair proves the runtime fix in the real repair loop.
-- A second repair blocker was found: old candidate branches executed stale branch-local `run-coder.sh`. CODER-REPAIR-RUNTIME-001 / PR #45 repaired the trust boundary.
-- PR #45 round 1 found major F001: candidate `reviewer-policy.py` executed before protected-path rejection and later trusted reads used mutable `origin/main`.
-- Round-1 F001 was repaired by capturing immutable `TRUSTED_MAIN_SHA`, rejecting protected candidate infrastructure before repository-provided orchestration executes, and sourcing task/reviewer-policy/prompts/run-coder from that SHA.
-- Fresh isolated `chatgpt-secondary` round 2 APPROVED exact PR #45 head `536033b35a189ea777c189f13d7c75a980fee279`; CI #286/run `35440209501` and #282/run `35440102032` PASS, findings empty.
-- PR #45 merged with expected-head guard into trusted `main` commit `454ead3ed72cc00cda5d60dcffa23d347e00932e`; issue #44 is closed.
+## What changed since the previous handoff
 
-## Active priority 1 — resume OLQ-DIAG-001 PR #41
+### OLQ-DIAG-001 completed
 
-Live checkpoint at transfer:
+PR #41 was manually repaired by primary ChatGPT to close the previously identified sequencing/token findings. Exact repaired candidate:
 
-- PR: #41
-- branch: `agent/task-olq-diag-001-35431664029`
-- candidate SHA: `1470b2e6d85ca6e54ec3fae7c929a6dd441f97c1`
-- base at creation: `6ccee0eb531a72a7f1f492960fb2261e427b7d9e`
-- changed files: exactly `src/TiaV21Worker/Program.cs`
-- trusted task: `tasks/OLQ-DIAG-001.json`
-- reviewer slot for agent-authored candidate: primary `chatgpt`
-- prior review: `CHANGES_REQUIRED` with F001/F002 as described above
-- prior repair run `35432115775`: infrastructure failure only, **no candidate code change**; do not treat it as a semantic repair attempt against the OLQ task budget.
+`f03de3a4212c4ff87c4c9d3442f91ad9ee09b781`
 
-The repair infrastructure is now fixed on trusted `main` by PR #43 + PR #45.
+Exact CI #290 passed. The human granted a **one-time waiver only for PR #41** because primary had become an author. PR #41 merged as:
 
-### Fresh-chat next safe action
+`9275025fc0aa60f76081f0b2a2e7846296f22718`
 
-1. Re-fetch PR #41 live head/diff/comments and `tasks/OLQ-DIAG-001.json`.
-2. Confirm head is still `1470b2e6d85ca6e54ec3fae7c929a6dd441f97c1` and no candidate repair occurred after this checkpoint.
-3. Re-dispatch the bounded `candidate-repair` flow for the existing `CHANGES_REQUIRED` state using the current trusted-main repair workflow. Do **not** rerun the historical failed Actions run, because a rerun would preserve its old workflow SHA/runtime.
-4. Verify the new repair run uses trusted-main runtime and proceeds past prompt transport.
-5. If repaired candidate SHA changes, perform a fresh exact-SHA primary CODE_REVIEW. Primary is independent because candidate code remains coding-agent-authored unless primary manually edits candidate source.
-6. If APPROVE + exact Linux CI green, merge under delegated gate; candidate Windows/TIA execution remains forbidden pre-merge.
-7. After merge, post `/run-olq-001` on issue #19 and inspect the sanitized phase/type/HRESULT evidence.
-8. If OLQ passes, stop for explicit human acceptance. If it exposes a real Siemens migration/API/vendor issue, create a new separately scoped task; do not broaden OLQ-DIAG-001 retroactively.
+The waiver did not change standing reviewer policy. Future routine product code should be authored by OpenRouter/DeepSeek so primary remains independent reviewer.
 
-If connected GitHub tooling cannot emit `repository_dispatch`, ask the human only for the minimal mechanical dispatch needed; do not substitute a stale Actions rerun.
+### Trusted OLQ run #30 produced actionable Siemens diagnostics
 
-## Active priority 2 — finish CHAT-HANDOFF-001 / issue #38 / PR #39
+Run:
 
-PR #39 is still draft and stale/diverged from current `main` because it was created at base `69f554445003975279a391d6c2672d45054ab418`. Its candidate docs now contain this checkpoint, but the branch must be synchronized with current `main` before review.
+`35444033247`
 
-Primary authored PR #39. Required gate before merge:
+Trusted head:
 
-1. synchronize/rebase/merge current trusted `main` into `chatgpt/chat-handoff-protocol` without losing the authorized documentation-only diff;
-2. verify scope remains only the CHAT-HANDOFF-001 authorized documentation/process files;
-3. obtain fresh exact-head deterministic CI PASS;
-4. obtain fresh isolated `chatgpt-secondary` CODE_REVIEW APPROVE;
-5. delegated-merge if all gates remain current.
+`9275025fc0aa60f76081f0b2a2e7846296f22718`
 
-Until PR #39 merges, `AGENTS.md`/state snapshots on `main` do not yet contain the formal handoff command semantics. This checkpoint and issue #38 are the durable transfer record for this invocation.
+Result: final qualification `FAIL`, after sanitized evidence publication.
 
-## Other queued work
+Public-safe diagnostic:
 
-- AUTO-001 / issue #35 remains downstream of the OLQ qualification blocker.
-- After accepted Open Library qualification: `OL-001` -> `OL-002` -> PLC compiler foundations -> `GEN-001`.
-- Legacy open smoke PRs #4, #5, #10 and #13 exist but are not current active work; do not revive them without an explicit current task.
+```text
+phase:retrieve-with-upgrade
+type:EngineeringTargetInvocationException
+hresult:0x80131500
+```
+
+During the run the operator also saw Siemens `Openness access (0033:000666)` for the newly built `TiaV21Worker.exe`.
+
+These are separate problems:
+
+- popup = trusted worker authorization/autonomy defect;
+- `retrieve-with-upgrade` exception = actual Siemens/Open Library migration defect.
+
+Do not conflate them.
+
+## ACTIVE task — TIA-AUTH-001 / issue #46
+
+Trusted task:
+
+`tasks/TIA-AUTH-001.json`
+
+Issue:
+
+`#46`
+
+Trusted task commit was introduced after PR #41 and explicitly allows bounded `src/TiaV21Worker/**` changes via `candidatePolicy.allowTiaV21WorkerChanges=true`.
+
+Goal: make trusted Windows/TIA execution non-interactive by synchronizing the current worker's own Siemens Openness whitelist entry before TIA connection, with one narrowly scoped elevated bootstrap for registry ACLs if required.
+
+Authorized candidate scope:
+
+- `src/TiaV21Worker/**`;
+- `scripts/windows/**` only for the one-time bootstrap;
+- no `.github/**`, `agents/**`, `tasks/**`, runner config, secrets, vendor payload handling, generator/domain/compiler semantics or `IndustrialMDE`.
+
+Reviewer slot: primary `chatgpt`, provided candidate remains coding-agent-authored.
+
+### Live state at handoff
+
+There is **no TIA-AUTH implementation PR yet**.
+
+Live open PR query showed only:
+
+- draft PR #39 `CHAT-HANDOFF-001`.
+
+Therefore the TIA-AUTH coding agent has not produced a candidate at this checkpoint.
+
+### Exact first action for the fresh chat
+
+1. Re-fetch `main`, issue #46, `tasks/TIA-AUTH-001.json`, open PRs and recent Actions.
+2. Check connected GitHub tools for the ability to create `workflow_dispatch`.
+3. If dispatch is available, start `.github/workflows/agent.yml` on `main` with:
+   - `source=task`
+   - `task_path=tasks/TIA-AUTH-001.json`
+   - empty `issue_number`.
+4. If dispatch is **not** available, ask the human for exactly one UI action:
+   - GitHub -> Actions -> Autonomous Agent -> Run workflow
+   - branch `main`
+   - source `task`
+   - task path `tasks/TIA-AUTH-001.json`
+   - issue number empty.
+
+Do **not** ask the human to install `gh`, configure a terminal, reconstruct context, or shuttle JSON between agents.
+
+After a candidate exists, primary handles review/repair/merge autonomously under normal exact-SHA gates.
+
+## After TIA-AUTH merge
+
+Run trusted `/run-olq-001` from issue #19.
+
+Acceptance for TIA-AUTH is only that the interactive `Openness access` dialog no longer appears and the worker fails safely before TIA if bootstrap permission is missing.
+
+OLQ PASS is not required by TIA-AUTH.
+
+If OLQ still fails at:
+
+```text
+phase:retrieve-with-upgrade
+type:EngineeringTargetInvocationException
+hresult:0x80131500
+```
+
+create a new bounded Siemens/Open Library migration task. Use official V21 Openness API evidence already linked in issue #19; do not broaden TIA-AUTH or guess from raw vendor data.
+
+## Periodic full repository audit — procedure exists, execution deferred
+
+Created on trusted `main`:
+
+- `tasks/REPO-AUDIT-001.json`;
+- `docs/INDEPENDENT_REPOSITORY_AUDIT.md`;
+- tracking issue #47;
+- `reviews/repository-audits/`.
+
+Audit scope includes whole-repository architecture/code/tests/workflows, AI operating model, all prompts/runtime, TIA/Open Library boundary and simplification advice.
+
+Trial cadence is recorded in issue #47, but the human explicitly chose to run the first deep audit later. It is **not** the current task and must not block product progress.
+
+When the audit is eventually run, its recommendations are advisory until triaged; prompt/methodology cleanup must not automatically become generator blockers.
+
+## CHAT-HANDOFF-001 / issue #38 / PR #39
+
+PR #39 remains draft, primary-authored, documentation/process-only and far behind current `main`.
+
+Live state before this snapshot refresh:
+
+- branch: `chatgpt/chat-handoff-protocol`;
+- head: `e9f3146bf0af6244d50c1ae1e2900ba9c6cd631d`;
+- old base snapshot: `69f554445003975279a391d6c2672d45054ab418`;
+- mergeable: true;
+- draft: true;
+- changed files: 8 authorized documentation/process files.
+
+This handoff refresh creates new commits on the PR #39 branch, so the prior exact head is historical. Re-fetch live PR #39 before any review action.
+
+PR #39 does **not** block TIA-AUTH/OLQ/generator work. Eventually:
+
+1. synchronize it with current `main`;
+2. verify documentation-only scope;
+3. exact-head CI;
+4. isolated `chatgpt-secondary` review because primary authored it;
+5. merge if approved.
+
+## Other non-blocking work
+
+- issue #47 repository audit: deferred until later by human decision;
+- issue #35 AUTO-001: useful but not a prerequisite for current product path;
+- issue #42 coder-runtime validation may remain historical/open; do not prioritize it over the generator unless it reappears as a concrete failure.
 
 ## Hard boundaries
 
-- no candidate source/scripts on trusted Windows/TIA before independent approval + merge;
+- candidate source/scripts never execute on trusted Windows/TIA before independent review + merge;
 - self-hosted TIA workflows execute trusted `main` only;
 - no `.zal19/.zal21` vendor payload in Git/GitHub artifacts;
 - no raw Siemens exception/path exposure in public evidence;
 - no secrets/private signing keys in repository/CI/runners;
 - no F-safety scope expansion;
+- no broad React Flow/UI work before the PLC/Open Library vertical slice is stable;
 - do not modify `IndustrialMDE`.
+
+## Fresh-chat success criterion
+
+The new chat is correctly synchronized if, after its own live GitHub verification, it can answer all of these without asking the human for old-chat context:
+
+- current `main` SHA;
+- why OLQ currently fails;
+- why the popup is separate from migration failure;
+- which task is active;
+- whether a TIA-AUTH candidate PR already exists;
+- exact next action;
+- what the human does and does not need to do.
