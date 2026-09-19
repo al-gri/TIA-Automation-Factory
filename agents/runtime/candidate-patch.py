@@ -13,7 +13,6 @@ import argparse
 import hashlib
 import json
 import os
-import stat
 import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Iterable
@@ -28,6 +27,7 @@ PROTECTED_PATTERNS = (
     ".gitignore",
     "opencode.json",
 )
+WORKER_ROOT = "src/TiaV21Worker"
 ALLOWED_GIT_MODES = {"100644", "100755"}
 
 
@@ -71,11 +71,33 @@ def canonical_path(raw: str) -> str:
     return normalized
 
 
+def pattern_root(pattern: str) -> tuple[str, bool]:
+    recursive = pattern.endswith("/**")
+    root = pattern[:-3] if recursive else pattern
+    return canonical_path(root), recursive
+
+
 def matches(pattern: str, path: str) -> bool:
-    if pattern.endswith("/**"):
-        root = canonical_path(pattern[:-3])
+    root, recursive = pattern_root(pattern)
+    if recursive:
         return path == root or path.startswith(root + "/")
-    return canonical_path(pattern) == path
+    return root == path
+
+
+def pattern_intersects_worker(pattern: str) -> bool:
+    root, recursive = pattern_root(pattern)
+    if recursive:
+        return (
+            root == WORKER_ROOT
+            or root.startswith(WORKER_ROOT + "/")
+            or WORKER_ROOT.startswith(root + "/")
+        )
+    return root == WORKER_ROOT or root.startswith(WORKER_ROOT + "/")
+
+
+def pattern_is_worker_bounded(pattern: str) -> bool:
+    root, _ = pattern_root(pattern)
+    return root == WORKER_ROOT or root.startswith(WORKER_ROOT + "/")
 
 
 def task_policy(task_path: Path) -> tuple[dict, bytes, list[str]]:
@@ -96,10 +118,7 @@ def task_policy(task_path: Path) -> tuple[dict, bytes, list[str]]:
     for raw_pattern in allowed:
         if not isinstance(raw_pattern, str) or not raw_pattern:
             raise PatchError("candidatePolicy.allowedPaths entries must be non-empty strings")
-        if raw_pattern.endswith("/**"):
-            canonical_path(raw_pattern[:-3])
-        else:
-            canonical_path(raw_pattern)
+        pattern_root(raw_pattern)
         normalized_patterns.append(raw_pattern)
 
     allow_worker = policy.get("allowTiaV21WorkerChanges", False)
@@ -113,25 +132,32 @@ def task_policy(task_path: Path) -> tuple[dict, bytes, list[str]]:
         raise PatchError("protectedPaths must be an array of non-empty strings when present")
     effective_protected = list(PROTECTED_PATTERNS)
     for protected in task_protected:
-        root = protected[:-3] if protected.endswith("/**") else protected
-        canonical_path(root)
-        if allow_worker and (root == "src/TiaV21Worker" or root.startswith("src/TiaV21Worker/")):
+        root, _ = pattern_root(protected)
+        if allow_worker and (root == WORKER_ROOT or root.startswith(WORKER_ROOT + "/")):
             continue
         if protected not in effective_protected:
             effective_protected.append(protected)
 
     for pattern in normalized_patterns:
-        root = pattern[:-3] if pattern.endswith("/**") else pattern
+        root, _ = pattern_root(pattern)
         for protected in effective_protected:
-            protected_root = protected[:-3] if protected.endswith("/**") else protected
+            protected_root, _ = pattern_root(protected)
             if (
                 root == protected_root
                 or root.startswith(protected_root + "/")
                 or protected_root.startswith(root + "/")
             ):
                 raise PatchError(f"allowed path overlaps protected infrastructure: {pattern}")
-        if (root == "src/TiaV21Worker" or root.startswith("src/TiaV21Worker/")) and not allow_worker:
-            raise PatchError("TiaV21Worker allowedPaths require allowTiaV21WorkerChanges=true")
+
+        if pattern_intersects_worker(pattern):
+            if not allow_worker:
+                raise PatchError("TiaV21Worker allowedPaths require allowTiaV21WorkerChanges=true")
+            if not pattern_is_worker_bounded(pattern):
+                raise PatchError(
+                    "TiaV21Worker authorization must use an explicit src/TiaV21Worker path; "
+                    f"ancestor-wide pattern is forbidden: {pattern}"
+                )
+
     task["_effectiveProtectedPaths"] = effective_protected
     return task, raw, normalized_patterns
 
