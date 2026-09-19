@@ -44,53 +44,45 @@ Short chronological record of infrastructure work. Keep entries factual and conc
 - Added `agents/runtime/build-coder-context.py`, `docs/CODING_AGENT_CONTEXT.md`, bounded `contextFiles`, source hashes and shared OpenRouter/DeepSeek rendered context.
 - Methodology checkpoints became mandatory primary-ChatGPT orchestration duties.
 
-## 2026-09-18 — OLQ trusted execution harness
-
-### PAUSED
-- Issue #26 / PR #27 adds the trusted-main Windows/TIA harness for real OLQ-001 qualification twice with sanitized evidence only.
-- Repaired exact head `86b1b3f1b2cabca227d2976fa537ba00f572d960` passed CI #223 / run `35387244950`.
-- PR #27 is primary-ChatGPT-authored and must be re-checked against the post-governance `main` before any merge gate.
-
-## 2026-09-18 — GOV-CTX-001: prompt/control authority separation
+## 2026-09-18/19 — GOV-CTX-001 and GOV-BOOT-001
 
 ### DONE
-- Historical F011/F012 findings were re-tested against then-current `main` and confirmed live despite the old verdict being stale.
-- Issue #28 / PR #30 removed task-authority discovery from mixed prompts and made repository path declarations fail closed on non-canonical spelling.
-- Exact candidate `e3d2912d74cf83256aafe1bd597f49f360411d34` passed CI #224 and fresh independent `chatgpt-secondary` review.
-- Governance then exposed a bootstrap ambiguity: no trusted `tasks/GOV-CTX-001.json` existed to authorize the secondary slot, while adding one in the same candidate would be self-authorization.
-- Human operator granted a one-time exact-SHA waiver for PR #30.
-- PR #30 merged as `0260117391abf5f0a8375699dca12caa06bafb8b`; issue #28 closed.
-- M-013 records the control-plane/data-plane separation rule.
+- GOV-CTX-001 PR #30 repaired prompt/control authority separation and merged as `0260117391abf5f0a8375699dca12caa06bafb8b` after CI #224 and fresh independent review.
+- Issue #31 / PR #32 defined the permanent explicit governance-bootstrap lane after multiple independent review rounds F001-F007.
+- Positive human provenance uses SSH-signed scope/review attestation commits; negative app attribution is insufficient.
+- Permanent attestation schemas are invocation-generic and fail-closed gates are stage-specific.
+- PR #32 merged as `60bd20841360998406db59cfb13a61cb33982566`; issue #31 closed.
+- Normal task-backed automation remains task-only and fail-closed.
 
-## 2026-09-18/19 — GOV-BOOT-001: explicit governance bootstrap lane
+## 2026-09-19 — OLQ trusted qualification execution
 
 ### IN PROGRESS
-- Issue #31 / PR #32 define the permanent bootstrap lane for genuine authorization recursion in the repository's normative authority/review-control model.
-- Round 1 exact candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` -> `CHANGES_REQUIRED` with major F001-F004.
-- Round 2 exact candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED` with major F005.
-- F001-F004 forced semantic eligibility, complete fingerprinted issue scope, no candidate self-authorization and provenance separation for human/reviewer authority.
-- F005 established that owner authorship plus `performed_via_github_app == null` is only negative attribution and does not positively prove human origin against non-App API credentials.
-- Positive provenance was repaired through SSH-signed Git scope/review attestation commits under a human-controlled signing key unavailable to project automation.
-- Human scope-attestation commit `4ac2b16c2b1ea81d225779ece58df3131fb18fd6` validly signed the then-current issue-body hash and independently proved the SSH verification path.
-- Round 3 exact candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` -> `CHANGES_REQUIRED`, major F006-F007, while independently confirming F001-F005 repaired.
-- F006 found permanent schemas incorrectly hard-coded issue `31` / task `GOV-BOOT-001`; F007 found a pre-review/post-APPROVE fail-closed sequencing ambiguity.
-- Default two candidate-changing repairs were already exhausted. On 2026-09-19 the human explicitly authorized exactly one additional candidate-changing repair round strictly for F006/F007 without scope widening.
-- Issue #31 was updated only to bind that bounded repair decision; new exact UTF-8 body SHA-256 is `f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b`.
-- Because the issue body changed, signed commit `4ac2b16...` is now historical/stale for the next review and a fresh SSH-signed scope attestation is required for the new hash.
-- The F006 repair makes both scope/review attestation schemas invocation-generic and requires equality to the current repository/frozen issue/task identity.
-- The F007 repair makes fail-closed evaluation stage-specific: review attestation is not applicable before APPROVE exists; CHANGES_REQUIRED grants no authority; after APPROVE, invalid/missing/stale signed review evidence blocks authority consumption/merge.
-- Normal external-review automation remains task-only and fail-closed; no missing-task fallback was added.
-- M-014 remains the governing lesson: neither the candidate nor an author-controlled connector/credential path may manufacture authority.
+- OLQ-INFRA-002 PR #27 refreshed against post-bootstrap `main`, received fresh exact-SHA secondary approval and merged as `24f3a8fad542132a7aa9369be4451dd6ca0ae23f`.
+- First trusted qualification attempt exposed Windows PowerShell execution-policy blocking before worker execution; operator set CurrentUser policy to `RemoteSigned` while MachinePolicy/UserPolicy remained undefined.
+- Next trusted run produced sanitized `BLOCKED` because `TIA_OPEN_LIBRARY_V19_ARCHIVE` was not visible to the runner.
+- Operator configured runner-local `TIA_OPEN_LIBRARY_V19_ARCHIVE` and `TIA_OPEN_LIBRARY_QUALIFIED_ROOT` and relaunched the user-mode runner.
+- Trusted run `35426328232` then reached the real first `qualify-library` invocation and remained there until the outer 45-minute job timeout cancelled it.
+- No public evidence JSON was finalized; post-job cleanup terminated remaining Siemens Portal/CrashDetector/FileStorage processes.
+- This is not evidence of a vendor-library defect or qualification success.
+- Issue #36 / PR #37 (`OLQ-INFRA-003`) adds bounded per-invocation timeout observability while preserving trusted-main/vendor boundaries.
+- Current PR #37 head after base resynchronization: `0c9633fe657b8949beea76f87f3a63411cd103e0`; exact-SHA CI #264 / run `35429912399` PASS; fresh secondary review required.
+- Historical PR #37 review-ready SHA `cff83ee7284fa1ea2c4d75621ddfe720914a5688` is stale and must not be reused.
 
-### NEXT GATE
-- Freeze the single bounded F006/F007 repair exact head and require exact-SHA CI PASS.
-- Human creates a fresh SSH-signed scope-attestation commit for issue-body hash `f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b` on the dedicated non-merged human-attestation branch.
-- Primary verifies exact commit SHA, raw GitHub SSH-signature metadata and payload.
-- Obtain a fresh isolated `chatgpt-secondary` review against the new exact candidate, carrying F001-F007 history.
-- If APPROVE, human creates a separate SSH-signed review-attestation commit containing the exact JSON and its hash.
-- Primary verifies schema/identity/exact SHA/signature and delegated-merges only if every gate remains green.
-- Any further candidate-changing repair requires another fresh explicit human authorization; otherwise `BLOCKED`.
-- Then re-check PR #27 against the new `main` and resume OLQ qualification work.
+## 2026-09-19 — CHAT-HANDOFF-001 repository-first chat transfer
+
+### IN PROGRESS
+- Trusted task `tasks/CHAT-HANDOFF-001.json` added to `main`; tracking issue #38 created.
+- Candidate branch `chatgpt/chat-handoff-protocol` adds `docs/CHAT_HANDOFF_PROTOCOL.md` and refreshes stale operational snapshots.
+- Canonical human triggers include `переходим в другой чат`, `переходим в новый чат`, `готовь handoff`, and equivalent unambiguous transfer requests.
+- Handoff is defined as a transaction: freeze discretionary work -> live GitHub freshness audit -> reconcile chat/GitHub -> persist factual checkpoint -> verify stale evidence -> emit compact fresh-chat bootstrap prompt.
+- The audit found `PROJECT_STATE.md`/`NEXT_CHAT_HANDOFF.md` materially stale: they still described GOV-BOOT/PR #27 as active although both had advanced.
+- During setup, primary ChatGPT twice issued temporary placeholder `create_file` operations against `main` instead of a pre-created candidate branch. Both placeholders were immediately reverted and no placeholder remains in the tree, but `main` history moved and invalidated the previously prepared PR #37 review package.
+- PR #37 was explicitly rebuilt against current `main` while preserving its one-workflow diff; fresh CI #264 passed.
+
+### LESSON / GUARD
+- Before any authority-bearing repository write, explicitly verify the target ref/branch; do not rely on omitted/default branch behavior.
+- After every write that can move `main`, a candidate head, or reviewed base, re-fetch affected PR/ref and reassess exact-SHA/base review freshness.
+- Chat handoff must detect and expose stale evidence rather than carrying it into the fresh chat.
 
 ## 2026-09-18 — AUTO-001 accepted operating-model direction
 
@@ -99,7 +91,7 @@ Short chronological record of infrastructure work. Keep entries factual and conc
 - OpenRouter/DeepSeek should run routine tasks autonomously to explicit checkpoints.
 - `WAITING_FOR_REVIEW` means primary connected ChatGPT performs full semantic/code/architecture review when independent.
 - Primary-authored candidates route to `chatgpt-secondary`.
-- AUTO-001 implementation is downstream of GOV-BOOT-001 and must not weaken exact-SHA review, bounded repair or trusted Windows/TIA boundaries.
+- AUTO-001 must preserve exact-SHA review, bounded repair and trusted Windows/TIA boundaries.
 
 ## Logging rule
 
