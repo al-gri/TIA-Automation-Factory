@@ -1,0 +1,54 @@
+{
+  "id": "TIA-AUTH-BOOTSTRAP-001",
+  "title": "Fix elevated bootstrap SID identity handling",
+  "goal": "Make the one-time elevated TIA Openness whitelist bootstrap apply the runner user's minimum ACL using a SecurityIdentifier/IdentityReference instead of routing a raw SID string through the account-name overload.",
+  "scope": [
+    "Coding-agent scope is exactly scripts/windows/Configure-TiaV21WorkerWhitelist.ps1 and no other file.",
+    "Replace the raw SID-string use in RegistryAccessRule construction with System.Security.Principal.SecurityIdentifier or an equivalent IdentityReference object representing WindowsIdentity.User.",
+    "Preserve the target key HKLM:\\SOFTWARE\\Siemens\\Automation\\Openness\\Whitelist\\21.0\\Entries\\TiaV21Worker.exe\\Entry.",
+    "Preserve exact rights SetValue | QueryValues, AccessControlType Allow, InheritanceFlags None, and PropagationFlags None.",
+    "Preserve the corrected parenthesized RegistryRights comparison introduced for F010 and keep the script idempotent.",
+    "Do not modify src/TiaV21Worker/**, .github/**, agents/**, tasks/**, runner configuration, secrets, parent registry ACLs, generator/domain/compiler code, or IndustrialMDE."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate diff contains only scripts/windows/Configure-TiaV21WorkerWhitelist.ps1.",
+      "RegistryAccessRule is constructed with an IdentityReference/SecurityIdentifier for the current runner identity, not a raw SID string passed to the String overload.",
+      "ACL scope remains only the TiaV21Worker.exe Entry key.",
+      "Granted rights remain exactly SetValue and QueryValues with no inheritance and Allow.",
+      "Existing-rule detection remains equivalent and retains the parenthesized combined RegistryRights comparison.",
+      "Bootstrap remains idempotent and does not loosen any parent Siemens Openness registry ACL.",
+      "No src/TiaV21Worker/** changes and no unrelated files.",
+      "Linux deterministic CI remains green.",
+      "Primary connected ChatGPT performs independent exact-SHA CODE_REVIEW because the candidate is authored by the coding agent."
+    ],
+    "tia": [
+      "After merge, run scripts/windows/Configure-TiaV21WorkerWhitelist.ps1 elevated on TIA-V21-PC under the same Windows identity used by the self-hosted runner; it must end with Bootstrap completed successfully.",
+      "Then run trusted-main /run-olq-001 from issue #19.",
+      "phase:bootstrap-required must not recur and no interactive Openness access (0033:000666) dialog may appear.",
+      "OLQ-001 migration PASS is not required; retrieve-with-upgrade remains a separate migration defect if encountered."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json",
+    "src/TiaV21Worker/**"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 51
+}
