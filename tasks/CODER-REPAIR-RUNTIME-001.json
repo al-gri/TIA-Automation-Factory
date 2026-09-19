@@ -1,0 +1,44 @@
+{
+  "id": "CODER-REPAIR-RUNTIME-001",
+  "title": "Run Autonomous Repair through trusted-main coding runtime",
+  "goal": "Make Autonomous Repair execute the current trusted-main run-coder runtime instead of a potentially stale candidate-branch copy, so infrastructure fixes on main apply to old candidate branches without changing candidate contents or review authority.",
+  "scope": [
+    "Primary-maintainer scope: modify only .github/workflows/agent-repair.yml and a narrowly-scoped deterministic test under tests/ExternalReviewProtocol.Tests/**.",
+    "Materialize agents/runtime/run-coder.sh from origin/main after the existing trusted-main fetch and execute that trusted copy from RUNNER_TEMP while the working directory remains the candidate checkout.",
+    "Do not alter repair prompt contents, provider/model ordering, timeouts, workspace reset/fallback semantics, candidate author identity, reviewer policy, repair budgets, task authority, runner configuration, secrets, vendor payload handling, TIA worker/generator/domain/compiler semantics or IndustrialMDE.",
+    "This protected workflow repair is materially authored by primary ChatGPT and requires fresh isolated chatgpt-secondary review for the exact candidate SHA."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Autonomous Repair no longer executes agents/runtime/run-coder.sh from the candidate branch.",
+      "The workflow obtains the executable run-coder.sh bytes from origin/main after trusted-main fetch and invokes that trusted copy from RUNNER_TEMP.",
+      "Candidate working tree remains the agent branch so coding edits still target the candidate branch and protected-path diff validation remains unchanged.",
+      "Repair prompt construction, OpenRouter-first/DeepSeek-fallback policy, timeouts, stdout/stderr capture, audit, workspace reset semantics, author identity and review provenance are unchanged.",
+      "A deterministic test asserts the trusted-main materialization and invocation and rejects direct candidate-branch run-coder execution.",
+      "Exact candidate CI is green.",
+      "Fresh isolated chatgpt-secondary CODE_REVIEW APPROVE is bound to the exact candidate SHA before merge."
+    ],
+    "tia": [
+      "No Windows/TIA execution is required for this infrastructure-only workflow repair.",
+      "After merge, repeat the OLQ-DIAG-001 CHANGES_REQUIRED repair flow for PR #41 and verify Autonomous Repair proceeds beyond prompt transport."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json",
+    "src/TiaV21Worker/**"
+  ],
+  "maxRepairAttempts": 2
+}
