@@ -54,11 +54,11 @@
   ],
   "repairBudgetExtension": {
     "authorizedOn": "2026-09-19",
-    "attempt": 5,
+    "attempt": 6,
     "findingIds": [
-      "F009"
+      "F010"
     ],
-    "scope": "Exactly one additional candidate-changing repair attempt, limited to F009 only: remove exactly the six tracked tests/**/__pycache__/*.pyc files as the final repository mutation; after deletion do not run Python, pytest, unittest, or any other command that can recreate .pyc files; preserve the accepted F008 source fix unchanged; make no other scope changes."
+    "scope": "Exactly one additional candidate-changing repair attempt, limited to F010 only: in scripts/windows/Configure-TiaV21WorkerWhitelist.ps1 change only the RegistryRights comparison by parenthesizing the combined SetValue -bor QueryValues expression; preserve F008 and the resolved F009 cleanup unchanged; make no other scope changes."
   },
-  "maxRepairAttempts": 5
+  "maxRepairAttempts": 6
 }
