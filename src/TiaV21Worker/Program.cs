@@ -173,6 +173,24 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             var output = new WorkerResult();
 
+            var whitelistResult = WhitelistManager.SynchronizeWhitelist();
+            if (!whitelistResult.Success)
+            {
+                if (whitelistResult.BootstrapRequired)
+                {
+                    output.Success = false;
+                    output.State = "BootstrapRequired";
+                    output.ErrorCount = 1;
+                    output.Failure = whitelistResult.Message;
+                    return output;
+                }
+                output.Success = false;
+                output.State = "WhitelistSyncFailed";
+                output.ErrorCount = 1;
+                output.Failure = whitelistResult.Message ?? "Whitelist synchronization failed.";
+                return output;
+            }
+
             using (TiaPortal portal = new TiaPortal(TiaPortalMode.WithUserInterface))
             using (ExclusiveAccess exclusiveAccess = portal.ExclusiveAccess("TIA Automation Factory smoke test"))
             {
@@ -412,6 +430,22 @@ namespace TiaAutomationFactory.TiaV21Worker
             string retrieveWorkPath = Path.Combine(workRoot, "retrieve_" + qualificationIdentity);
             Directory.CreateDirectory(retrieveWorkPath);
 
+            var whitelistResult = WhitelistManager.SynchronizeWhitelist();
+            if (!whitelistResult.Success)
+            {
+                if (whitelistResult.BootstrapRequired)
+                {
+                    manifest.Success = false;
+                    manifest.Failure = "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005";
+                    manifest.FailureDetails = whitelistResult.Message;
+                    return manifest;
+                }
+                manifest.Success = false;
+                manifest.Failure = "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
+                manifest.FailureDetails = whitelistResult.Message ?? "Whitelist synchronization failed.";
+                return manifest;
+            }
+
             Exception retrieveWithUpgradeException = null;
             Exception saveException = null;
             Exception archiveException = null;
@@ -516,6 +550,22 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             string verifyWorkPath = Path.Combine(workRoot, "verify_" + qualificationIdentity);
             Directory.CreateDirectory(verifyWorkPath);
+
+            var whitelistResult2 = WhitelistManager.SynchronizeWhitelist();
+            if (!whitelistResult2.Success)
+            {
+                if (whitelistResult2.BootstrapRequired)
+                {
+                    manifest.Success = false;
+                    manifest.Failure = "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005";
+                    manifest.FailureDetails = whitelistResult2.Message;
+                    return manifest;
+                }
+                manifest.Success = false;
+                manifest.Failure = "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
+                manifest.FailureDetails = whitelistResult2.Message ?? "Whitelist synchronization failed.";
+                return manifest;
+            }
 
             bool nativeReopenSuccess = false;
             string nativeReopenDetails = "";
