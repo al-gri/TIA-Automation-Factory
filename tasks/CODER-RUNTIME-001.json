@@ -1,0 +1,44 @@
+{
+  "id": "CODER-RUNTIME-001",
+  "title": "Stream large coding prompts via stdin instead of argv",
+  "goal": "Remove the coding-runtime argv-size failure exposed by Autonomous Repair run 35432115775 by transporting the complete trusted OpenCode prompt through stdin rather than a command-line argument, without changing provider policy, context contents, review authority, or candidate semantics.",
+  "scope": [
+    "Primary-maintainer scope: modify agents/runtime/run-coder.sh and a narrowly-scoped deterministic regression test under an existing test surface if needed.",
+    "For both OpenRouter and DeepSeek invocation paths, transport the exact trusted prompt through stdin or an equivalently argv-independent documented OpenCode mechanism; do not truncate or summarize trusted context.",
+    "Preserve timeout handling, --pure, --auto, --agent build, --format json, model selection, output/error capture, usage audit and provider fallback/workspace-reset behavior.",
+    "Do not modify workflows, reviewer policy, repair budgets, TIA worker/generator/domain/compiler semantics, runner configuration, secrets, vendor payload handling or IndustrialMDE.",
+    "This is a protected runtime repair materially authored by primary ChatGPT and therefore requires fresh isolated chatgpt-secondary review for the exact candidate."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Neither provider invocation expands the trusted prompt into argv; both consume the same prompt bytes through stdin or an equivalent argv-independent transport.",
+      "A deterministic regression check covers a prompt larger than the size that failed in run 35432115775 and proves prompt transport does not depend on a single large command-line argument.",
+      "Provider order remains OpenRouter first and official DeepSeek deepseek-flash fallback second.",
+      "Timeouts, OpenCode flags, stdout/stderr capture, usage audit and workspace reset/fallback semantics remain unchanged.",
+      "No review/task context is discarded, summarized or truncated as the workaround.",
+      "Exact candidate deterministic CI is green.",
+      "Fresh isolated chatgpt-secondary CODE_REVIEW APPROVE is bound to the exact candidate SHA before merge."
+    ],
+    "tia": [
+      "No candidate or post-merge Windows/TIA execution is required for this infrastructure-only repair.",
+      "After merge, rerun the blocked Autonomous Repair for OLQ-DIAG-001 PR #41 and verify execution proceeds beyond prompt transport for at least one configured provider."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "protectedPaths": [
+    ".github/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json",
+    "src/TiaV21Worker/**"
+  ],
+  "maxRepairAttempts": 2
+}
