@@ -40,18 +40,30 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
         self.assertIn("build-coder-context.py", text)
         self.assertIn("trusted-runtime", text)
 
-    def test_review_request_executes_candidate_only_in_read_only_job(self):
+    def test_review_request_reconstructs_authority_only_in_clean_publisher(self):
         text = self.read("external-review-request.yml")
         self.assertIn("  build-review-package:", text)
         self.assertIn("  publish-review-package:", text)
         build = text[text.index("  build-review-package:"):text.index("  publish-review-package:")]
         self.assertNotIn("pull-requests: write", build)
         self.assertNotIn("gh pr comment", build)
+        self.assertNotIn("review-request.md", build)
+        self.assertNotIn("candidate.diff", build)
+        self.assertIn("Upload bounded evidence only", build)
+
         publish = text[text.index("  publish-review-package:"):]
         self.assertIn("pull-requests: write", publish)
         self.assertIn("gh pr comment", publish)
         self.assertNotIn("dotnet test", publish)
-        self.assertIn("test \"$(jq -r .headRefOid \"$RUNNER_TEMP/pr.json\")\" = \"$CANDIDATE_SHA\"", publish)
+        self.assertIn("Reconstruct and revalidate authoritative review state", publish)
+        self.assertIn("Build self-contained package in clean publisher", publish)
+        self.assertIn("Build source context from immutable Git objects", publish)
+        self.assertIn("candidate.diff", publish)
+        self.assertIn("review-request.md", publish)
+        self.assertIn("Trusted main moved after evidence collection", publish)
+        self.assertIn("non-authoritative Linux evidence", publish)
+        self.assertIn("escaped external-review-state marker", publish)
+        self.assertIn('test "$(jq -r .headRefOid "$RUNNER_TEMP/pr.json")" = "$CANDIDATE_SHA"', publish)
 
     def test_candidate_validation_is_linux_only_and_read_only(self):
         text = self.read("candidate-validation.yml")
