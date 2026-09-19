@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -653,7 +654,146 @@ namespace TiaAutomationFactory.TiaV21Worker
             string phaseName = GetPhaseToken(phase);
             string exceptionType = exception.GetType().Name;
             string hresultHex = "0x" + exception.HResult.ToString("X8");
-            return "phase:" + phaseName + " type:" + exceptionType + " hresult:" + hresultHex;
+            string baseToken = "phase:" + phaseName + " type:" + exceptionType + " hresult:" + hresultHex;
+
+            if (exception is Siemens.Engineering.EngineeringException engException)
+            {
+                string diagnosticSuffix = ClassifyEngineeringException(engException);
+                if (!string.IsNullOrEmpty(diagnosticSuffix))
+                {
+                    return baseToken + " " + diagnosticSuffix;
+                }
+            }
+
+            return baseToken;
+        }
+
+        private static string ClassifyEngineeringException(Siemens.Engineering.EngineeringException exception)
+        {
+            try
+            {
+                var tags = new List<string>();
+                int detailCount = 0;
+                string messageDataFingerprint = null;
+                string detailDataAggregateFingerprint = null;
+
+                if (exception.MessageData != null && !string.IsNullOrEmpty(exception.MessageData.Text))
+                {
+                    string messageText = exception.MessageData.Text;
+                    messageDataFingerprint = ComputeSha256Truncated(messageText, 16);
+                    tags.AddRange(DeriveTagsFromText(messageText));
+                }
+
+                if (exception.DetailMessageData != null)
+                {
+                    var detailTexts = new List<string>();
+                    detailCount = exception.DetailMessageData.Count;
+                    foreach (var detail in exception.DetailMessageData)
+                    {
+                        if (!string.IsNullOrEmpty(detail.Text))
+                        {
+                            detailTexts.Add(detail.Text);
+                            tags.AddRange(DeriveTagsFromText(detail.Text));
+                        }
+                    }
+                    if (detailTexts.Count > 0)
+                    {
+                        detailDataAggregateFingerprint = ComputeAggregateFingerprint(detailTexts, 16);
+                    }
+                }
+
+                if (tags.Count == 0)
+                {
+                    tags.Add("unknown");
+                }
+                else
+                {
+                    tags.Sort();
+                    tags = tags.Distinct().ToList();
+                }
+
+                var parts = new List<string>();
+                parts.Add("tags:" + string.Join(",", tags));
+                parts.Add("detail-count:" + detailCount);
+                if (messageDataFingerprint != null)
+                {
+                    parts.Add("msgfp:" + messageDataFingerprint);
+                }
+                if (detailDataAggregateFingerprint != null)
+                {
+                    parts.Add("dtlfp:" + detailDataAggregateFingerprint);
+                }
+
+                return string.Join(" ", parts);
+            }
+            catch
+            {
+                return "tags:unknown";
+            }
+        }
+
+        private static string ComputeAggregateFingerprint(List<string> texts, int length)
+        {
+            using (var sha256 = SHA256.Create())
+            {
+                foreach (string text in texts)
+                {
+                    byte[] textBytes = Encoding.UTF8.GetBytes(text);
+                    byte[] lengthBytes = BitConverter.GetBytes(textBytes.Length);
+                    if (BitConverter.IsLittleEndian)
+                        Array.Reverse(lengthBytes);
+                    sha256.TransformBlock(lengthBytes, 0, lengthBytes.Length, null, 0);
+                    sha256.TransformBlock(textBytes, 0, textBytes.Length, null, 0);
+                }
+                sha256.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                string hex = BitConverter.ToString(sha256.Hash).Replace("-", "").ToLowerInvariant();
+                return hex.Substring(0, Math.Min(length, hex.Length));
+            }
+        }
+
+        private static List<string> DeriveTagsFromText(string text)
+        {
+            var tags = new List<string>();
+            string lowerText = text.ToLowerInvariant();
+
+            if (ContainsAny(lowerText, "missing product", "product not found", "product missing"))
+                tags.Add("missing-product");
+            if (ContainsAny(lowerText, "unreleased content", "not released", "pre-release version"))
+                tags.Add("unreleased-content");
+            if (ContainsAny(lowerText, "unsupported version", "version not supported", "incompatible version"))
+                tags.Add("unsupported-version");
+            if (ContainsAny(lowerText, "invalid archive", "corrupt archive", "archive corrupt", "not a valid archive"))
+                tags.Add("invalid-archive");
+            if (ContainsAny(lowerText, "access denied", "permission denied", "unauthorized access", "no access"))
+                tags.Add("access-denied");
+            if (ContainsAny(lowerText, "user abort", "cancelled by user", "aborted by user"))
+                tags.Add("user-abort");
+            if (ContainsAny(lowerText, "target conflict", "conflict with target"))
+                tags.Add("target-conflict");
+            if (ContainsAny(lowerText, "license missing", "license not found", "no license"))
+                tags.Add("license-missing");
+
+            return tags;
+        }
+
+        private static bool ContainsAny(string text, params string[] phrases)
+        {
+            foreach (string phrase in phrases)
+            {
+                if (text.Contains(phrase))
+                    return true;
+            }
+            return false;
+        }
+
+        private static string ComputeSha256Truncated(string input, int length)
+        {
+            using (var sha256 = SHA256.Create())
+            {
+                byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(input));
+                string hex = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                return hex.Substring(0, Math.Min(length, hex.Length));
+            }
         }
 
         private static string GetPhaseToken(QualificationPhase phase)
