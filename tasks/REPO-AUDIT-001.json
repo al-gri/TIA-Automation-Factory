@@ -1,0 +1,35 @@
+{
+  "id": "REPO-AUDIT-001",
+  "title": "Independent whole-repository architecture and AI-operating-model audit",
+  "goal": "Obtain a read-only independent deep review of the entire TIA Automation Factory repository, including product architecture, Siemens/TIA boundaries, code quality, tests, workflows, AI collaboration model, prompts, review/repair mechanics, documentation consistency and development methodology; produce prioritized recommendations and improved prompt drafts without modifying the repository.",
+  "scope": [
+    "Read-only audit of the entire repository and live GitHub state: source, tests, docs, tasks, agents, workflows, reviews, issues, PRs and relevant Actions evidence.",
+    "Evaluate the production goal and architecture from vendor-neutral automation model through PLC IR, Siemens SCL/Open Library integration and trusted TIA Portal V21 Openness execution.",
+    "Audit agents/prompts/*.md, agent runtime/context construction, reviewer protocol and human/AI interaction for correctness, efficiency, autonomy and unnecessary ceremony.",
+    "Propose complete replacement drafts for coder, repair and reviewer prompts where improvement is justified; preserve trust boundaries rather than weakening them for convenience.",
+    "Identify contradictions, stale snapshots, duplicated policy, over-engineering, missing tests, security/trust risks and places where the human is unnecessarily used as a message bus.",
+    "Do not modify files, open PRs, execute candidate code on Windows/TIA, access secrets/vendor payloads or touch IndustrialMDE."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Report binds itself to the audited default-branch SHA and names the live PR/issues/Actions state used.",
+      "Separates observed facts, inferences and recommendations.",
+      "States what is already strong and should be preserved, not only defects.",
+      "Ranks findings by critical/major/minor and cites concrete repository evidence.",
+      "Includes architecture, code/test, CI/CD, TIA/Open Library, security/trust, documentation, methodology and AI-agent/prompt analysis.",
+      "Includes complete proposed prompt text for coder, repair, requirements/code reviewer and PLC/TIA reviewer, plus recommendations for primary-orchestrator instructions if needed.",
+      "Includes a simplification analysis: controls to keep, controls to automate, controls to remove/defer, and how to minimize human copying/manual routing.",
+      "Produces a prioritized action plan that distinguishes immediate blockers from improvements that must not delay generator development."
+    ],
+    "tia": [
+      "No Windows/TIA execution is required; existing trusted TIA evidence may be reviewed read-only."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "ARCHITECTURE_REVIEW",
+    "reviewerSlots": ["independent-repository-auditor"]
+  },
+  "protectedPaths": ["**/*"],
+  "maxRepairAttempts": 0
+}
