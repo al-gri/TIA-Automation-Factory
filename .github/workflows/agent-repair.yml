@@ -6,8 +6,9 @@ on:
 
 permissions:
   actions: read
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
+  issues: read
 
 concurrency:
   group: repair-${{ github.event.client_payload.pr_number }}
@@ -18,12 +19,17 @@ jobs:
     if: startsWith(github.event.client_payload.branch, 'agent/')
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
+    outputs:
+      candidate_sha: ${{ steps.context.outputs.candidate_sha }}
+      trusted_main_sha: ${{ steps.context.outputs.trusted_main_sha }}
+      task_path: ${{ steps.context.outputs.task_path }}
+      max_attempts: ${{ steps.context.outputs.max_attempts }}
+      reviewer_slot: ${{ steps.context.outputs.reviewer_slot }}
     steps:
-      - name: Checkout candidate branch
+      - name: Checkout exact candidate without publication credentials
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.client_payload.branch }}
+          ref: ${{ github.event.client_payload.candidate_sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -36,7 +42,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Validate repair context
+      - name: Resolve immutable repair authority and helper chain
         id: context
         shell: bash
         env:
@@ -44,7 +50,6 @@ jobs:
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
           TASK_PATH: ${{ github.event.client_payload.task_path }}
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
-          VALIDATION_RUN_ID: ${{ github.event.client_payload.validation_run_id }}
           ATTEMPT: ${{ github.event.client_payload.attempt }}
           REVIEW_SOURCE: ${{ github.event.client_payload.review_source }}
           REVIEW_TYPE: ${{ github.event.client_payload.review_type }}
@@ -52,116 +57,68 @@ jobs:
           REVIEWER_SLOT: ${{ github.event.client_payload.reviewer_slot }}
         run: |
           set -euo pipefail
-          VALIDATION_RUN_ID="${VALIDATION_RUN_ID:-0}"
-          REVIEW_SOURCE="${REVIEW_SOURCE:-}"
-          case "$BRANCH" in agent/*) ;; *) echo "Invalid repair branch: $BRANCH"; exit 1 ;; esac
-          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path: $TASK_PATH"; exit 1 ;; esac
-          test "$REVIEW_SOURCE" = "external-review" || { echo "All candidate-changing repairs require external-review provenance."; exit 1; }
+          test "$REVIEW_SOURCE" = "external-review"
+          case "$BRANCH" in agent/*) ;; *) echo "Invalid repair branch"; exit 1 ;; esac
+          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path"; exit 1 ;; esac
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
-          [[ "$VALIDATION_RUN_ID" =~ ^[0-9]+$ ]]
           [[ "$ATTEMPT" =~ ^[1-9][0-9]*$ ]]
-
-          git fetch origin main "$BRANCH"
-          TRUSTED_MAIN_SHA=$(git rev-parse origin/main)
-          [[ "$TRUSTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
 
-          # Reject protected candidate infrastructure before executing any repository-provided
-          # orchestration code from the candidate checkout.
-          git diff --name-only "$TRUSTED_MAIN_SHA"...HEAD | sort -u > "$RUNNER_TEMP/current-candidate-files.txt"
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/current-candidate-files.txt"; then
-            echo "Existing candidate contains protected infrastructure changes. Refusing repair."
-            exit 1
-          fi
-
+          git fetch --no-tags origin main
+          TRUSTED_MAIN_SHA=$(git rev-parse origin/main)
+          [[ "$TRUSTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
           git show "$TRUSTED_MAIN_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
-          git show "$TRUSTED_MAIN_SHA:agents/runtime/reviewer-policy.py" > "$RUNNER_TEMP/trusted-reviewer-policy.py"
-          jq -e '.id and .acceptance.requirements and .acceptance.tia and .review.riskClass and .review.reviewType and .maxRepairAttempts' "$RUNNER_TEMP/task.json" >/dev/null
-          if jq -e 'has("generator") and ((.generator.input // "") == "" or (.generator.expectedArtifact // "") == "")' "$RUNNER_TEMP/task.json" >/dev/null; then
-            echo "generator, when present, requires both input and expectedArtifact"
-            exit 1
-          fi
+          jq -e '.id and .review.riskClass and .review.reviewType and .maxRepairAttempts and (.candidatePolicy.allowedPaths | type == "array" and length > 0)' "$RUNNER_TEMP/task.json" >/dev/null
+          test "$(jq -r .review.riskClass "$RUNNER_TEMP/task.json")" = "$RISK_CLASS"
+          test "$(jq -r .review.reviewType "$RUNNER_TEMP/task.json")" = "$REVIEW_TYPE"
 
-          TASK_RISK=$(jq -r '.review.riskClass' "$RUNNER_TEMP/task.json")
-          TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$RUNNER_TEMP/task.json")
-          case "$TASK_RISK" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid trusted task risk class: $TASK_RISK"; exit 1 ;; esac
-          case "$TASK_REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid trusted task review type: $TASK_REVIEW_TYPE"; exit 1 ;; esac
-          test "$TASK_RISK" = "$RISK_CLASS"
-          test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
-          [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
-          python3 "$RUNNER_TEMP/trusted-reviewer-policy.py" authorize-slot \
-            --task-file "$RUNNER_TEMP/task.json" \
-            --reviewer-slot "$REVIEWER_SLOT"
+          mkdir -p "$RUNNER_TEMP/trusted-runtime"
+          for path in agents/runtime/run-coder.sh agents/runtime/build-coder-context.py agents/runtime/candidate-patch.py agents/runtime/reviewer-policy.py; do
+            git show "$TRUSTED_MAIN_SHA:$path" > "$RUNNER_TEMP/trusted-runtime/$(basename "$path")"
+          done
+          chmod +x "$RUNNER_TEMP/trusted-runtime/run-coder.sh" "$RUNNER_TEMP/trusted-runtime/candidate-patch.py"
+          python3 "$RUNNER_TEMP/trusted-runtime/reviewer-policy.py" authorize-slot \
+            --task-file "$RUNNER_TEMP/task.json" --reviewer-slot "$REVIEWER_SLOT"
+          python3 "$RUNNER_TEMP/trusted-runtime/candidate-patch.py" validate-current \
+            --task "$RUNNER_TEMP/task.json" --base "$TRUSTED_MAIN_SHA"
 
-          ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$RUNNER_TEMP/task.json")
-          case "$ALLOW_TIA_WORKER" in true|false) ;; *) echo "candidatePolicy.allowTiaV21WorkerChanges must be boolean"; exit 1 ;; esac
-          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/current-candidate-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
-            echo "Existing candidate changes src/TiaV21Worker without trusted task opt-in."
-            exit 1
-          fi
-
-          MAX_ATTEMPTS=$(jq -r '.maxRepairAttempts' "$RUNNER_TEMP/task.json")
+          MAX_ATTEMPTS=$(jq -r .maxRepairAttempts "$RUNNER_TEMP/task.json")
           [[ "$MAX_ATTEMPTS" =~ ^[0-9]+$ ]]
-          if [ "$ATTEMPT" -gt "$MAX_ATTEMPTS" ]; then
-            echo "Repair attempt $ATTEMPT exceeds maxRepairAttempts=$MAX_ATTEMPTS"
-            exit 1
-          fi
+          [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ] || { echo "Repair budget exceeded"; exit 1; }
 
-          echo "before_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          cp "$RUNNER_TEMP/trusted-runtime/build-coder-context.py" agents/runtime/build-coder-context.py
+          echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "trusted_main_sha=$TRUSTED_MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "task_path=$TASK_PATH" >> "$GITHUB_OUTPUT"
           echo "max_attempts=$MAX_ATTEMPTS" >> "$GITHUB_OUTPUT"
-          echo "validation_run_id=$VALIDATION_RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "review_source=$REVIEW_SOURCE" >> "$GITHUB_OUTPUT"
-          echo "allow_tia_worker=$ALLOW_TIA_WORKER" >> "$GITHUB_OUTPUT"
+          echo "reviewer_slot=$REVIEWER_SLOT" >> "$GITHUB_OUTPUT"
 
-      - name: Require at least one coding provider
-        shell: bash
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: |
-          if [ -z "$OPENROUTER_API_KEY" ] && [ -z "$DEEPSEEK_API_KEY" ]; then
-            echo "Configure OPENROUTER_API_KEY and/or DEEPSEEK_API_KEY."
-            exit 1
-          fi
-
-      - name: Collect previous review evidence
+      - name: Collect bounded repair evidence
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-          VALIDATION_RUN_ID: ${{ steps.context.outputs.validation_run_id }}
         run: |
-          set +e
-          gh pr view "$PR_NUMBER" --json comments --jq '.comments[-8:][] | .body' > "$RUNNER_TEMP/reviewer-comments.txt"
-          : > "$RUNNER_TEMP/failed-validation.log"
-          mkdir -p "$RUNNER_TEMP/previous-tia"
-          if [ "$VALIDATION_RUN_ID" != "0" ]; then
-            gh run view "$VALIDATION_RUN_ID" --log-failed > "$RUNNER_TEMP/failed-validation.log" 2>&1
-            gh run download "$VALIDATION_RUN_ID" \
-              --name "tia-candidate-diagnostics-${VALIDATION_RUN_ID}" \
-              --dir "$RUNNER_TEMP/previous-tia" >/dev/null 2>&1
-          fi
-          set -e
+          set -euo pipefail
+          gh pr view "$PR_NUMBER" --json comments --jq '.comments[-8:][] | .body' > "$RUNNER_TEMP/reviewer-comments.txt" || true
           test -f "$RUNNER_TEMP/reviewer-comments.txt" || : > "$RUNNER_TEMP/reviewer-comments.txt"
 
-      - name: Build repair prompt from trusted Git state
+      - name: Build repair prompt from trusted state
         shell: bash
         env:
           ATTEMPT: ${{ github.event.client_payload.attempt }}
           MAX_ATTEMPTS: ${{ steps.context.outputs.max_attempts }}
-          REVIEW_SOURCE: ${{ steps.context.outputs.review_source }}
           TRUSTED_MAIN_SHA: ${{ steps.context.outputs.trusted_main_sha }}
         run: |
+          set -euo pipefail
           git show "$TRUSTED_MAIN_SHA:agents/prompts/coder.md" > "$RUNNER_TEMP/repair-task.md"
           printf '\n\n' >> "$RUNNER_TEMP/repair-task.md"
           git show "$TRUSTED_MAIN_SHA:agents/prompts/repair.md" >> "$RUNNER_TEMP/repair-task.md"
           git diff --no-ext-diff --unified=80 "$TRUSTED_MAIN_SHA"...HEAD > "$RUNNER_TEMP/current-candidate.diff"
-
           {
             echo
             echo '# Repair state'
-            echo "Repair source: $REVIEW_SOURCE"
             echo "Repair attempt: $ATTEMPT of $MAX_ATTEMPTS"
             echo
             echo '# Trusted task specification'
@@ -176,17 +133,18 @@ jobs:
             echo
             echo '# Recent reviewer comments'
             cat "$RUNNER_TEMP/reviewer-comments.txt"
-            echo
-            echo '# Failed validation logs'
-            if [ -s "$RUNNER_TEMP/failed-validation.log" ]; then cat "$RUNNER_TEMP/failed-validation.log"; else echo 'No validation-run failure log for this repair source.'; fi
-            echo
-            echo '# Previous TIA diagnostics'
-            if [ -f "$RUNNER_TEMP/previous-tia/tia-diagnostics.json" ]; then
-              cat "$RUNNER_TEMP/previous-tia/tia-diagnostics.json"
-            else
-              echo 'No TIA diagnostics were produced before this repair.'
-            fi
           } >> "$RUNNER_TEMP/repair-task.md"
+
+      - name: Require at least one coding provider
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ] && [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "Configure OPENROUTER_API_KEY and/or DEEPSEEK_API_KEY."
+            exit 1
+          fi
 
       - name: Install coding runtime
         shell: bash
@@ -195,16 +153,7 @@ jobs:
           opencode --version
           opencode models deepseek | grep -F 'deepseek/deepseek-flash'
 
-      - name: Materialize trusted-main coding runtime
-        shell: bash
-        env:
-          TRUSTED_MAIN_SHA: ${{ steps.context.outputs.trusted_main_sha }}
-        run: |
-          set -euo pipefail
-          git show "$TRUSTED_MAIN_SHA:agents/runtime/run-coder.sh" > "$RUNNER_TEMP/trusted-run-coder.sh"
-          chmod +x "$RUNNER_TEMP/trusted-run-coder.sh"
-
-      - name: Run repair agent with provider fallback
+      - name: Run repair agent without publication authority
         shell: bash
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -214,46 +163,25 @@ jobs:
           DEEPSEEK_MODEL: deepseek-flash
           DEEPSEEK_TIMEOUT_MINUTES: '30'
           CODER_TRUSTED_GIT_REF: ${{ steps.context.outputs.trusted_main_sha }}
-          CODER_TRUSTED_TASK_PATH: ${{ github.event.client_payload.task_path }}
+          CODER_TRUSTED_TASK_PATH: ${{ steps.context.outputs.task_path }}
         run: |
-          bash "$RUNNER_TEMP/trusted-run-coder.sh" \
+          bash "$RUNNER_TEMP/trusted-runtime/run-coder.sh" \
             "$RUNNER_TEMP/repair-task.md" \
             "$RUNNER_TEMP/repair-provider-audit.json"
 
-      - name: Validate repair changes
+      - name: Restore trusted helper path after candidate execution
+        if: always()
         shell: bash
         env:
-          BEFORE_SHA: ${{ steps.context.outputs.before_sha }}
-          ALLOW_TIA_WORKER: ${{ steps.context.outputs.allow_tia_worker }}
+          TRUSTED_MAIN_SHA: ${{ steps.context.outputs.trusted_main_sha }}
         run: |
-          {
-            git diff --name-only "$BEFORE_SHA"
-            git ls-files --others --exclude-standard
-          } | sort -u > "$RUNNER_TEMP/repair-changed-files.txt"
-
-          echo "Repair changed files:"
-          cat "$RUNNER_TEMP/repair-changed-files.txt"
-
-          if [ ! -s "$RUNNER_TEMP/repair-changed-files.txt" ]; then
-            echo "Repair agent produced no repository changes."
-            exit 1
-          fi
-
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/repair-changed-files.txt"; then
-            echo "Repair agent changed protected infrastructure."
-            exit 1
-          fi
-          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/repair-changed-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
-            echo "Repair agent changed src/TiaV21Worker without trusted task opt-in."
-            exit 1
-          fi
+          git show "$TRUSTED_MAIN_SHA:agents/runtime/build-coder-context.py" > agents/runtime/build-coder-context.py
 
       - name: Deterministic Linux acceptance after repair
         shell: bash
         run: |
           set -euo pipefail
           dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
-
           rm -rf "$RUNNER_TEMP/motor-generated"
           dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-generated"
           test -f "$RUNNER_TEMP/motor-generated/UDT_Motor.scl"
@@ -261,69 +189,120 @@ jobs:
           INPUT=$(jq -r '.generator.input // empty' "$RUNNER_TEMP/task.json")
           EXPECTED=$(jq -r '.generator.expectedArtifact // empty' "$RUNNER_TEMP/task.json")
           if [ -n "$INPUT" ] && [ -n "$EXPECTED" ]; then
-            test -f "$INPUT"
             rm -rf "$RUNNER_TEMP/repaired-generated"
             dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/repaired-generated"
             test -f "$RUNNER_TEMP/repaired-generated/$EXPECTED"
-          else
-            echo "No GeneratorCli task artifact declared; source/diff plus baseline Linux regression evidence is authoritative pre-merge evidence for this task."
           fi
 
-      - name: Commit and push repair to same candidate branch
+      - name: Prepare bounded repair patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/trusted-runtime/candidate-patch.py" prepare \
+            --task "$RUNNER_TEMP/task.json" \
+            --patch "$RUNNER_TEMP/repair.patch" \
+            --manifest "$RUNNER_TEMP/repair-patch-manifest.json"
+
+      - name: Upload bounded repair data
+        uses: actions/upload-artifact@v4
+        with:
+          name: repair-patch-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/repair.patch
+            ${{ runner.temp }}/repair-patch-manifest.json
+            ${{ runner.temp }}/repair-provider-audit.json
+          if-no-files-found: error
+
+  publish-repair:
+    needs: repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Fresh exact candidate checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.repair.outputs.candidate_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download bounded repair data only
+        uses: actions/download-artifact@v4
+        with:
+          name: repair-patch-${{ github.run_id }}
+          path: ${{ runner.temp }}/repair-patch
+
+      - name: Resolve trusted publisher policy
+        shell: bash
+        env:
+          TRUSTED_MAIN_SHA: ${{ needs.repair.outputs.trusted_main_sha }}
+          TASK_PATH: ${{ needs.repair.outputs.task_path }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$TRUSTED_MAIN_SHA"
+          git show "$TRUSTED_MAIN_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
+          git show "$TRUSTED_MAIN_SHA:agents/runtime/candidate-patch.py" > "$RUNNER_TEMP/trusted-candidate-patch.py"
+          chmod +x "$RUNNER_TEMP/trusted-candidate-patch.py"
+
+      - name: Validate repair patch and final candidate scope
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ needs.repair.outputs.candidate_sha }}
+          TRUSTED_MAIN_SHA: ${{ needs.repair.outputs.trusted_main_sha }}
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/trusted-candidate-patch.py" apply \
+            --task "$RUNNER_TEMP/task.json" \
+            --patch "$RUNNER_TEMP/repair-patch/repair.patch" \
+            --manifest "$RUNNER_TEMP/repair-patch/repair-patch-manifest.json" \
+            --expected-head "$CANDIDATE_SHA" \
+            --scope-base "$TRUSTED_MAIN_SHA"
+
+      - name: Commit and push repair from clean publisher
         id: push
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.event.client_payload.branch }}
+          CANDIDATE_SHA: ${{ needs.repair.outputs.candidate_sha }}
           ATTEMPT: ${{ github.event.client_payload.attempt }}
-        run: |
-          TASK_ID=$(jq -r '.id' "$RUNNER_TEMP/task.json")
-          git config user.name "tia-automation-agent"
-          git config user.email "tia-automation-agent@users.noreply.github.com"
-          git add -A
-          git commit -m "Agent: repair ${TASK_ID} attempt ${ATTEMPT}"
-          gh auth setup-git
-          git push origin "HEAD:$BRANCH"
-          NEW_SHA=$(git rev-parse HEAD)
-          echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Comment repair attempt
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-          ATTEMPT: ${{ github.event.client_payload.attempt }}
-          MAX_ATTEMPTS: ${{ steps.context.outputs.max_attempts }}
-        run: |
-          PROVIDER=$(jq -r '.selected_provider // "unknown"' "$RUNNER_TEMP/repair-provider-audit.json")
-          MODEL=$(jq -r '.selected_model // "unknown"' "$RUNNER_TEMP/repair-provider-audit.json")
-          OPENROUTER_COST=$(jq -r '.openrouter.usage.reported_cost_usd // 0' "$RUNNER_TEMP/repair-provider-audit.json")
-          DEEPSEEK_COST=$(jq -r '.deepseek.usage.reported_cost_usd // 0' "$RUNNER_TEMP/repair-provider-audit.json")
-          NEXT_TEXT="A fresh external review package will be generated for the repaired candidate before any further Candidate Validation."
-          gh pr comment "$PR_NUMBER" --body "### Autonomous Repair\n\nRepair attempt **${ATTEMPT}/${MAX_ATTEMPTS}** committed to the same candidate branch.\n\nProvider: \`${PROVIDER}\`  \nModel: \`${MODEL}\`  \nOpenRouter reported cost: \`\$${OPENROUTER_COST}\`  \nDeepSeek reported cost: \`\$${DEEPSEEK_COST}\`\n\n${NEXT_TEXT}"
-
-      - name: Dispatch fresh external review for repaired SHA
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-          TASK_PATH: ${{ github.event.client_payload.task_path }}
-          ATTEMPT: ${{ github.event.client_payload.attempt }}
-          REVIEW_TYPE: ${{ github.event.client_payload.review_type }}
-          RISK_CLASS: ${{ github.event.client_payload.risk_class }}
-          REVIEWER_SLOT: ${{ github.event.client_payload.reviewer_slot }}
-          TRUSTED_MAIN_SHA: ${{ steps.context.outputs.trusted_main_sha }}
         run: |
           set -euo pipefail
-          NEXT_ROUND=$((ATTEMPT + 1))
-          case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid external review type"; exit 1 ;; esac
-          case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid external review risk class"; exit 1 ;; esac
-          [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
-          git show "$TRUSTED_MAIN_SHA:agents/runtime/reviewer-policy.py" > "$RUNNER_TEMP/trusted-reviewer-policy-post.py"
-          python3 "$RUNNER_TEMP/trusted-reviewer-policy-post.py" authorize-slot \
-            --task-file "$RUNNER_TEMP/task.json" \
-            --reviewer-slot "$REVIEWER_SLOT"
+          REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')
+          test "$REMOTE_SHA" = "$CANDIDATE_SHA" || {
+            echo "Candidate branch moved before repair publication: expected $CANDIDATE_SHA got $REMOTE_SHA"
+            exit 1
+          }
+          TASK_ID=$(jq -r .id "$RUNNER_TEMP/task.json")
+          git config user.name "tia-automation-agent"
+          git config user.email "tia-automation-agent@users.noreply.github.com"
+          git commit -m "Agent: repair ${TASK_ID} attempt ${ATTEMPT}"
+          NEW_SHA=$(git rev-parse HEAD)
+          gh auth setup-git
+          git push origin "HEAD:$BRANCH"
+          echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Record repair and dispatch fresh exact-SHA review
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          TASK_PATH: ${{ needs.repair.outputs.task_path }}
+          REVIEW_TYPE: ${{ github.event.client_payload.review_type }}
+          RISK_CLASS: ${{ github.event.client_payload.risk_class }}
+          REVIEWER_SLOT: ${{ needs.repair.outputs.reviewer_slot }}
+          ATTEMPT: ${{ github.event.client_payload.attempt }}
+          MAX_ATTEMPTS: ${{ needs.repair.outputs.max_attempts }}
+          NEW_SHA: ${{ steps.push.outputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          PROVIDER=$(jq -r '.selected_provider // "unknown"' "$RUNNER_TEMP/repair-patch/repair-provider-audit.json")
+          MODEL=$(jq -r '.selected_model // "unknown"' "$RUNNER_TEMP/repair-patch/repair-provider-audit.json")
+          gh pr comment "$PR_NUMBER" --body "### Autonomous Repair\n\nRepair attempt **${ATTEMPT}/${MAX_ATTEMPTS}** was published by a fresh clean publisher. Candidate code did not run in the publication job.\n\nNew exact SHA: \`${NEW_SHA}\`\nProvider/model: \`${PROVIDER}\` / \`${MODEL}\`\n\nA fresh independent review is required before merge."
+          NEXT_ROUND=$((ATTEMPT + 1))
           jq -n \
             --argjson pr "$PR_NUMBER" \
             --arg task_path "$TASK_PATH" \
@@ -332,6 +311,5 @@ jobs:
             --arg reviewer_slot "$REVIEWER_SLOT" \
             --argjson review_round "$NEXT_ROUND" \
             '{event_type:"external-review-request",client_payload:{pr_number:$pr,task_path:$task_path,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot,review_round:$review_round}}' \
-            > "$RUNNER_TEMP/next-dispatch.json"
-          cat "$RUNNER_TEMP/next-dispatch.json"
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/next-dispatch.json"
+            > "$RUNNER_TEMP/review-dispatch.json"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/review-dispatch.json"

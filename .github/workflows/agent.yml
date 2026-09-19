@@ -4,37 +4,35 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: Work source
+        description: Work source (task is required for publishable candidates)
         required: true
         default: task
         type: choice
-        options:
-          - task
-          - issue
+        options: [task, issue]
       task_path:
-        description: Versioned JSON task path when source=task
+        description: Versioned JSON task path
         required: false
-        default: tasks/INFRA-001.json
+        default: tasks/OLQ-DIAG-BUILD-001.json
         type: string
       issue_number:
-        description: GitHub Issue number when source=issue
+        description: Reserved legacy input; issue-mode publication is disabled
         required: false
         default: ''
         type: string
-  issues:
-    types: [labeled]
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 jobs:
   implement:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'agent-ready'
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
+    outputs:
+      base_sha: ${{ steps.context.outputs.base_sha }}
+      task_path: ${{ steps.context.outputs.task_path }}
+      task_id: ${{ steps.context.outputs.task_id }}
+      review_type: ${{ steps.context.outputs.review_type }}
+      risk_class: ${{ steps.context.outputs.risk_class }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -51,6 +49,52 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Resolve immutable trusted task and runtime
+        id: context
+        shell: bash
+        env:
+          SOURCE: ${{ inputs.source }}
+          TASK_PATH: ${{ inputs.task_path }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE" = "task" || {
+            echo "Autonomous publication requires a trusted versioned task. Issue-mode publication is disabled."
+            exit 1
+          }
+          case "$TASK_PATH" in tasks/*.json) ;; *) echo "task_path must be tasks/*.json"; exit 1 ;; esac
+          BASE_SHA=$(git rev-parse HEAD)
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git show "$BASE_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
+          jq -e '.id and .acceptance.requirements and .acceptance.tia and .review.riskClass and .review.reviewType and (.candidatePolicy.allowedPaths | type == "array" and length > 0)' "$RUNNER_TEMP/task.json" >/dev/null
+
+          mkdir -p "$RUNNER_TEMP/trusted-runtime"
+          for path in agents/runtime/run-coder.sh agents/runtime/build-coder-context.py agents/runtime/candidate-patch.py; do
+            git show "$BASE_SHA:$path" > "$RUNNER_TEMP/trusted-runtime/$(basename "$path")"
+          done
+          chmod +x "$RUNNER_TEMP/trusted-runtime/run-coder.sh" "$RUNNER_TEMP/trusted-runtime/candidate-patch.py"
+          cp "$RUNNER_TEMP/trusted-runtime/build-coder-context.py" agents/runtime/build-coder-context.py
+
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "task_path=$TASK_PATH" >> "$GITHUB_OUTPUT"
+          echo "task_id=$(jq -r .id "$RUNNER_TEMP/task.json")" >> "$GITHUB_OUTPUT"
+          echo "review_type=$(jq -r .review.reviewType "$RUNNER_TEMP/task.json")" >> "$GITHUB_OUTPUT"
+          echo "risk_class=$(jq -r .review.riskClass "$RUNNER_TEMP/task.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Build bounded coding prompt
+        shell: bash
+        env:
+          BASE_SHA: ${{ steps.context.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          git show "$BASE_SHA:agents/prompts/coder.md" > "$RUNNER_TEMP/agent-task.md"
+          {
+            echo
+            echo '# Current versioned task'
+            echo '```json'
+            cat "$RUNNER_TEMP/task.json"
+            echo '```'
+          } >> "$RUNNER_TEMP/agent-task.md"
+
       - name: Require at least one coding provider
         shell: bash
         env:
@@ -58,104 +102,8 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           if [ -z "$OPENROUTER_API_KEY" ] && [ -z "$DEEPSEEK_API_KEY" ]; then
-            echo "Configure OPENROUTER_API_KEY and/or DEEPSEEK_API_KEY as repository Actions secrets."
+            echo "Configure OPENROUTER_API_KEY and/or DEEPSEEK_API_KEY."
             exit 1
-          fi
-
-      - name: Resolve work source
-        id: work
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          DISPATCH_SOURCE: ${{ inputs.source }}
-          DISPATCH_TASK_PATH: ${{ inputs.task_path }}
-          DISPATCH_ISSUE: ${{ inputs.issue_number }}
-          EVENT_ISSUE: ${{ github.event.issue.number }}
-        run: |
-          ALLOW_TIA_WORKER=false
-          if [ "$EVENT_NAME" = "issues" ]; then
-            MODE="issue"
-            ISSUE_NUMBER="$EVENT_ISSUE"
-            KEY="issue-${ISSUE_NUMBER}"
-            TASK_PATH=""
-          elif [ "$DISPATCH_SOURCE" = "issue" ]; then
-            MODE="issue"
-            ISSUE_NUMBER="$DISPATCH_ISSUE"
-            if [ -z "$ISSUE_NUMBER" ]; then
-              echo "source=issue requires issue_number"
-              exit 1
-            fi
-            KEY="issue-${ISSUE_NUMBER}"
-            TASK_PATH=""
-          else
-            MODE="task"
-            ISSUE_NUMBER=""
-            TASK_PATH="$DISPATCH_TASK_PATH"
-            case "$TASK_PATH" in
-              tasks/*.json) ;;
-              *) echo "task_path must be under tasks/ and end in .json"; exit 1 ;;
-            esac
-            if [ ! -f "$TASK_PATH" ]; then
-              echo "Task file not found: $TASK_PATH"
-              exit 1
-            fi
-            jq -e '.id and .title and .acceptance.requirements and .acceptance.tia and .review.riskClass and .review.reviewType' "$TASK_PATH" >/dev/null
-            if jq -e 'has("generator") and ((.generator.input // "") == "" or (.generator.expectedArtifact // "") == "")' "$TASK_PATH" >/dev/null; then
-              echo "generator, when present, requires both input and expectedArtifact"
-              exit 1
-            fi
-            ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$TASK_PATH")
-            case "$ALLOW_TIA_WORKER" in true|false) ;; *) echo "candidatePolicy.allowTiaV21WorkerChanges must be boolean"; exit 1 ;; esac
-            TASK_ID=$(jq -r '.id' "$TASK_PATH")
-            KEY="task-${TASK_ID}"
-          fi
-
-          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
-          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "task_path=$TASK_PATH" >> "$GITHUB_OUTPUT"
-          echo "key=$KEY" >> "$GITHUB_OUTPUT"
-          echo "allow_tia_worker=$ALLOW_TIA_WORKER" >> "$GITHUB_OUTPUT"
-
-      - name: Create agent branch
-        id: branch
-        shell: bash
-        env:
-          WORK_KEY: ${{ steps.work.outputs.key }}
-        run: |
-          SAFE_KEY=$(printf '%s' "$WORK_KEY" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')
-          BRANCH="agent/${SAFE_KEY}-${GITHUB_RUN_ID}"
-          git checkout -b "$BRANCH"
-          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
-
-      - name: Build agent task from Git
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MODE: ${{ steps.work.outputs.mode }}
-          TASK_PATH: ${{ steps.work.outputs.task_path }}
-          ISSUE_NUMBER: ${{ steps.work.outputs.issue_number }}
-        run: |
-          test -f agents/prompts/coder.md
-          cp agents/prompts/coder.md "$RUNNER_TEMP/agent-task.md"
-
-          if [ "$MODE" = "task" ]; then
-            {
-              echo
-              echo "# Current versioned task"
-              echo
-              echo '```json'
-              cat "$TASK_PATH"
-              echo
-              echo '```'
-            } >> "$RUNNER_TEMP/agent-task.md"
-          else
-            gh issue view "$ISSUE_NUMBER" --json title,body,url > "$RUNNER_TEMP/issue.json"
-            {
-              echo
-              echo "# Current GitHub Issue"
-              echo
-              jq -r '"Issue: " + .url + "\nTitle: " + .title + "\n\n" + (.body // "")' "$RUNNER_TEMP/issue.json"
-            } >> "$RUNNER_TEMP/agent-task.md"
           fi
 
       - name: Install coding runtime
@@ -165,8 +113,7 @@ jobs:
           opencode --version
           opencode models deepseek | grep -F 'deepseek/deepseek-flash'
 
-      - name: Run coding agent with provider fallback
-        id: agent
+      - name: Run coding agent without publication authority
         shell: bash
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -175,224 +122,179 @@ jobs:
           OPENROUTER_TIMEOUT_MINUTES: '30'
           DEEPSEEK_MODEL: deepseek-flash
           DEEPSEEK_TIMEOUT_MINUTES: '30'
+          CODER_TRUSTED_GIT_REF: ${{ steps.context.outputs.base_sha }}
+          CODER_TRUSTED_TASK_PATH: ${{ steps.context.outputs.task_path }}
         run: |
-          bash agents/runtime/run-coder.sh \
+          bash "$RUNNER_TEMP/trusted-runtime/run-coder.sh" \
             "$RUNNER_TEMP/agent-task.md" \
             "$RUNNER_TEMP/coder-provider-audit.json"
 
-      - name: Record provider and model audit
-        id: model
+      - name: Restore trusted helper path after candidate execution
         if: always()
         shell: bash
-        run: |
-          AUDIT="$RUNNER_TEMP/coder-provider-audit.json"
-          if [ ! -f "$AUDIT" ]; then
-            echo '{"selected_provider":null,"selected_model":null,"error":"audit missing"}' > "$AUDIT"
-          fi
-          cat "$AUDIT"
-          COMPACT=$(jq -c . "$AUDIT")
-          SELECTED_PROVIDER=$(jq -r '.selected_provider // "none"' "$AUDIT")
-          SELECTED_MODEL=$(jq -r '.selected_model // "none"' "$AUDIT")
-          OPENROUTER_COST=$(jq -r '.openrouter.usage.reported_cost_usd // 0' "$AUDIT")
-          OPENROUTER_INPUT=$(jq -r '.openrouter.usage.input_tokens // 0' "$AUDIT")
-          OPENROUTER_OUTPUT=$(jq -r '.openrouter.usage.output_tokens // 0' "$AUDIT")
-          DEEPSEEK_COST=$(jq -r '.deepseek.usage.reported_cost_usd // 0' "$AUDIT")
-          DEEPSEEK_INPUT=$(jq -r '.deepseek.usage.input_tokens // 0' "$AUDIT")
-          DEEPSEEK_OUTPUT=$(jq -r '.deepseek.usage.output_tokens // 0' "$AUDIT")
-          echo "audit=$COMPACT" >> "$GITHUB_OUTPUT"
-          echo "provider=$SELECTED_PROVIDER" >> "$GITHUB_OUTPUT"
-          echo "model=$SELECTED_MODEL" >> "$GITHUB_OUTPUT"
-          {
-            echo '### Coding provider audit'
-            echo
-            echo "- Selected provider: \`$SELECTED_PROVIDER\`"
-            echo "- Selected model: \`$SELECTED_MODEL\`"
-            echo "- OpenRouter reported cost: \`\$${OPENROUTER_COST}\`"
-            echo "- OpenRouter input/output tokens: \`${OPENROUTER_INPUT}/${OPENROUTER_OUTPUT}\`"
-            echo "- DeepSeek reported cost: \`\$${DEEPSEEK_COST}\`"
-            echo "- DeepSeek input/output tokens: \`${DEEPSEEK_INPUT}/${DEEPSEEK_OUTPUT}\`"
-            echo
-            echo '```json'
-            cat "$AUDIT"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Capture and validate agent changes
-        shell: bash
         env:
-          ALLOW_TIA_WORKER: ${{ steps.work.outputs.allow_tia_worker }}
+          BASE_SHA: ${{ steps.context.outputs.base_sha }}
         run: |
-          {
-            git diff --name-only
-            git ls-files --others --exclude-standard
-          } | sort -u > "$RUNNER_TEMP/agent-changed-files.txt"
-
-          echo "Agent changed files:"
-          cat "$RUNNER_TEMP/agent-changed-files.txt"
-
-          if [ ! -s "$RUNNER_TEMP/agent-changed-files.txt" ]; then
-            echo "Coding agent finished without repository changes."
-            exit 1
-          fi
-
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/agent-changed-files.txt"; then
-            echo "Agent changed protected infrastructure. Refusing to publish the branch."
-            exit 1
-          fi
-          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/agent-changed-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
-            echo "Agent changed src/TiaV21Worker without trusted task opt-in."
-            exit 1
-          fi
+          set -euo pipefail
+          git show "$BASE_SHA:agents/runtime/build-coder-context.py" > agents/runtime/build-coder-context.py
 
       - name: Deterministic Linux acceptance
         shell: bash
-        env:
-          MODE: ${{ steps.work.outputs.mode }}
-          TASK_PATH: ${{ steps.work.outputs.task_path }}
         run: |
+          set -euo pipefail
           dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
-
           rm -rf "$RUNNER_TEMP/motor-generated"
           dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-generated"
           test -f "$RUNNER_TEMP/motor-generated/UDT_Motor.scl"
 
-          if [ "$MODE" = "task" ]; then
-            INPUT=$(jq -r '.generator.input // empty' "$TASK_PATH")
-            EXPECTED=$(jq -r '.generator.expectedArtifact // empty' "$TASK_PATH")
-            if [ -n "$INPUT" ] && [ -n "$EXPECTED" ]; then
-              test -f "$INPUT"
-              rm -rf "$RUNNER_TEMP/candidate-generated"
-              dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/candidate-generated"
-              test -f "$RUNNER_TEMP/candidate-generated/$EXPECTED"
-              echo "Generated candidate artifact: $EXPECTED"
-            fi
+          INPUT=$(jq -r '.generator.input // empty' "$RUNNER_TEMP/task.json")
+          EXPECTED=$(jq -r '.generator.expectedArtifact // empty' "$RUNNER_TEMP/task.json")
+          if [ -n "$INPUT" ] && [ -n "$EXPECTED" ]; then
+            rm -rf "$RUNNER_TEMP/candidate-generated"
+            dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/candidate-generated"
+            test -f "$RUNNER_TEMP/candidate-generated/$EXPECTED"
           fi
 
-      - name: Verify no protected changes appeared during acceptance
+      - name: Prepare bounded candidate patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/trusted-runtime/candidate-patch.py" prepare \
+            --task "$RUNNER_TEMP/task.json" \
+            --patch "$RUNNER_TEMP/candidate.patch" \
+            --manifest "$RUNNER_TEMP/candidate-patch-manifest.json"
+          cat "$RUNNER_TEMP/candidate-patch-manifest.json"
+
+      - name: Upload bounded candidate data
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-patch-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/candidate.patch
+            ${{ runner.temp }}/candidate-patch-manifest.json
+            ${{ runner.temp }}/coder-provider-audit.json
+          if-no-files-found: error
+
+  publish:
+    needs: implement
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Fresh trusted checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.implement.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download candidate patch data only
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-patch-${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate-patch
+
+      - name: Resolve trusted publication policy
         shell: bash
         env:
-          ALLOW_TIA_WORKER: ${{ steps.work.outputs.allow_tia_worker }}
+          BASE_SHA: ${{ needs.implement.outputs.base_sha }}
+          TASK_PATH: ${{ needs.implement.outputs.task_path }}
         run: |
-          {
-            git diff --name-only
-            git ls-files --others --exclude-standard
-          } | sort -u > "$RUNNER_TEMP/final-changed-files.txt"
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git show "$BASE_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
+          git show "$BASE_SHA:agents/runtime/candidate-patch.py" > "$RUNNER_TEMP/trusted-candidate-patch.py"
+          chmod +x "$RUNNER_TEMP/trusted-candidate-patch.py"
 
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/final-changed-files.txt"; then
-            echo "Protected infrastructure changed. Refusing to publish the branch."
-            exit 1
-          fi
-          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/final-changed-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
-            echo "src/TiaV21Worker changed without trusted task opt-in."
-            exit 1
-          fi
+      - name: Validate and stage bounded patch in clean publisher
+        shell: bash
+        env:
+          BASE_SHA: ${{ needs.implement.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/trusted-candidate-patch.py" apply \
+            --task "$RUNNER_TEMP/task.json" \
+            --patch "$RUNNER_TEMP/candidate-patch/candidate.patch" \
+            --manifest "$RUNNER_TEMP/candidate-patch/candidate-patch-manifest.json" \
+            --expected-head "$BASE_SHA" \
+            --scope-base "$BASE_SHA"
 
-      - name: Commit and push agent branch
+      - name: Commit and push from clean publisher
+        id: publish
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          WORK_KEY: ${{ steps.work.outputs.key }}
-          BRANCH: ${{ steps.branch.outputs.name }}
+          TASK_ID: ${{ needs.implement.outputs.task_id }}
         run: |
+          set -euo pipefail
+          SAFE_ID=$(printf '%s' "$TASK_ID" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')
+          BRANCH="agent/task-${SAFE_ID}-${GITHUB_RUN_ID}"
+          git switch -c "$BRANCH"
           git config user.name "tia-automation-agent"
           git config user.email "tia-automation-agent@users.noreply.github.com"
-          git add -A
-          git commit -m "Agent: implement ${WORK_KEY}"
+          git commit -m "Agent: implement task-${TASK_ID}"
+          CANDIDATE_SHA=$(git rev-parse HEAD)
           gh auth setup-git
           git push --set-upstream origin "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Open pull request
+      - name: Open candidate PR
         id: pr
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          MODE: ${{ steps.work.outputs.mode }}
-          TASK_PATH: ${{ steps.work.outputs.task_path }}
-          ISSUE_NUMBER: ${{ steps.work.outputs.issue_number }}
-          WORK_KEY: ${{ steps.work.outputs.key }}
-          BRANCH: ${{ steps.branch.outputs.name }}
-          PROVIDER_AUDIT: ${{ steps.model.outputs.audit }}
-          ALLOW_TIA_WORKER: ${{ steps.work.outputs.allow_tia_worker }}
+          TASK_ID: ${{ needs.implement.outputs.task_id }}
+          TASK_PATH: ${{ needs.implement.outputs.task_path }}
+          BRANCH: ${{ steps.publish.outputs.branch }}
         run: |
-          if [ "$MODE" = "task" ]; then
-            TITLE=$(jq -r '.title' "$TASK_PATH")
-            CLOSES_LINE=""
-            SOURCE_LINE="Task: \`$TASK_PATH\`"
-          else
-            TITLE=$(jq -r '.title' "$RUNNER_TEMP/issue.json")
-            CLOSES_LINE="Closes #${ISSUE_NUMBER}"
-            SOURCE_LINE="Issue: #${ISSUE_NUMBER}"
-          fi
-
-          TIA_POLICY_LINE="TiaV21Worker candidate changes were not permitted."
-          if [ "$ALLOW_TIA_WORKER" = "true" ]; then
-            TIA_POLICY_LINE="The trusted task explicitly permits bounded src/TiaV21Worker changes. Candidate code still executes only on disposable Linux; Windows/TIA execution requires trusted main."
-          fi
-
+          set -euo pipefail
+          TITLE=$(jq -r .title "$RUNNER_TEMP/task.json")
+          PROVIDER_AUDIT=$(jq -c . "$RUNNER_TEMP/candidate-patch/coder-provider-audit.json")
           cat > "$RUNNER_TEMP/pr-body.md" <<EOF
-          Automated coding-agent candidate for ${WORK_KEY}.
+          Automated coding-agent candidate for task \`${TASK_ID}\`.
 
-          ${SOURCE_LINE}
+          Task: \`${TASK_PATH}\`
 
-          Agent execution environment: disposable GitHub-hosted Linux runner. Protected orchestration paths were not permitted to change. ${TIA_POLICY_LINE}
+          Candidate implementation/tests ran in a read-only publication context. This PR was created by a fresh publisher that applied only a positively authorized bounded patch and did not execute candidate code.
 
           Provider/model audit:
           \`${PROVIDER_AUDIT}\`
-
-          ${CLOSES_LINE}
           EOF
-
-          PR_URL=$(gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "Agent: ${WORK_KEY} ${TITLE}" \
-            --body-file "$RUNNER_TEMP/pr-body.md")
-          PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq '.number')
-          CANDIDATE_SHA=$(git rev-parse HEAD)
-          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+          PR_URL=$(gh pr create --base main --head "$BRANCH" --title "Agent: task-${TASK_ID} ${TITLE}" --body-file "$RUNNER_TEMP/pr-body.md")
+          PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq .number)
           echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "$PR_URL"
 
-      - name: Dispatch external review before trusted candidate validation
-        if: steps.work.outputs.mode == 'task'
+      - name: Dispatch exact-SHA external review
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
-          TASK_PATH: ${{ steps.work.outputs.task_path }}
+          CANDIDATE_SHA: ${{ steps.publish.outputs.candidate_sha }}
+          TASK_PATH: ${{ needs.implement.outputs.task_path }}
+          REVIEW_TYPE: ${{ needs.implement.outputs.review_type }}
+          RISK_CLASS: ${{ needs.implement.outputs.risk_class }}
         run: |
           set -euo pipefail
-          REVIEW_TYPE=$(jq -r '.review.reviewType // "CODE_REVIEW"' "$TASK_PATH")
-          RISK_CLASS=$(jq -r '.review.riskClass // "LOW"' "$TASK_PATH")
-          case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid review.reviewType=$REVIEW_TYPE"; exit 1 ;; esac
-          case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid review.riskClass=$RISK_CLASS"; exit 1 ;; esac
-
+          git show "${{ needs.implement.outputs.base_sha }}:agents/runtime/reviewer-policy.py" > "$RUNNER_TEMP/trusted-reviewer-policy.py"
+          git log -1 --format='%ae' "$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate-author-emails.txt"
           SLOT=chatgpt
-          if jq -e '.review.reviewerSlots | type == "array" and length > 0' "$TASK_PATH" >/dev/null 2>&1; then
-            jq -e --arg slot "$SLOT" '.review.reviewerSlots | index($slot) != null' "$TASK_PATH" >/dev/null || {
-              echo "Trusted task does not authorize the primary reviewer slot required for a pure coding-agent candidate: $SLOT"
-              exit 1
-            }
+          python3 "$RUNNER_TEMP/trusted-reviewer-policy.py" validate-slot --emails-file "$RUNNER_TEMP/candidate-author-emails.txt" --reviewer-slot "$SLOT"
+          if ! python3 "$RUNNER_TEMP/trusted-reviewer-policy.py" authorize-slot --task-file "$RUNNER_TEMP/task.json" --reviewer-slot "$SLOT"; then
+            echo "Trusted task does not authorize the primary reviewer slot required for a pure coding-agent candidate"
+            exit 1
           fi
-
+          REVIEWER_SLOT="$SLOT"
           jq -n \
             --argjson pr "$PR_NUMBER" \
             --arg task_path "$TASK_PATH" \
             --arg review_type "$REVIEW_TYPE" \
             --arg risk_class "$RISK_CLASS" \
-            --arg reviewer_slot "$SLOT" \
+            --arg reviewer_slot "$REVIEWER_SLOT" \
             '{event_type:"external-review-request",client_payload:{pr_number:$pr,task_path:$task_path,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot,review_round:1}}' \
-            > "$RUNNER_TEMP/external-review-${SLOT}.json"
-          cat "$RUNNER_TEMP/external-review-${SLOT}.json"
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/external-review-${SLOT}.json"
-
-      - name: Comment on source issue
-        if: steps.work.outputs.mode == 'issue'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ steps.work.outputs.issue_number }}
-          PR_URL: ${{ steps.pr.outputs.url }}
-        run: |
-          gh issue comment "$ISSUE_NUMBER" --body "Coding agent created a candidate PR: $PR_URL\n\n_This comment was generated by an AI coding agent on behalf of the repository owner._"
+            > "$RUNNER_TEMP/review-dispatch.json"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/review-dispatch.json"

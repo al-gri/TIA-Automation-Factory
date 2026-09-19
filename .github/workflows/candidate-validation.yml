@@ -6,19 +6,15 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
-  requirements-review:
+  linux-candidate-validation:
     if: startsWith(github.event.client_payload.branch, 'agent/')
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    outputs:
-      task_path: ${{ steps.task.outputs.path }}
-      expected_artifact: ${{ steps.task.outputs.expected }}
-
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout exact candidate without publication credentials
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.client_payload.candidate_sha }}
           fetch-depth: 0
@@ -28,292 +24,44 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Resolve trusted dispatch task from main
-        id: task
+      - name: Validate trusted task and positive candidate scope
         shell: bash
         env:
           TASK_PATH: ${{ github.event.client_payload.task_path }}
-          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
         run: |
           set -euo pipefail
-          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task_path: $TASK_PATH"; exit 1 ;; esac
-          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path"; exit 1 ;; esac
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           git fetch --no-tags origin main
-          git show "origin/main:$TASK_PATH" > "$RUNNER_TEMP/trusted-task.json"
-          jq -e '.id and .acceptance.requirements and .acceptance.tia and .generator.input and .generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json" >/dev/null
-          EXPECTED=$(jq -r '.generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json")
-          echo "path=$TASK_PATH" >> "$GITHUB_OUTPUT"
-          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+          TRUSTED_MAIN_SHA=$(git rev-parse origin/main)
+          git show "$TRUSTED_MAIN_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
+          git show "$TRUSTED_MAIN_SHA:agents/runtime/candidate-patch.py" > "$RUNNER_TEMP/trusted-candidate-patch.py"
+          chmod +x "$RUNNER_TEMP/trusted-candidate-patch.py"
+          python3 "$RUNNER_TEMP/trusted-candidate-patch.py" validate-current \
+            --task "$RUNNER_TEMP/task.json" --base "$TRUSTED_MAIN_SHA"
 
-      - name: Reject protected-path changes
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --name-only origin/main...HEAD | sort -u | tee "$RUNNER_TEMP/changed-files.txt"
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$|src/TiaV21Worker/)' "$RUNNER_TEMP/changed-files.txt"; then
-            echo "Candidate changed protected infrastructure."
-            exit 1
-          fi
-
-      - name: Deterministic Linux requirements evidence
+      - name: Deterministic Linux requirements evidence only
         shell: bash
         run: |
           set -euo pipefail
           dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release
 
-          INPUT=$(jq -r '.generator.input' "$RUNNER_TEMP/trusted-task.json")
-          EXPECTED=$(jq -r '.generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json")
-          rm -rf "$RUNNER_TEMP/requirements-generated"
-          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/requirements-generated"
-          test -f "$RUNNER_TEMP/requirements-generated/$EXPECTED"
-
           rm -rf "$RUNNER_TEMP/motor-generated"
           dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- examples/motor.json "$RUNNER_TEMP/motor-generated"
           test -f "$RUNNER_TEMP/motor-generated/UDT_Motor.scl"
 
-  generate-candidate-artifact:
-    needs: requirements-review
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      expected_artifact: ${{ steps.package.outputs.expected }}
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.client_payload.candidate_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Generate candidate PLC package on Linux
-        id: package
-        shell: bash
-        env:
-          TASK_PATH: ${{ needs.requirements-review.outputs.task_path }}
-          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
-          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-        run: |
-          set -euo pipefail
-          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task_path: $TASK_PATH"; exit 1 ;; esac
-          git fetch --no-tags origin main
-          git show "origin/main:$TASK_PATH" > "$RUNNER_TEMP/trusted-task.json"
-          jq -e '.id and .generator.input and .generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json" >/dev/null
-
-          INPUT=$(jq -r '.generator.input' "$RUNNER_TEMP/trusted-task.json")
-          EXPECTED=$(jq -r '.generator.expectedArtifact' "$RUNNER_TEMP/trusted-task.json")
-          TASK_ID=$(jq -r '.id' "$RUNNER_TEMP/trusted-task.json")
-
-          rm -rf candidate-package
-          mkdir -p candidate-package
-          dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" candidate-package
-          test -f "candidate-package/$EXPECTED"
-
-          HASH=$(sha256sum "candidate-package/$EXPECTED" | awk '{print $1}')
-          jq -n \
-            --arg taskId "$TASK_ID" \
-            --arg taskPath "$TASK_PATH" \
-            --arg candidateSha "$CANDIDATE_SHA" \
-            --argjson pr "$PR_NUMBER" \
-            --arg artifact "$EXPECTED" \
-            --arg sha256 "$HASH" \
-            '{taskId:$taskId,taskPath:$taskPath,candidateSha:$candidateSha,pr:$pr,artifact:$artifact,sha256:$sha256}' \
-            > candidate-package/manifest.json
-          cp "$RUNNER_TEMP/trusted-task.json" candidate-package/task.json
-          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
-          cat candidate-package/manifest.json
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: candidate-plc-${{ github.run_id }}
-          path: candidate-package
-          if-no-files-found: error
-
-  tia-v21-acceptance:
-    needs: generate-candidate-artifact
-    runs-on: [self-hosted, Windows, X64, tia-v21]
-    timeout-minutes: 20
-    outputs:
-      worker_outcome: ${{ steps.tia.outcome }}
-
-    steps:
-      - name: Checkout trusted infrastructure only
-        uses: actions/checkout@v6
-        with:
-          ref: main
-          persist-credentials: false
-
-      - name: Download candidate PLC artifact only
-        uses: actions/download-artifact@v4
-        with:
-          name: candidate-plc-${{ github.run_id }}
-          path: candidate-package
-
-      - name: Verify candidate package shape
-        shell: cmd
-        env:
-          EXPECTED: ${{ needs.generate-candidate-artifact.outputs.expected_artifact }}
-        run: |
-          if not exist "candidate-package\manifest.json" exit /b 1
-          if not exist "candidate-package\task.json" exit /b 1
-          if not exist "candidate-package\%EXPECTED%" exit /b 1
-          dir candidate-package
-
-      - name: Build trusted TiaV21Worker from main
-        shell: cmd
-        run: dotnet build src\TiaV21Worker\TiaV21Worker.csproj --configuration Release
-
-      - name: Run trusted TIA V21 acceptance
-        id: tia
-        continue-on-error: true
-        shell: cmd
-        env:
-          EXPECTED: ${{ needs.generate-candidate-artifact.outputs.expected_artifact }}
-        run: |
-          if not exist artifacts\tia mkdir artifacts\tia
-          src\TiaV21Worker\bin\Release\net48\TiaV21Worker.exe "%GITHUB_WORKSPACE%\candidate-package\%EXPECTED%" "%GITHUB_WORKSPACE%\artifacts\tia\tia-diagnostics.json"
-
-      - name: Show TIA diagnostics
-        if: always()
-        shell: cmd
-        run: |
-          if exist artifacts\tia\tia-diagnostics.json type artifacts\tia\tia-diagnostics.json
-          if not exist artifacts\tia\tia-diagnostics.json echo tia-diagnostics.json was not created.
-
-      - name: Upload TIA diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tia-candidate-diagnostics-${{ github.run_id }}
-          path: artifacts/tia
-          if-no-files-found: warn
-
-  plc-tia-review:
-    needs: [requirements-review, generate-candidate-artifact, tia-v21-acceptance]
-    if: always() && needs.requirements-review.result == 'success' && needs.generate-candidate-artifact.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Download TIA diagnostics
-        uses: actions/download-artifact@v4
-        with:
-          name: tia-candidate-diagnostics-${{ github.run_id }}
-          path: tia-diagnostics
-
-      - name: Verify authoritative TIA diagnostics
-        shell: bash
-        env:
-          WORKER_OUTCOME: ${{ needs.tia-v21-acceptance.outputs.worker_outcome }}
-        run: |
-          set -euo pipefail
-          test "$WORKER_OUTCOME" = "success"
-          test -f tia-diagnostics/tia-diagnostics.json
-          cat tia-diagnostics/tia-diagnostics.json
-          jq -e '.success == true and ((.errors // 0) == 0)' tia-diagnostics/tia-diagnostics.json >/dev/null
-
-      - name: Comment deterministic TIA acceptance
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
-        run: |
-          gh pr comment "$PR_NUMBER" --body "### Trusted TIA V21 acceptance\n\nDeterministic TIA evidence **PASS** for candidate \`${CANDIDATE_SHA}\`: worker outcome success and diagnostics report \`success=true\`, \`errors=0\`. No LLM reviewer participates in this trusted target-validation stage."
-
-  repair-or-finish:
-    needs: [requirements-review, generate-candidate-artifact, tia-v21-acceptance, plc-tia-review]
-    if: always() && startsWith(github.event.client_payload.branch, 'agent/')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      pull-requests: write
-
-    steps:
-      - name: Checkout trusted orchestration state
-        uses: actions/checkout@v6
-        with:
-          ref: main
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Decide pass, repair, or blocked
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
-          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
-          BRANCH: ${{ github.event.client_payload.branch }}
-          TASK_PATH: ${{ github.event.client_payload.task_path }}
-          ATTEMPT_RAW: ${{ github.event.client_payload.attempt }}
-          REQUIREMENTS_RESULT: ${{ needs.requirements-review.result }}
-          PACKAGE_RESULT: ${{ needs.generate-candidate-artifact.result }}
-          TIA_RESULT: ${{ needs.tia-v21-acceptance.result }}
-          TIA_EVIDENCE_RESULT: ${{ needs.plc-tia-review.result }}
-        run: |
-          set -euo pipefail
-          case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path: $TASK_PATH"; exit 1 ;; esac
-          test -f "$TASK_PATH"
-          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
-          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
-
-          ATTEMPT="${ATTEMPT_RAW:-0}"
-          [[ "$ATTEMPT" =~ ^[0-9]+$ ]]
-          MAX_ATTEMPTS=$(jq -r '.maxRepairAttempts // 0' "$TASK_PATH")
-          [[ "$MAX_ATTEMPTS" =~ ^[0-9]+$ ]]
-
-          SUMMARY="requirements=${REQUIREMENTS_RESULT}, package=${PACKAGE_RESULT}, tia=${TIA_RESULT}, tia-evidence=${TIA_EVIDENCE_RESULT}"
-
-          if [ "$REQUIREMENTS_RESULT" = "success" ] \
-            && [ "$PACKAGE_RESULT" = "success" ] \
-            && [ "$TIA_RESULT" = "success" ] \
-            && [ "$TIA_EVIDENCE_RESULT" = "success" ]; then
-            gh pr comment "$PR_NUMBER" --body "### Autonomous Validation\n\n**PASS** after repair attempt ${ATTEMPT}/${MAX_ATTEMPTS}.\n\n${SUMMARY}\n\nNo further repair was dispatched."
-            exit 0
+          INPUT=$(jq -r '.generator.input // empty' "$RUNNER_TEMP/task.json")
+          EXPECTED=$(jq -r '.generator.expectedArtifact // empty' "$RUNNER_TEMP/task.json")
+          if [ -n "$INPUT" ] && [ -n "$EXPECTED" ]; then
+            rm -rf "$RUNNER_TEMP/task-generated"
+            dotnet run --project src/GeneratorCli/GeneratorCli.csproj --configuration Release -- "$INPUT" "$RUNNER_TEMP/task-generated"
+            test -f "$RUNNER_TEMP/task-generated/$EXPECTED"
           fi
 
-          if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
-            gh pr comment "$PR_NUMBER" --body "### Autonomous Validation\n\n**BLOCKED** after exhausting ${MAX_ATTEMPTS} repair attempt(s).\n\n${SUMMARY}\n\nNo further autonomous repair will be dispatched."
-            echo "Repair budget exhausted."
-            exit 1
-          fi
-
-          TASK_RISK=$(jq -r '.review.riskClass' "$TASK_PATH")
-          TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$TASK_PATH")
-          case "$TASK_RISK" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid trusted task risk class: $TASK_RISK"; exit 1 ;; esac
-          case "$TASK_REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid trusted task review type: $TASK_REVIEW_TYPE"; exit 1 ;; esac
-
-          git fetch --no-tags origin "$CANDIDATE_SHA"
-          git log --format='%ae' "origin/main..$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate-author-emails.txt"
-          test -s "$RUNNER_TEMP/candidate-author-emails.txt"
-          REVIEWER_SLOT=$(python3 agents/runtime/reviewer-policy.py expected-slot \
-            --emails-file "$RUNNER_TEMP/candidate-author-emails.txt")
-          python3 agents/runtime/reviewer-policy.py authorize-slot \
-            --task-file "$TASK_PATH" \
-            --reviewer-slot "$REVIEWER_SLOT"
-
-          NEXT_ATTEMPT=$((ATTEMPT + 1))
-          gh pr comment "$PR_NUMBER" --body "### Autonomous Validation\n\nValidation did not pass. Dispatching repair attempt **${NEXT_ATTEMPT}/${MAX_ATTEMPTS}**.\n\n${SUMMARY}\n\nAny candidate-changing repair must return to a fresh external review for the new exact SHA before Candidate Validation can run again."
-
-          jq -n \
-            --arg review_source "external-review" \
-            --argjson pr "$PR_NUMBER" \
-            --arg candidate_sha "$CANDIDATE_SHA" \
-            --arg branch "$BRANCH" \
-            --arg task_path "$TASK_PATH" \
-            --argjson validation_run_id "$GITHUB_RUN_ID" \
-            --argjson attempt "$NEXT_ATTEMPT" \
-            --arg review_type "$TASK_REVIEW_TYPE" \
-            --arg risk_class "$TASK_RISK" \
-            --arg reviewer_slot "$REVIEWER_SLOT" \
-            '{event_type:"candidate-repair",client_payload:{review_source:$review_source,pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,validation_run_id:$validation_run_id,attempt:$attempt,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot}}' \
-            > "$RUNNER_TEMP/repair-dispatch.json"
-
-          cat "$RUNNER_TEMP/repair-dispatch.json"
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/repair-dispatch.json"
+      - name: Enforce merge-first TIA boundary
+        shell: bash
+        run: |
+          echo "Candidate Validation is Linux-only."
+          echo "Windows/TIA execution is permitted only from independently reviewed merged main."
