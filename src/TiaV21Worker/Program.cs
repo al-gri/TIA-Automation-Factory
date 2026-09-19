@@ -173,6 +173,8 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             var output = new WorkerResult();
 
+            WhitelistManager.SynchronizeWhitelist();
+
             using (TiaPortal portal = new TiaPortal(TiaPortalMode.WithUserInterface))
             using (ExclusiveAccess exclusiveAccess = portal.ExclusiveAccess("TIA Automation Factory smoke test"))
             {
