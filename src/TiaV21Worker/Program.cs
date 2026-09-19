@@ -452,7 +452,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                     }
                 }
 
-                if (saveException == null)
+                if (retrieveWithUpgradeException == null && userGlobalLibrary != null && saveException == null)
                 {
                     try
                     {
@@ -600,10 +600,31 @@ namespace TiaAutomationFactory.TiaV21Worker
 
         private static string FormatFailure(QualificationPhase phase, Exception exception)
         {
-            string phaseName = phase.ToString();
+            string phaseName = GetPhaseToken(phase);
             string exceptionType = exception.GetType().Name;
             string hresultHex = "0x" + exception.HResult.ToString("X8");
             return "phase:" + phaseName + " type:" + exceptionType + " hresult:" + hresultHex;
+        }
+
+        private static string GetPhaseToken(QualificationPhase phase)
+        {
+            switch (phase)
+            {
+                case QualificationPhase.RetrieveWithUpgrade:
+                    return "retrieve-with-upgrade";
+                case QualificationPhase.Save:
+                    return "save";
+                case QualificationPhase.Archive:
+                    return "archive";
+                case QualificationPhase.UpgradeClose:
+                    return "upgrade-close";
+                case QualificationPhase.NativeRetrieve:
+                    return "native-reopen";
+                case QualificationPhase.NativeClose:
+                    return "native-reopen-close";
+                default:
+                    throw new ArgumentOutOfRangeException("phase");
+            }
         }
 
         private static string ComputeSha256(string filePath)
@@ -635,7 +656,7 @@ namespace TiaAutomationFactory.TiaV21Worker
         }
     }
 
-internal sealed class QualificationResult
+    internal sealed class QualificationResult
     {
         public bool Success { get; set; }
         public string SourceArchiveBasename { get; set; }
@@ -670,7 +691,7 @@ internal sealed class QualificationResult
         {
             string exceptionType = exception.GetType().Name;
             string hresultHex = "0x" + exception.HResult.ToString("X8");
-            return "phase:TopLevel type:" + exceptionType + " hresult:" + hresultHex;
+            return "phase:top-level type:" + exceptionType + " hresult:" + hresultHex;
         }
 
         private static string ComputeSha256Static(string filePath)
