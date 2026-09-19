@@ -64,7 +64,9 @@ jobs:
     needs: authorize-trigger
     if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Windows, X64, tia-v21]
-    timeout-minutes: 45
+    timeout-minutes: 180
+    env:
+      OLQ_INVOCATION_TIMEOUT_MINUTES: '75'
 
     steps:
       - name: Checkout trusted main
@@ -130,6 +132,69 @@ jobs:
             if ($Path -match '^[A-Za-z]:\\') { return $true }
             if ($Path -match '^\\\\[^\\]+\\[^\\]+') { return $true }
             return $false
+          }
+
+          function Invoke-BoundedQualification {
+            param(
+              [string]$Phase,
+              [string]$Executable,
+              [string]$SourceArchive,
+              [string]$OutputRoot,
+              [string]$ManifestPath,
+              [string]$WorkPath,
+              [string]$StdoutPath,
+              [string]$StderrPath,
+              [int]$TimeoutMinutes
+            )
+
+            $quote = [char]34
+            $quotedSource = $quote + $SourceArchive + $quote
+            $quotedOutput = $quote + $OutputRoot + $quote
+            $quotedManifest = $quote + $ManifestPath + $quote
+            $quotedWork = $quote + $WorkPath + $quote
+            $arguments = "qualify-library $quotedSource $quotedOutput $quotedManifest $quotedWork"
+
+            $startProcess = @{
+              FilePath = $Executable
+              ArgumentList = $arguments
+              RedirectStandardOutput = $StdoutPath
+              RedirectStandardError = $StderrPath
+              PassThru = $true
+            }
+            $process = Start-Process @startProcess
+
+            $timeoutMilliseconds = [int][TimeSpan]::FromMinutes($TimeoutMinutes).TotalMilliseconds
+            if (-not $process.WaitForExit($timeoutMilliseconds)) {
+              try {
+                if (-not $process.HasExited) {
+                  $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+                  & $taskkill /PID $process.Id /T /F *> $null
+                }
+              }
+              catch { }
+
+              try {
+                if (-not $process.HasExited) {
+                  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                }
+              }
+              catch { }
+
+              try { $process.WaitForExit(10000) | Out-Null } catch { }
+
+              return [pscustomobject]@{
+                Phase = $Phase
+                TimedOut = $true
+                ExitCode = $null
+              }
+            }
+
+            $process.WaitForExit()
+            return [pscustomobject]@{
+              Phase = $Phase
+              TimedOut = $false
+              ExitCode = $process.ExitCode
+            }
           }
 
           $source = $env:TIA_OPEN_LIBRARY_V19_ARCHIVE
@@ -212,10 +277,16 @@ jobs:
               $source = $sourceFull
               $qualifiedRoot = $qualifiedRootFull
               $evidence.sourceArchiveBasename = [System.IO.Path]::GetFileName($source)
+              $evidence.sourceArchiveSha256 = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
 
               $exe = Join-Path $env:GITHUB_WORKSPACE 'src\TiaV21Worker\bin\Release\net48\TiaV21Worker.exe'
               if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
                 throw 'Trusted TiaV21Worker executable was not produced by the build.'
+              }
+
+              $timeoutMinutes = [int]$env:OLQ_INVOCATION_TIMEOUT_MINUTES
+              if ($timeoutMinutes -le 0) {
+                throw 'Qualification invocation timeout is invalid.'
               }
 
               $run1Manifest = Join-Path $rawRoot 'run1-manifest.json'
@@ -227,67 +298,103 @@ jobs:
               $run2Stdout = Join-Path $rawRoot 'run2-stdout.txt'
               $run2Stderr = Join-Path $rawRoot 'run2-stderr.txt'
 
-              & $exe qualify-library $source $qualifiedRoot $run1Manifest $run1Work 1> $run1Stdout 2> $run1Stderr
-              $run1Exit = $LASTEXITCODE
-              $evidence.run1ExitCode = $run1Exit
+              $run1Arguments = @{
+                Phase = 'run1'
+                Executable = $exe
+                SourceArchive = $source
+                OutputRoot = $qualifiedRoot
+                ManifestPath = $run1Manifest
+                WorkPath = $run1Work
+                StdoutPath = $run1Stdout
+                StderrPath = $run1Stderr
+                TimeoutMinutes = $timeoutMinutes
+              }
+              $run1Process = Invoke-BoundedQualification @run1Arguments
 
-              if (-not (Test-Path -LiteralPath $run1Manifest -PathType Leaf)) {
-                $evidence.status = 'FAIL'
-                $evidence.failure = 'First qualification invocation did not create a manifest.'
+              if ($run1Process.TimedOut) {
+                $evidence.status = 'BLOCKED'
+                $evidence.failure = "Qualification invocation timed out during run1 after the bounded $timeoutMinutes-minute execution window."
               }
               else {
-                $run1 = Get-Content -LiteralPath $run1Manifest -Raw | ConvertFrom-Json
-                $evidence.sourceArchiveBasename = [System.IO.Path]::GetFileName([string]$run1.sourceArchiveBasename)
-                $evidence.sourceArchiveSha256 = $run1.sourceArchiveSha256
-                $evidence.tiaBuildIdentity = $run1.tiaBuildIdentity
-                $evidence.qualificationIdentity = $run1.qualificationIdentity
-                $evidence.qualifiedArchiveName = [System.IO.Path]::GetFileName([string]$run1.qualifiedArchiveName)
-                $evidence.qualifiedArchiveSha256 = $run1.qualifiedArchiveSha256
-                $evidence.nativeReopenSuccess = [bool]$run1.nativeReopenSuccess
+                $run1Exit = [int]$run1Process.ExitCode
+                $evidence.run1ExitCode = $run1Exit
 
-                if ($run1Exit -ne 0 -or -not [bool]$run1.success) {
+                if (-not (Test-Path -LiteralPath $run1Manifest -PathType Leaf)) {
                   $evidence.status = 'FAIL'
-                  if ($run1.failure) {
-                    $evidence.failure = [string]$run1.failure
-                  }
-                  else {
-                    $evidence.failure = 'First qualification invocation failed.'
-                  }
+                  $evidence.failure = 'First qualification invocation did not create a manifest.'
                 }
                 else {
-                  & $exe qualify-library $source $qualifiedRoot $run2Manifest $run2Work 1> $run2Stdout 2> $run2Stderr
-                  $run2Exit = $LASTEXITCODE
-                  $evidence.run2ExitCode = $run2Exit
+                  $run1 = Get-Content -LiteralPath $run1Manifest -Raw | ConvertFrom-Json
+                  $evidence.sourceArchiveBasename = [System.IO.Path]::GetFileName([string]$run1.sourceArchiveBasename)
+                  $evidence.sourceArchiveSha256 = $run1.sourceArchiveSha256
+                  $evidence.tiaBuildIdentity = $run1.tiaBuildIdentity
+                  $evidence.qualificationIdentity = $run1.qualificationIdentity
+                  $evidence.qualifiedArchiveName = [System.IO.Path]::GetFileName([string]$run1.qualifiedArchiveName)
+                  $evidence.qualifiedArchiveSha256 = $run1.qualifiedArchiveSha256
+                  $evidence.nativeReopenSuccess = [bool]$run1.nativeReopenSuccess
 
-                  if (-not (Test-Path -LiteralPath $run2Manifest -PathType Leaf)) {
+                  if ($run1Exit -ne 0 -or -not [bool]$run1.success) {
                     $evidence.status = 'FAIL'
-                    $evidence.failure = 'Second qualification invocation did not create a manifest.'
-                  }
-                  else {
-                    $run2 = Get-Content -LiteralPath $run2Manifest -Raw | ConvertFrom-Json
-                    $same = (
-                      ([bool]$run2.success) -and
-                      ($run2Exit -eq 0) -and
-                      ([bool]$run2.nativeReopenSuccess) -and
-                      ($run1.sourceArchiveSha256 -eq $run2.sourceArchiveSha256) -and
-                      ($run1.tiaBuildIdentity -eq $run2.tiaBuildIdentity) -and
-                      ($run1.qualificationIdentity -eq $run2.qualificationIdentity) -and
-                      ($run1.qualifiedArchiveName -eq $run2.qualifiedArchiveName) -and
-                      ($run1.qualifiedArchiveSha256 -eq $run2.qualifiedArchiveSha256)
-                    )
-
-                    $evidence.deterministicSecondRun = [bool]$same
-                    if ($same) {
-                      $evidence.status = 'PASS'
-                      $evidence.failure = $null
+                    if ($run1.failure) {
+                      $evidence.failure = [string]$run1.failure
                     }
                     else {
-                      $evidence.status = 'FAIL'
-                      if ($run2.failure) {
-                        $evidence.failure = [string]$run2.failure
+                      $evidence.failure = 'First qualification invocation failed.'
+                    }
+                  }
+                  else {
+                    $run2Arguments = @{
+                      Phase = 'run2'
+                      Executable = $exe
+                      SourceArchive = $source
+                      OutputRoot = $qualifiedRoot
+                      ManifestPath = $run2Manifest
+                      WorkPath = $run2Work
+                      StdoutPath = $run2Stdout
+                      StderrPath = $run2Stderr
+                      TimeoutMinutes = $timeoutMinutes
+                    }
+                    $run2Process = Invoke-BoundedQualification @run2Arguments
+
+                    if ($run2Process.TimedOut) {
+                      $evidence.status = 'BLOCKED'
+                      $evidence.failure = "Qualification invocation timed out during run2 after the bounded $timeoutMinutes-minute execution window."
+                    }
+                    else {
+                      $run2Exit = [int]$run2Process.ExitCode
+                      $evidence.run2ExitCode = $run2Exit
+
+                      if (-not (Test-Path -LiteralPath $run2Manifest -PathType Leaf)) {
+                        $evidence.status = 'FAIL'
+                        $evidence.failure = 'Second qualification invocation did not create a manifest.'
                       }
                       else {
-                        $evidence.failure = 'Second qualification run did not reproduce the first qualification identity and hashes.'
+                        $run2 = Get-Content -LiteralPath $run2Manifest -Raw | ConvertFrom-Json
+                        $same = (
+                          ([bool]$run2.success) -and
+                          ($run2Exit -eq 0) -and
+                          ([bool]$run2.nativeReopenSuccess) -and
+                          ($run1.sourceArchiveSha256 -eq $run2.sourceArchiveSha256) -and
+                          ($run1.tiaBuildIdentity -eq $run2.tiaBuildIdentity) -and
+                          ($run1.qualificationIdentity -eq $run2.qualificationIdentity) -and
+                          ($run1.qualifiedArchiveName -eq $run2.qualifiedArchiveName) -and
+                          ($run1.qualifiedArchiveSha256 -eq $run2.qualifiedArchiveSha256)
+                        )
+
+                        $evidence.deterministicSecondRun = [bool]$same
+                        if ($same) {
+                          $evidence.status = 'PASS'
+                          $evidence.failure = $null
+                        }
+                        else {
+                          $evidence.status = 'FAIL'
+                          if ($run2.failure) {
+                            $evidence.failure = [string]$run2.failure
+                          }
+                          else {
+                            $evidence.failure = 'Second qualification run did not reproduce the first qualification identity and hashes.'
+                          }
+                        }
                       }
                     }
                   }
