@@ -54,11 +54,11 @@
   ],
   "repairBudgetExtension": {
     "authorizedOn": "2026-09-19",
-    "attempt": 3,
+    "attempt": 4,
     "findingIds": [
-      "F008"
+      "F009"
     ],
-    "scope": "Exactly one additional candidate-changing repair attempt, limited to F008 only, with no scope widening."
+    "scope": "Exactly one additional candidate-changing repair attempt, limited to F009 only: remove the six tests/**/__pycache__/*.pyc files, preserve the accepted F008 source fix unchanged, and make no other scope changes."
   },
-  "maxRepairAttempts": 3
+  "maxRepairAttempts": 4
 }
