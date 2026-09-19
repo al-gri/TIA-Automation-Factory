@@ -1,0 +1,48 @@
+{
+  "id": "OLQ-DIAG-BUILD-001",
+  "title": "Fix V21 ExceptionMessageData value-type compile mismatch",
+  "goal": "Repair the post-merge TIA Portal V21 compile failure introduced by OLQ-DIAG-002 without changing its diagnostic contract or any library qualification behavior.",
+  "scope": [
+    "Coding-agent candidate scope is exactly src/TiaV21Worker/Program.cs. Do not modify workflows, other tasks, bootstrap scripts, generator/domain/compiler semantics, runner configuration, secrets, vendor payloads, or IndustrialMDE.",
+    "Trusted Windows run 35461905726 failed at Program.cs(680,21) with CS0019 because EngineeringException.MessageData is ExceptionMessageData and cannot be compared with null. Qualification did not execute in that run.",
+    "Remove only the invalid null comparison on exception.MessageData. Read exception.MessageData.Text and keep the null/empty guard on the returned text before hashing/tagging it.",
+    "Preserve the OLQ-DIAG-002 public failure prefix, fixed tag allowlist, detail-count semantics, message/detail fingerprints, deterministic ordering/framing, unknown fallback, and runner-local FailureDetails behavior.",
+    "Preserve the qualification sequence and behavior RetrieveWithUpgrade -> Save -> Archive -> current-version Retrieve verification. Do not add retries, fallback APIs, alternate OpenMode, UI/headless changes, migration workarounds, or exception swallowing.",
+    "Candidate/unmerged worker code must never execute on the trusted Windows/TIA runner. Windows/TIA build and qualification validation are post-merge trusted-main only."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate diff changes only src/TiaV21Worker/Program.cs.",
+      "The invalid ExceptionMessageData-vs-null comparison is removed and MessageData.Text remains null/empty guarded before classification/fingerprinting.",
+      "No OLQ-DIAG-002 public diagnostic token, tag, detail-count, fingerprint, raw-local FailureDetails, qualification identity/hash, whitelist, or migration semantics change except the compile repair.",
+      "Linux deterministic SiemensBackend/generator regressions remain green; no candidate Windows/TIA execution occurs.",
+      "Primary connected ChatGPT performs independent exact-SHA CODE_REVIEW because the candidate is coding-agent-authored."
+    ],
+    "tia": [
+      "After independent approval and trusted merge, /run-olq-001 builds TiaV21Worker successfully against the installed TIA Portal V21 net48 Openness assemblies on TIA-V21-PC.",
+      "The trusted qualification proceeds beyond the build step and publishes bounded sanitized OLQ evidence or PASS; run 35461905726 itself is not migration evidence because qualification was skipped.",
+      "No arbitrary Siemens exception text, absolute paths, usernames, vendor payload content, or library object names are added to public evidence."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 58
+}
