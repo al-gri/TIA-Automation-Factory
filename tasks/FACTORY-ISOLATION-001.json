@@ -45,5 +45,6 @@
     ".gitignore",
     "opencode.json"
   ],
-  "maxRepairAttempts": 2
+  "maxRepairAttempts": 2,
+  "issue": 59
 }
