@@ -1,0 +1,57 @@
+{
+  "id": "OLQ-INFRA-003",
+  "title": "Make trusted Open Library qualification timeout observable and bounded",
+  "goal": "Repair the trusted-main Open Library qualification harness so each real TiaV21Worker qualify-library invocation owns an explicit bounded timeout and can still publish sanitized BLOCKED evidence before the outer GitHub job timeout, without changing Siemens migration semantics or weakening the trusted Windows/TIA boundary.",
+  "scope": [
+    "Primary-maintainer scope only: change exactly .github/workflows/tia-v21-library-qualification.yml. Do not modify src/TiaV21Worker, generator/product semantics, agents, other workflows, secrets, runner configuration, vendor payloads, or IndustrialMDE.",
+    "Preserve existing trigger authorization and trusted-main checkout semantics. Candidate or PR code must never execute on the Windows/TIA runner before independent review and merge.",
+    "Replace reliance on the outer job-level cancellation with an explicit bounded child-process execution contract for each TiaV21Worker.exe qualify-library invocation.",
+    "Use a finite per-invocation timeout and an outer Windows-job timeout large enough for two bounded invocations plus build, cleanup, sanitized evidence publication and final enforcement.",
+    "On invocation timeout, attempt best-effort termination of the worker/process tree, classify the result as sanitized BLOCKED rather than vendor qualification FAIL, and preserve publication of machine-readable evidence before final workflow failure.",
+    "Timeout evidence may identify only the bounded phase (run1/run2), trusted main identity, source archive basename/hash, generic timeout reason and other already-approved sanitized fields. Do not publish operator absolute paths, vendor payloads, raw manifests, raw stdout/stderr or raw Siemens exception details.",
+    "Preserve the successful-path OLQ-001 deterministic checks for source SHA256, TIA/Openness build identity, qualification identity, qualified archive basename/SHA256, native reopen success, process exit states and deterministic second run.",
+    "Do not change Openness UI/headless mode or library migration semantics. If a bounded trusted-main rerun later proves the worker itself is stalled, handle that as a separate worker-level task."
+  ],
+  "acceptance": {
+    "requirements": [
+      "PR scope is exactly .github/workflows/tia-v21-library-qualification.yml and contains no unrelated protected/product/vendor/IndustrialMDE changes.",
+      "The Windows/TIA job remains main-only, explicitly checks out main with persist-credentials disabled and verifies checked-out HEAD equals current origin/main before build or execution.",
+      "workflow_dispatch remains authorized only from refs/heads/main and issue_comment remains authorized only for exact /run-olq-001 on issue #19 from repository owner al-gri.",
+      "Each qualify-library invocation runs as a controllable child process with a finite bounded timeout observable by the harness before the outer job timeout.",
+      "The outer job timeout is greater than the combined bounded invocation budget and leaves practical margin for build, hashing, cleanup, evidence publication and final enforcement.",
+      "Invocation timeout causes best-effort worker/process-tree termination and sanitized BLOCKED evidence; it must not be misreported as Siemens/vendor qualification FAIL.",
+      "Timeout and failure handling do not expose operator-controlled absolute paths, raw exception details, .zal19/.zal21 payloads, raw manifests or raw stdout/stderr to GitHub artifacts/comments/logs by design.",
+      "Source archive SHA256 is bound before TIA processing so timeout evidence can still identify the exact external source without exposing its path.",
+      "Normal completion preserves the existing deterministic two-run equality checks, native reopen requirement and PASS-only final enforcement.",
+      "Exact candidate receives green deterministic Linux CI and no Windows/TIA candidate execution occurs before merge.",
+      "Because primary ChatGPT materially authored the candidate, one fresh isolated chatgpt-secondary CODE_REVIEW APPROVE for the exact current candidate SHA is required before delegated merge."
+    ],
+    "tia": [
+      "Windows/TIA execution is post-merge only from trusted main.",
+      "After merge, rerun /run-olq-001 from issue #19.",
+      "If a real invocation exceeds the bounded timeout, issue #19 receives explicit sanitized BLOCKED timeout evidence rather than missing-evidence generic FAIL.",
+      "If qualification completes normally, the original OLQ-001 deterministic source/build/qualification/archive/native-reopen acceptance gates remain unchanged."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json",
+    "src/TiaV21Worker/**"
+  ],
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": false
+  },
+  "maxRepairAttempts": 2
+}
