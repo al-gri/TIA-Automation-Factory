@@ -249,7 +249,7 @@ class ExternalReviewToolTests(unittest.TestCase):
         self.assertIn("src/TiaV21Worker without trusted task opt-in", workflow)
         self.assertIn(".generator.input // empty", workflow)
         self.assertIn("case \"$TASK_RISK\" in LOW|MEDIUM|HIGH)", workflow)
-        self.assertIn("reviewer-policy.py authorize-slot", workflow)
+        self.assertIn('python3 "$RUNNER_TEMP/trusted-reviewer-policy.py" authorize-slot', workflow)
 
     def test_validation_repair_must_return_to_fresh_exact_sha_review(self):
         validation = (ROOT / ".github" / "workflows" / "candidate-validation.yml").read_text(encoding="utf-8")
