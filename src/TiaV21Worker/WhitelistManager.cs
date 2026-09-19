@@ -28,7 +28,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 {
                     if (entryKey == null)
                     {
-                        return WhitelistSyncResult.BootstrapRequired();
+                        return WhitelistSyncResult.CreateBootstrapRequired();
                     }
 
                     entryKey.SetValue("Path", executablePath, RegistryValueKind.String);
@@ -38,14 +38,14 @@ namespace TiaAutomationFactory.TiaV21Worker
             }
             catch (UnauthorizedAccessException)
             {
-                return WhitelistSyncResult.BootstrapRequired();
+                return WhitelistSyncResult.CreateBootstrapRequired();
             }
             catch (Exception)
             {
-                return WhitelistSyncResult.BootstrapRequired();
+                return WhitelistSyncResult.CreateBootstrapRequired();
             }
 
-            return WhitelistSyncResult.Success();
+            return WhitelistSyncResult.CreateSuccess();
         }
 
         private static string GetWhitelistVersion()
@@ -91,12 +91,12 @@ namespace TiaAutomationFactory.TiaV21Worker
             Message = message;
         }
 
-        public static WhitelistSyncResult Success()
+        public static WhitelistSyncResult CreateSuccess()
         {
             return new WhitelistSyncResult(true, false, null);
         }
 
-        public static WhitelistSyncResult BootstrapRequired()
+        public static WhitelistSyncResult CreateBootstrapRequired()
         {
             return new WhitelistSyncResult(false, true, "Whitelist synchronization requires elevated bootstrap. Run the bootstrap script to grant registry permissions.");
         }
