@@ -62,8 +62,20 @@ jobs:
           [[ "$ATTEMPT" =~ ^[1-9][0-9]*$ ]]
 
           git fetch origin main "$BRANCH"
+          TRUSTED_MAIN_SHA=$(git rev-parse origin/main)
+          [[ "$TRUSTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-          git show "origin/main:$TASK_PATH" > "$RUNNER_TEMP/task.json"
+
+          # Reject protected candidate infrastructure before executing any repository-provided
+          # orchestration code from the candidate checkout.
+          git diff --name-only "$TRUSTED_MAIN_SHA"...HEAD | sort -u > "$RUNNER_TEMP/current-candidate-files.txt"
+          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/current-candidate-files.txt"; then
+            echo "Existing candidate contains protected infrastructure changes. Refusing repair."
+            exit 1
+          fi
+
+          git show "$TRUSTED_MAIN_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
+          git show "$TRUSTED_MAIN_SHA:agents/runtime/reviewer-policy.py" > "$RUNNER_TEMP/trusted-reviewer-policy.py"
           jq -e '.id and .acceptance.requirements and .acceptance.tia and .review.riskClass and .review.reviewType and .maxRepairAttempts' "$RUNNER_TEMP/task.json" >/dev/null
           if jq -e 'has("generator") and ((.generator.input // "") == "" or (.generator.expectedArtifact // "") == "")' "$RUNNER_TEMP/task.json" >/dev/null; then
             echo "generator, when present, requires both input and expectedArtifact"
@@ -77,12 +89,16 @@ jobs:
           test "$TASK_RISK" = "$RISK_CLASS"
           test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
           [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
-          python3 agents/runtime/reviewer-policy.py authorize-slot \
+          python3 "$RUNNER_TEMP/trusted-reviewer-policy.py" authorize-slot \
             --task-file "$RUNNER_TEMP/task.json" \
             --reviewer-slot "$REVIEWER_SLOT"
 
           ALLOW_TIA_WORKER=$(jq -r '.candidatePolicy.allowTiaV21WorkerChanges // false' "$RUNNER_TEMP/task.json")
           case "$ALLOW_TIA_WORKER" in true|false) ;; *) echo "candidatePolicy.allowTiaV21WorkerChanges must be boolean"; exit 1 ;; esac
+          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/current-candidate-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
+            echo "Existing candidate changes src/TiaV21Worker without trusted task opt-in."
+            exit 1
+          fi
 
           MAX_ATTEMPTS=$(jq -r '.maxRepairAttempts' "$RUNNER_TEMP/task.json")
           [[ "$MAX_ATTEMPTS" =~ ^[0-9]+$ ]]
@@ -91,17 +107,8 @@ jobs:
             exit 1
           fi
 
-          git diff --name-only origin/main...HEAD | sort -u > "$RUNNER_TEMP/current-candidate-files.txt"
-          if grep -E '^(\.github/|agents/|tasks/|\.openhands/|\.gemini/|\.gitignore$|opencode\.json$)' "$RUNNER_TEMP/current-candidate-files.txt"; then
-            echo "Existing candidate contains protected infrastructure changes. Refusing repair."
-            exit 1
-          fi
-          if grep -E '^src/TiaV21Worker/' "$RUNNER_TEMP/current-candidate-files.txt" && [ "$ALLOW_TIA_WORKER" != "true" ]; then
-            echo "Existing candidate changes src/TiaV21Worker without trusted task opt-in."
-            exit 1
-          fi
-
           echo "before_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "trusted_main_sha=$TRUSTED_MAIN_SHA" >> "$GITHUB_OUTPUT"
           echo "max_attempts=$MAX_ATTEMPTS" >> "$GITHUB_OUTPUT"
           echo "validation_run_id=$VALIDATION_RUN_ID" >> "$GITHUB_OUTPUT"
           echo "review_source=$REVIEW_SOURCE" >> "$GITHUB_OUTPUT"
@@ -144,11 +151,12 @@ jobs:
           ATTEMPT: ${{ github.event.client_payload.attempt }}
           MAX_ATTEMPTS: ${{ steps.context.outputs.max_attempts }}
           REVIEW_SOURCE: ${{ steps.context.outputs.review_source }}
+          TRUSTED_MAIN_SHA: ${{ steps.context.outputs.trusted_main_sha }}
         run: |
-          git show origin/main:agents/prompts/coder.md > "$RUNNER_TEMP/repair-task.md"
+          git show "$TRUSTED_MAIN_SHA:agents/prompts/coder.md" > "$RUNNER_TEMP/repair-task.md"
           printf '\n\n' >> "$RUNNER_TEMP/repair-task.md"
-          git show origin/main:agents/prompts/repair.md >> "$RUNNER_TEMP/repair-task.md"
-          git diff --no-ext-diff --unified=80 origin/main...HEAD > "$RUNNER_TEMP/current-candidate.diff"
+          git show "$TRUSTED_MAIN_SHA:agents/prompts/repair.md" >> "$RUNNER_TEMP/repair-task.md"
+          git diff --no-ext-diff --unified=80 "$TRUSTED_MAIN_SHA"...HEAD > "$RUNNER_TEMP/current-candidate.diff"
 
           {
             echo
@@ -189,9 +197,11 @@ jobs:
 
       - name: Materialize trusted-main coding runtime
         shell: bash
+        env:
+          TRUSTED_MAIN_SHA: ${{ steps.context.outputs.trusted_main_sha }}
         run: |
           set -euo pipefail
-          git show origin/main:agents/runtime/run-coder.sh > "$RUNNER_TEMP/trusted-run-coder.sh"
+          git show "$TRUSTED_MAIN_SHA:agents/runtime/run-coder.sh" > "$RUNNER_TEMP/trusted-run-coder.sh"
           chmod +x "$RUNNER_TEMP/trusted-run-coder.sh"
 
       - name: Run repair agent with provider fallback
@@ -203,6 +213,8 @@ jobs:
           OPENROUTER_TIMEOUT_MINUTES: '30'
           DEEPSEEK_MODEL: deepseek-flash
           DEEPSEEK_TIMEOUT_MINUTES: '30'
+          CODER_TRUSTED_GIT_REF: ${{ steps.context.outputs.trusted_main_sha }}
+          CODER_TRUSTED_TASK_PATH: ${{ github.event.client_payload.task_path }}
         run: |
           bash "$RUNNER_TEMP/trusted-run-coder.sh" \
             "$RUNNER_TEMP/repair-task.md" \
@@ -300,13 +312,15 @@ jobs:
           REVIEW_TYPE: ${{ github.event.client_payload.review_type }}
           RISK_CLASS: ${{ github.event.client_payload.risk_class }}
           REVIEWER_SLOT: ${{ github.event.client_payload.reviewer_slot }}
+          TRUSTED_MAIN_SHA: ${{ steps.context.outputs.trusted_main_sha }}
         run: |
           set -euo pipefail
           NEXT_ROUND=$((ATTEMPT + 1))
           case "$REVIEW_TYPE" in CODE_REVIEW|PLC_REVIEW) ;; *) echo "Invalid external review type"; exit 1 ;; esac
           case "$RISK_CLASS" in LOW|MEDIUM|HIGH) ;; *) echo "Invalid external review risk class"; exit 1 ;; esac
           [[ "$REVIEWER_SLOT" =~ ^[A-Za-z0-9._-]+$ ]]
-          python3 agents/runtime/reviewer-policy.py authorize-slot \
+          git show "$TRUSTED_MAIN_SHA:agents/runtime/reviewer-policy.py" > "$RUNNER_TEMP/trusted-reviewer-policy-post.py"
+          python3 "$RUNNER_TEMP/trusted-reviewer-policy-post.py" authorize-slot \
             --task-file "$RUNNER_TEMP/task.json" \
             --reviewer-slot "$REVIEWER_SLOT"
 
