@@ -1,106 +1,55 @@
 # Infrastructure Progress Log
 
-Short chronological record of infrastructure work. Keep entries factual and concise. Current policy is defined by `AGENTS.md`, `docs/PROJECT_STATE.md`, and the living methodology documents. Raw high-frequency evidence belongs in methodology issue #25.
+Short chronological record of infrastructure work. Current policy is defined by `AGENTS.md`, `docs/PROJECT_STATE.md` and the living methodology documents. Raw high-frequency evidence belongs in methodology issue #25.
 
 ## 2026-09-17 — Initial autonomous/TIA infrastructure
 
 ### DONE
-- Created isolated repository `al-gri/TIA-Automation-Factory`; `IndustrialMDE` remained untouched.
-- Added minimal Domain -> PLC IR -> Siemens SCL generator path and Linux CI.
-- Registered Windows x64 self-hosted runner with label `tia-v21` and verified TIA Portal V21 / Openness / net48 prerequisites.
-- Built `TiaV21Worker` against real V21 assemblies and completed real TIA E2E smoke with 0 errors / 0 warnings.
-- Added disposable-Linux autonomous coding, protected-path checks, versioned prompts/tasks and trusted Windows/TIA candidate bridge.
-- I5 proved bounded same-PR repair; late OpenRouter quota exposed need for provider continuity/audit.
+- Created isolated `al-gri/TIA-Automation-Factory`; `IndustrialMDE` stayed outside scope.
+- Added minimal Domain -> PLC IR -> Siemens SCL path and Linux CI.
+- Registered Windows x64 self-hosted runner with `tia-v21` and verified TIA Portal V21 / Openness / net48 prerequisites.
+- Built `TiaV21Worker` against real V21 assemblies and completed real TIA smoke with 0 errors / 0 warnings.
+- Added disposable-Linux autonomous coding, protected paths, versioned tasks/prompts and trusted Windows/TIA boundary.
 
-## 2026-09-18 — Repository-first orchestration and provider continuity
+## 2026-09-18 — Repository-first orchestration and governance
 
 ### DONE
-- Added self-contained exact-SHA external-review packages and schema-bound responses.
-- Added explicit waiting/approve/changes-required/blocked/conflict states and bounded repair.
-- Proved connected ChatGPT can recover state from GitHub without prior chat context.
-- Added official DeepSeek `deepseek-flash` fallback and provider telemetry.
-- Adopted GitHub as sole durable source of truth through `AGENTS.md`, project-state/handoff/collaboration documents.
-- Adopted routine coding cascade OpenRouter -> DeepSeek while keeping deterministic/review/TIA acceptance provider-independent.
+- Added exact-SHA external-review protocol, bounded repair, provider audit and OpenRouter -> DeepSeek continuity.
+- Adopted GitHub as sole durable source of truth and authorship-based reviewer independence.
 - PR #17 merged ARCH-001; PR #16 merged PLC-001 after exact TIA V21 PASS.
+- Added methodology documents, issue #25 telemetry and trusted coder-context construction.
+- Repaired control-plane/prompt authority separation (GOV-CTX-001).
+- Defined the exceptional SSH-signed governance bootstrap lane; PR #32 ultimately merged at `60bd20841360998406db59cfb13a61cb33982566`.
 
-### SUPERSEDED HISTORICAL POLICY
-- Early experiments used Gemini in standing/mandatory review paths and a hidden LLM stage in Candidate Validation. Those are historical only and are not current policy.
-- The old I5 live-smoke validation bypass was later retired.
-
-## 2026-09-18 — OLQ-001 implementation and governance hardening
-
-### DONE
-- Created HIGH-risk OLQ-001 for one-time Siemens Open Library V19 `.zal19` -> native V21 qualification.
-- PR #21 merged task-gated bounded `src/TiaV21Worker/**` candidate support.
-- PR #23 merged bounded HIGH repair support.
-- PR #22 exact head `4354bebbf2a3bf745b09589d6abac0938d5b5664` passed CI #164 and independent `chatgpt-secondary` round-4 review, then merged as `5c8c957e6abb7004e4ee9e9382de97347ebfc9c6`.
-- PR #24 introduced authorship-based reviewer independence, fail-closed reviewer authorization, deterministic Candidate Validation, fresh review after candidate-changing repair, main-only Windows/TIA manual execution, trusted coding context and methodology telemetry.
-- PR #24 exact final head `a7062ac85c7b3c3fbcbe93380ea1c8e2f33d79ac` passed exact-SHA CI and fresh independent `chatgpt-secondary` review, then merged as `ef7e5a00e74a9d3b994c23637aab6fc2ae2546f5`.
-
-## 2026-09-18 — Methodology and trusted-context instrumentation
+## 2026-09-19 — OLQ trusted harness and diagnostic path
 
 ### DONE
-- Added `docs/DEVELOPMENT_METHODOLOGY.md`, `docs/METHODOLOGY_JOURNAL.md`, issue #25 raw telemetry and `.github/workflows/methodology-telemetry.yml`.
-- Added `agents/runtime/build-coder-context.py`, `docs/CODING_AGENT_CONTEXT.md`, bounded `contextFiles`, source hashes and shared OpenRouter/DeepSeek rendered context.
-- Methodology checkpoints became mandatory primary-ChatGPT orchestration duties.
+- Trusted OLQ harness PR #27 merged at `24f3a8fad542132a7aa9369be4451dd6ca0ae23f`.
+- Trusted qualification workflow runs `main` only, keeps vendor payloads runner-local and publishes sanitized hashes/status.
+- OLQ-DIAG-001 added stable public-safe phase/type/HRESULT diagnostics while raw exception details stay runner-local.
+- Trusted runs consistently localized the remaining library blocker to `RetrieveWithUpgrade` with `EngineeringTargetInvocationException`, HRESULT `0x80131500`.
 
-## 2026-09-18 — OLQ trusted execution harness
-
-### PAUSED
-- Issue #26 / PR #27 adds the trusted-main Windows/TIA harness for real OLQ-001 qualification twice with sanitized evidence only.
-- Repaired exact head `86b1b3f1b2cabca227d2976fa537ba00f572d960` passed CI #223 / run `35387244950`.
-- PR #27 is primary-ChatGPT-authored and must be re-checked against the post-governance `main` before any merge gate.
-
-## 2026-09-18 — GOV-CTX-001: prompt/control authority separation
+## 2026-09-19 — TIA-AUTH whitelist automation
 
 ### DONE
-- Historical F011/F012 findings were re-tested against then-current `main` and confirmed live despite the old verdict being stale.
-- Issue #28 / PR #30 removed task-authority discovery from mixed prompts and made repository path declarations fail closed on non-canonical spelling.
-- Exact candidate `e3d2912d74cf83256aafe1bd597f49f360411d34` passed CI #224 and fresh independent `chatgpt-secondary` review.
-- Governance then exposed a bootstrap ambiguity: no trusted `tasks/GOV-CTX-001.json` existed to authorize the secondary slot, while adding one in the same candidate would be self-authorization.
-- Human operator granted a one-time exact-SHA waiver for PR #30.
-- PR #30 merged as `0260117391abf5f0a8375699dca12caa06bafb8b`; issue #28 closed.
-- M-013 records the control-plane/data-plane separation rule.
+- Added worker self-synchronization of its application-specific Siemens Openness whitelist identity plus one-time narrow elevated bootstrap.
+- Trusted execution exposed a Windows ACL API overload defect: passing a SID as a string to `RegistryAccessRule` attempted account-name translation. PR #52 repaired it by using `SecurityIdentifier`.
+- A second trusted diagnostic proved `OpenSubKey(..., SetValue|QueryValues)` could open the Entry key while `SetValue` still failed. Root cause was .NET Framework `RegistryKey` writeability state when the rights-only overload inherited `RegistryKeyPermissionCheck.Default`.
+- PR #55 changed only the key-open overload to explicitly use `RegistryKeyPermissionCheck.ReadWriteSubTree` while preserving exact `SetValue | QueryValues` and Registry64.
+- Trusted OLQ run `35458909671` then passed whitelist synchronization/Openness admission and reached `RetrieveWithUpgrade`. Issues #46 and #54 closed completed.
 
-## 2026-09-18/19 — GOV-BOOT-001: explicit governance bootstrap lane
+### REMAINING CLEANUP
+- Issue #53: bootstrap existing-rule detection is not idempotent; trusted task `tasks/TIA-AUTH-IDEMP-001.json` is prepared. Functional Openness admission is already accepted, so this stays separate from OLQ migration work.
 
-### IN PROGRESS
-- Issue #31 / PR #32 define the permanent bootstrap lane for genuine authorization recursion in the repository's normative authority/review-control model.
-- Round 1 exact candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` -> `CHANGES_REQUIRED` with major F001-F004.
-- Round 2 exact candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED` with major F005.
-- F001-F004 forced semantic eligibility, complete fingerprinted issue scope, no candidate self-authorization and provenance separation for human/reviewer authority.
-- F005 established that owner authorship plus `performed_via_github_app == null` is only negative attribution and does not positively prove human origin against non-App API credentials.
-- Positive provenance was repaired through SSH-signed Git scope/review attestation commits under a human-controlled signing key unavailable to project automation.
-- Human scope-attestation commit `4ac2b16c2b1ea81d225779ece58df3131fb18fd6` validly signed the then-current issue-body hash and independently proved the SSH verification path.
-- Round 3 exact candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` -> `CHANGES_REQUIRED`, major F006-F007, while independently confirming F001-F005 repaired.
-- F006 found permanent schemas incorrectly hard-coded issue `31` / task `GOV-BOOT-001`; F007 found a pre-review/post-APPROVE fail-closed sequencing ambiguity.
-- Default two candidate-changing repairs were already exhausted. On 2026-09-19 the human explicitly authorized exactly one additional candidate-changing repair round strictly for F006/F007 without scope widening.
-- Issue #31 was updated only to bind that bounded repair decision; new exact UTF-8 body SHA-256 is `f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b`.
-- Because the issue body changed, signed commit `4ac2b16...` is now historical/stale for the next review and a fresh SSH-signed scope attestation is required for the new hash.
-- The F006 repair makes both scope/review attestation schemas invocation-generic and requires equality to the current repository/frozen issue/task identity.
-- The F007 repair makes fail-closed evaluation stage-specific: review attestation is not applicable before APPROVE exists; CHANGES_REQUIRED grants no authority; after APPROVE, invalid/missing/stale signed review evidence blocks authority consumption/merge.
-- Normal external-review automation remains task-only and fail-closed; no missing-task fallback was added.
-- M-014 remains the governing lesson: neither the candidate nor an author-controlled connector/credential path may manufacture authority.
+## 2026-09-19 — OLQ-DIAG-002 prepared
 
-### NEXT GATE
-- Freeze the single bounded F006/F007 repair exact head and require exact-SHA CI PASS.
-- Human creates a fresh SSH-signed scope-attestation commit for issue-body hash `f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b` on the dedicated non-merged human-attestation branch.
-- Primary verifies exact commit SHA, raw GitHub SSH-signature metadata and payload.
-- Obtain a fresh isolated `chatgpt-secondary` review against the new exact candidate, carrying F001-F007 history.
-- If APPROVE, human creates a separate SSH-signed review-attestation commit containing the exact JSON and its hash.
-- Primary verifies schema/identity/exact SHA/signature and delegated-merges only if every gate remains green.
-- Any further candidate-changing repair requires another fresh explicit human authorization; otherwise `BLOCKED`.
-- Then re-check PR #27 against the new `main` and resume OLQ qualification work.
-
-## 2026-09-18 — AUTO-001 accepted operating-model direction
-
-### PLANNED
-- Issue #35 records the accepted hybrid autonomy model.
-- OpenRouter/DeepSeek should run routine tasks autonomously to explicit checkpoints.
-- `WAITING_FOR_REVIEW` means primary connected ChatGPT performs full semantic/code/architecture review when independent.
-- Primary-authored candidates route to `chatgpt-secondary`.
-- AUTO-001 implementation is downstream of GOV-BOOT-001 and must not weaken exact-SHA review, bounded repair or trusted Windows/TIA boundaries.
+### ACTIVE NEXT TASK
+- Issue #56 and `tasks/OLQ-DIAG-002.json` define a HIGH-risk diagnostic-only change in `src/TiaV21Worker/Program.cs`.
+- It preserves migration semantics and derives only allowlisted safe tags, detail count and SHA-256 fingerprints from `EngineeringException.MessageData/DetailMessageData`.
+- Arbitrary Siemens text, paths and vendor/library contents remain non-public.
+- Operational checkpoint `main@4b27064e19395a350bb0e2879eb959640cc0775d` passed CI #317 / run `35459383614`.
+- Next mechanical action is task-mode Autonomous Agent dispatch for `tasks/OLQ-DIAG-002.json`; candidate Windows/TIA execution remains prohibited.
 
 ## Logging rule
 
-After every meaningful infrastructure/methodology change, keep this file concise and factual. Raw high-frequency events belong in methodology issue #25; reusable lessons belong in `docs/DEVELOPMENT_METHODOLOGY.md`; milestone interpretation belongs in `docs/METHODOLOGY_JOURNAL.md`.
+Keep this file concise and factual. Raw workflow events belong in issue #25; reusable lessons belong in `docs/DEVELOPMENT_METHODOLOGY.md`; milestone interpretation belongs in `docs/METHODOLOGY_JOURNAL.md`.

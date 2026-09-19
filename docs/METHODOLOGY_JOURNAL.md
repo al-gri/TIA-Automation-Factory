@@ -1,259 +1,151 @@
 # Methodology Journal
 
-Curated chronological diary of lessons learned while developing both TIA Automation Factory and the AI-assisted development methodology itself.
-
-Raw automated telemetry is recorded in GitHub issue #25. This file records milestone-level interpretation, not every workflow event.
+Curated chronological diary of lessons learned while developing both TIA Automation Factory and the AI-assisted development methodology itself. Raw automated telemetry is recorded in GitHub issue #25; this file records milestone-level interpretation.
 
 ## 2026-09-17 — Establish the trusted execution split
 
 ### Evidence
-
-- Disposable Linux runners were sufficient for candidate generation/tests.
-- Real TIA Portal V21 execution required a self-hosted Windows machine with Siemens Openness prerequisites.
-- Initial autonomous workflows and real TIA smoke proved the complete Linux -> artifact -> trusted Windows/TIA path.
+Disposable Linux runners were sufficient for candidate generation/tests, while real TIA Portal V21 execution required a self-hosted Windows machine with Siemens Openness prerequisites. The Linux -> trusted Windows/TIA path was proven end-to-end.
 
 ### Lessons
-
-- Candidate source and trusted vendor tooling must be separated physically and logically.
-- Protected-path enforcement is required before an AI agent is allowed to publish a branch.
-- A green Linux test suite does not prove that Siemens/TIA acceptance or every task requirement is satisfied.
+Candidate source and trusted vendor tooling must be separated physically/logically; protected-path enforcement is required; green Linux tests do not prove Siemens/TIA acceptance.
 
 ### Methodology effect
-
-Introduced explicit deterministic gates, trusted Windows boundary, task acceptance split and independent review.
+Introduced deterministic gates, trusted Windows boundary, task acceptance split and independent review.
 
 ## 2026-09-17 — Repair must be bounded and observable
 
 ### Evidence
-
-I5 intentionally seeded an incomplete candidate, observed rejection, performed bounded repair on the same PR and revalidated successfully.
+An intentionally incomplete candidate was rejected, repaired on the same PR and revalidated.
 
 ### Lessons
-
-- Repairing the same PR preserves evidence and avoids branch proliferation.
-- Repair limits must be trusted-task data, not agent discretion.
-- Failed validation evidence should be fed back into repair context.
+Same-PR repair preserves evidence; repair budgets must be trusted-task data; failed validation should enter repair context.
 
 ### Methodology effect
-
-Adopted bounded same-PR repair with explicit attempt counters and blocked state after exhaustion.
+Adopted bounded same-PR repair with visible blocked state after exhaustion.
 
 ## 2026-09-18 — Provider continuity is useful only when acceptance is provider-independent
 
 ### Evidence
-
-OpenRouter quota behavior and a successful official DeepSeek `deepseek-flash` smoke demonstrated that multiple coding providers can execute the same bounded task. A late OpenRouter quota event showed that useful workspace changes may exist before provider failure.
+OpenRouter quota behavior and official DeepSeek `deepseek-flash` both executed bounded tasks; useful workspace changes could exist before provider failure.
 
 ### Lessons
-
-- Provider fallback should preserve task identity and, where safe, useful partial workspace changes.
-- Model/provider success must never be treated as acceptance.
-- Provider/model/tokens/cache/cost/fallback reason are useful methodology telemetry.
+Fallback should preserve task identity/workspace where safe; provider success is never acceptance; provider/model/usage/fallback telemetry matters.
 
 ### Methodology effect
-
 Adopted OpenRouter -> DeepSeek coding cascade and provider audit.
 
 ## 2026-09-18 — Repository-first context removes chat dependency
 
 ### Evidence
-
-Fresh connected ChatGPT sessions successfully recovered tasks, review requests and project state from GitHub rather than old chats.
+Fresh connected sessions recovered tasks, reviews and project state from GitHub rather than prior chats.
 
 ### Lessons
-
-- Chat history is a poor project database.
-- AI roles become transferable when architecture, current state, handoff, task and review protocols are versioned.
-- Durable decisions must be written back to GitHub immediately enough that a fresh session can continue.
+Chat is a poor project database; roles become transferable when architecture/state/tasks/reviews are versioned; durable decisions must return to GitHub.
 
 ### Methodology effect
-
-Adopted `AGENTS.md`, `PROJECT_STATE.md`, `NEXT_CHAT_HANDOFF.md`, collaboration/review protocols and GitHub as sole durable source of truth.
+Adopted repository-first operating contracts and GitHub as sole durable source of truth.
 
 ## 2026-09-18 — Exact-SHA review is non-negotiable
 
 ### Evidence
-
-During OLQ-001 and governance work, multiple repairs changed candidate SHAs after valid earlier evidence. Review rounds repeatedly found defects that deterministic Linux CI could not detect.
+Multiple repairs changed candidate SHAs after earlier evidence; semantic reviews found defects not caught by Linux CI.
 
 ### Lessons
-
-- Approval is a property of an immutable candidate, not of a PR name.
-- Any source-changing repair invalidates prior review.
-- Fresh review must precede renewed trusted Candidate Validation.
+Approval belongs to an immutable candidate; any candidate-changing repair invalidates prior review.
 
 ### Methodology effect
-
-The state machine now returns every candidate-changing repair to a fresh external-review gate before deterministic Candidate Validation may resume.
+Every candidate-changing repair returns to fresh exact-SHA external review.
 
 ## 2026-09-18 — Reviewer independence must follow authorship, not model branding
 
 ### Evidence
-
-Primary ChatGPT became a material co-author of PR #22 after repair budget exhaustion. The original trusted task still authorized only the primary reviewer, exposing a governance conflict. Gemini review access was also operationally unreliable.
+Primary ChatGPT became material co-author during repair; Gemini availability was unreliable.
 
 ### Lessons
-
-- The same AI session must not independently approve code it materially authored.
-- Independence should be enforced from Git authorship/evidence separation.
-- A second isolated ChatGPT session can serve as reviewer when the primary session is conflicted.
-- `reviewerSlots` must be an authorization set, not a command to run every reviewer.
+A session must not independently approve its own material work; independence is authorship/evidence separation; a fresh isolated secondary ChatGPT is a practical replacement reviewer.
 
 ### Methodology effect
-
-Introduced `chatgpt-secondary`, authorship-derived reviewer policy and one-independent-reviewer-by-default governance.
+Introduced `chatgpt-secondary` and one-independent-reviewer-by-default governance.
 
 ## 2026-09-18 — Governance defects are software defects
 
 ### Evidence
-
-Independent review rounds F001-F010 found defects in reviewer eligibility, task authorization ordering, stale approval propagation, hidden Gemini reviewer runtime, a legacy Candidate Validation bypass, and manual Windows/TIA workflows capable of checking out non-main refs.
+Independent review found fail-open reviewer authorization, stale approvals, hidden model stages, legacy validation bypasses and non-main trusted Windows paths.
 
 ### Lessons
-
-- Workflow state machines require the same review rigor as production code.
-- Fail-open authorization is a major defect even when CI is green.
-- Legacy smoke workflows can become security bypasses after architecture evolves.
-- Trusted Windows workflows need repository-wide main-only invariants, not informal operator discipline.
+Workflow state machines need production-code rigor; trusted Windows needs repository-wide main-only invariants.
 
 ### Methodology effect
-
-Added repository-wide workflow regressions, fail-closed reviewer authorization, deterministic Candidate Validation, fresh-review repair transitions and main-only self-hosted TIA guards.
+Added fail-closed reviewer authorization, deterministic candidate validation, repair/review transitions and main-only TIA guards.
 
 ## 2026-09-18 — Coding context should be explicit, bounded and reproducible
 
 ### Evidence
-
-The coding workflow originally appended only the task JSON to `coder.md`, while important repository rules/state were merely available for the model to discover. This was adequate for small tasks but fragile for Siemens/Open Library work.
+Important repository rules were initially merely discoverable instead of intentionally assembled into provider context.
 
 ### Lessons
-
-- Large model context windows do not guarantee the model reads the right files.
-- Trusted context should be assembled before provider selection.
-- Source code should normally remain workspace-readable instead of being dumped wholesale into prompts.
-- Vendor-specific interfaces should enter coding context through versioned qualified contracts, not model inference.
+Large context windows do not guarantee the right files are read; trusted context should be assembled before provider selection; vendor interfaces should enter through versioned qualified contracts.
 
 ### Methodology effect
+Added trusted context bundling, hashes and task `contextFiles`.
 
-Added `build-coder-context.py`, baseline repository context, task `contextFiles`, context hashes/manifest and shared OpenRouter/DeepSeek enriched prompts.
+## 2026-09-18 — Methodology became a first-class artifact
 
-## 2026-09-18 — Methodology is now a first-class project artifact
-
-### Decision
-
-The project explicitly treats development methodology as a second product alongside the PLC generator.
-
-### Mechanism
-
-- `docs/DEVELOPMENT_METHODOLOGY.md` contains curated reusable rules and active experiments.
-- This journal records milestone-level lessons.
-- Issue #25 is the append-only automated raw event diary.
-- A trusted telemetry workflow records meaningful workflow completions and PR lifecycle events automatically.
-- `AGENTS.md` requires primary ChatGPT to perform methodology checkpoints without waiting for a user reminder.
-
-### Expected future use
-
-After enough real generator tasks, review the accumulated evidence and extract a stable playbook covering task design, context construction, provider routing, review independence, repair budgets, deterministic gates, trusted-machine boundaries and documentation discipline.
+The project explicitly treats the reusable development methodology as a second product. `docs/DEVELOPMENT_METHODOLOGY.md` carries curated rules, this journal carries milestone lessons, and issue #25 carries raw automated telemetry. Methodology checkpoints are mandatory orchestration work.
 
 ## 2026-09-18 — Prompt content must never become control-plane authority
 
 ### Evidence
-
-A historical independent review payload for PR #24 identified F011/F012 on candidate `450dca6608f0526d00370595fc5a928f7bbfbd71`. The payload itself was stale for merge purposes, but a fresh inspection of current `main` confirmed that `build-coder-context.py` still parsed task-looking headings from mixed `--prompt-input` content and used the parsed `contextFiles` as trusted authority. Current `validate_repo_path()` also silently canonicalized some malformed spellings. The defect had therefore survived the final #24 merge and downstream OLQ work had already begun.
+A stale historical finding was re-tested against then-current source and confirmed that mixed model-visible prompt content could still influence trusted task/context metadata.
 
 ### Lessons
-
-- Exact-SHA staleness applies to verdicts, not to defect hypotheses: an old finding should be re-tested against current source before being discarded.
-- A prompt assembled by a trusted workflow can still contain untrusted data such as issue bodies, diffs, review comments and logs.
-- Trust provenance must attach to fields, not to the enclosing text blob.
-- Control metadata such as task identity, `contextFiles`, permissions and reviewer policy must travel through a separate structured channel and be resolved from trusted state.
-- Context-path normalization must fail closed; canonicalization after input is not equivalent to requiring canonical input.
-- A final independent review can miss a previously unpersisted finding if review evidence is not durably bound into the repository workflow.
+Stale verdicts and defect hypotheses are different; prompt text may contain untrusted quoted content; authority must attach to structured trusted fields, not the enclosing text blob; path declarations must fail closed.
 
 ### Methodology effect
+Introduced M-013 and GOV-CTX-001 control-plane/data-plane separation.
 
-Introduced M-013: keep control-plane authority separate from mixed prompt content. GOV-CTX-001 / issue #28 repairs task authority through structured event metadata plus trusted Git lookup, adds prompt-spoof and canonical-path regressions, and blocks downstream PR #27 until this trust-origin repair passes exact-SHA CI and independent `chatgpt-secondary` review.
-
-## 2026-09-18 — Governance needs an explicit bootstrap path
+## 2026-09-18/19 — Governance needs explicit positive human provenance
 
 ### Evidence
-
-PR #30 repaired the live GOV-CTX-001 trust-origin defect and passed exact-SHA CI #224 plus fresh independent `chatgpt-secondary` APPROVE, but current governance also required a trusted task on `main` to authorize `chatgpt-secondary`. No `tasks/GOV-CTX-001.json` existed. Adding one inside the same candidate would have been self-authorization; creating a separate protected task PR raised the same recursive authorization question.
-
-The human operator granted a one-time exact-SHA waiver for PR #30 and then explicitly directed the project to eliminate the bootstrap ambiguity under issue #31. PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b`. Issue #31 was used to define a bounded bootstrap scope before the permanent policy candidate was authored.
+Governance bootstrap review showed that candidate/self-authorized tasks, owner attribution and `performed_via_github_app == null` were insufficient as root authority. Successive reviews required semantic bootstrap eligibility, complete frozen scope, invocation-generic schemas, stage-specific gates and positive SSH-signed human provenance. PR #32 ultimately merged.
 
 ### Lessons
-
-- A fail-closed task/review system still needs an explicit root-of-authority path for repairing its own authorization mechanism.
-- The candidate must never solve recursion by authorizing itself.
-- Human strategic authority is appropriate at the bootstrap boundary, but scope and provenance must be independently auditable from GitHub.
-- Normal automation should remain task-only and fail-closed; exceptional governance authorization is safer as a visibly manual lane than as an implicit fallback.
-- Once the bounded scope is validly human-authorized, exact-SHA CI and an independent reviewer can gate the implementation without requiring a second routine merge confirmation.
+A fail-closed system still needs an explicit root-authority lane for repairing its own authorization mechanism. Positive authentication requires a capability unavailable to the conflicted actor. Permanent schemas describe relationships, not one incident's identifiers. Fail-closed gates apply when evidence can exist; requiring future-stage evidence early can deadlock the state machine.
 
 ### Methodology effect
+Introduced M-014 and the bounded SSH-signed governance bootstrap protocol.
 
-Introduced M-014 and `docs/GOVERNANCE_BOOTSTRAP.md`: rare governance-authority recursion uses a frozen issue-body fingerprint, HIGH-risk exact-SHA CI and fresh `chatgpt-secondary` review while ordinary task-based automation remains unchanged and fail-closed.
-
-## 2026-09-18 — Authority provenance must be separate from the conflicted actor
+## 2026-09-19 — Windows security/API overload semantics require operation-level acceptance
 
 ### Evidence
+TIA-AUTH produced two distinct post-merge Windows-only defects despite green Linux gates:
 
-The first independent review of PR #32 at candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` returned `CHANGES_REQUIRED` with four major findings:
+1. `RegistryAccessRule` was constructed through a string identity overload using SID text. Windows treated the string as an account name and failed with `Some or all identity references could not be translated`. Replacing the string with a typed `SecurityIdentifier` fixed rule construction.
+2. After the narrow ACL was granted, a non-elevated probe could successfully call `OpenSubKey` with `SetValue | QueryValues`, yet the subsequent `SetValue` failed with `Cannot write to the registry key`. The worker used the .NET Framework rights-only `OpenSubKey` overload, which retained a non-writable `RegistryKey` state. Explicit `RegistryKeyPermissionCheck.ReadWriteSubTree` fixed the intended mutation without broadening native rights.
 
-- F001: connector-authored comments could claim human authorization without proving that the human actually created the authority artifact;
-- F002: the live authorization issue did not contain the mandatory bounded authorization fields inside its fingerprinted body;
-- F003: bootstrap eligibility incorrectly depended on coding-agent protected paths even though the candidate changed governance docs outside that list;
-- F004: primary-persisted secondary JSON proved response contents but not reviewer-evidence provenance.
-
-GitHub API metadata confirmed that the existing authorization comments were created through `chatgpt-codex-connector`, so they could not serve as origin-verifiable human authority.
+Trusted run `35458909671` after PR #55 then passed whitelist synchronization/Openness admission and reached the independent `RetrieveWithUpgrade` migration failure.
 
 ### Lessons
-
-- A trusted actor identity in the rendered GitHub UI is insufficient when an app can act as that account; provenance metadata matters.
-- Human root authorization for an exceptional lane must be represented by an action the conflicted primary cannot create, not by prose saying that the human approved something.
-- Bootstrap eligibility should describe the semantic authority recursion, not accidentally mirror one implementation's protected-path list.
-- Review identity fields and exact SHA authenticate *what* a verdict refers to, but not *who caused it to enter the trusted record*.
-- Conservative findings may be acted on even when relayed through primary, but an authority-bearing APPROVE requires provenance separated from the candidate author.
+- Typed security identities are safer than overloads that reinterpret security identifiers as names.
+- A successful resource/handle acquisition is not sufficient acceptance for a state-changing requirement; acceptance must exercise the intended mutation (`SetValue`, write, save, etc.) under the real non-elevated/trusted identity.
+- Least-privilege tests must distinguish native access rights from higher-level framework object state/permission modes.
+- Linux deterministic gates cannot replace post-merge platform acceptance for Windows/.NET Framework/TIA behavior.
+- When a trusted workflow reaches a later independent phase, that phase progression is strong evidence that earlier trust-boundary gates were actually crossed, not merely mocked.
 
 ### Methodology effect
+Treat this as a reusable rule candidate for future promotion: platform-bound permission/API tasks should include an operation-level acceptance probe under the exact intended identity/token, not only existence/open/constructor checks. Keep the probe bounded and least-privilege; never widen permissions merely to make a diagnostic pass.
 
-Round-1 repair initially used non-app-mediated direct owner comments as the provenance mechanism. That mechanism was provisional and is superseded by the F005 lesson below.
-
-## 2026-09-18 — Negative attribution is not positive human authentication
+## 2026-09-19 — Diagnose opaque vendor wrappers before repairing behavior
 
 ### Evidence
-
-Round-2 independent review of PR #32 candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` accepted the semantic bootstrap repair but returned major F005. The reviewer correctly observed that `performed_via_github_app == null` proves only that GitHub did not attribute an action to a GitHub App. A credentialed non-App API path could still act as the owner.
-
-The current ChatGPT connector's own commits were checked through the raw GitHub commit API and are unsigned (`verification.verified=false`, `reason=unsigned`), which gives the project a stronger separable primitive: a human-controlled SSH signing key unavailable to project automation.
+After TIA-AUTH was fixed, repeated trusted qualification reached the same Siemens wrapper failure: `phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500`. OLQ-DIAG-001 correctly hid arbitrary raw Siemens text, but phase/type/HRESULT alone cannot distinguish product/version/content/archive/precondition causes. Full exception text remains runner-local and is deliberately removed by the public workflow.
 
 ### Lessons
-
-- Negative provenance metadata cannot be promoted into positive identity proof.
-- The root authenticator must require a secret/capability unavailable to the conflicted actor, not merely a metadata pattern the actor usually does not produce.
-- A signed authority artifact should bind the exact semantic payload; mutable branch names and unsigned comments may point to evidence but are not evidence themselves.
-- Review APPROVE provenance needs the same strength as scope authorization because both grant authority.
-
-### Methodology effect
-
-M-014 now requires SSH-signed Git attestation commits for both bootstrap scope authorization and authority-bearing secondary APPROVE. GitHub must report a valid SSH signature, repository-owner author/committer identity, and exact attestation payload. Web-flow signatures, owner comments and `performed_via_github_app` checks are supplementary only. Human signing private material must remain outside ChatGPT/Codex/project automation, CI and runner secrets.
-
-## 2026-09-19 — Permanent authority protocols must separate schema from invocation and gates from stages
-
-### Evidence
-
-Round-3 independent review of PR #32 candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` confirmed F001-F005 repaired but found two new major defects. F006 showed that the supposedly permanent scope/review attestation payloads hard-coded the current invocation's issue/task values. F007 showed that a global fail-closed list required a signed review attestation before the reviewer could produce the APPROVE JSON that the attestation must contain.
-
-The default bootstrap repair budget was already exhausted. The human explicitly authorized exactly one additional candidate-changing repair round limited to F006/F007 without widening scope, and issue #31 was updated to bind that decision into the exact signed authority contract.
-
-### Lessons
-
-- A permanent governance schema must define field relationships, not bake in one incident's identifiers. Current issue/task values belong in an instance, example or signed evidence artifact.
-- Fail-closed does not mean requiring future-stage evidence before that evidence can exist. Gates must fail closed at the stage where the evidence is applicable.
-- A missing precondition and a not-yet-applicable artifact are different states; conflating them can deadlock an otherwise conservative state machine.
-- Human repair-budget extensions should remain bounded, explicit and invocation-local; they must not silently mutate the permanent default.
-- When durable human authority data changes, the exact issue-body fingerprint changes too, so prior signatures must become stale rather than being informally carried forward.
+- Do not implement speculative fallback APIs or migration workarounds from a generic vendor wrapper exception.
+- Diagnostic enrichment should be a separate bounded task that preserves behavior and privacy.
+- When vendor APIs expose structured reason/detail surfaces, derive fixed allowlisted categories and deterministic fingerprints rather than publishing arbitrary messages.
+- Diagnostic evidence should be sufficient to select the next small task without turning logs into a vendor-payload or privacy leak.
 
 ### Methodology effect
-
-The bootstrap policy now uses invocation-generic scope/review attestation schemas with verifier equality to the current repository/frozen issue/task identity, and stage-specific fail-closed semantics for pre-review, CHANGES_REQUIRED/BLOCKED, and post-APPROVE signed evidence. The one additional F006/F007 repair remains an exception for this invocation only; it does not change the default two-repair budget.
+Created issue #56 and trusted task `OLQ-DIAG-002` as a diagnostic-only gate before any migration behavior change.
