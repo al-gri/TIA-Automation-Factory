@@ -1,0 +1,50 @@
+{
+  "id": "TIA-AUTH-WRITE-001",
+  "title": "Open TIA whitelist Entry as writable in .NET Framework",
+  "goal": "Fix TiaV21Worker whitelist self-sync so RegistryKey is opened as writable while requesting only SetValue and QueryValues on the existing Registry64 Entry key.",
+  "scope": [
+    "Coding-agent scope is exactly src/TiaV21Worker/WhitelistManager.cs and no other file.",
+    "In WhitelistManager.SynchronizeWhitelist, replace the RegistryKey.OpenSubKey overload that supplies only RegistryRights with the overload that explicitly uses RegistryKeyPermissionCheck.ReadWriteSubTree together with the same RegistryRights.SetValue | RegistryRights.QueryValues.",
+    "Preserve RegistryHive.LocalMachine, RegistryView.Registry64, the existing Entry key path, whitelist value names, hash/date semantics, bootstrap-required fail-closed behavior, and all TIA connection ordering.",
+    "Do not broaden registry rights beyond SetValue | QueryValues and do not change bootstrap ACLs, parent Siemens keys, workflow files, runner configuration, secrets, generator/domain/compiler code, or IndustrialMDE."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate diff contains only src/TiaV21Worker/WhitelistManager.cs.",
+      "The Entry key is opened with RegistryKeyPermissionCheck.ReadWriteSubTree and rights exactly RegistryRights.SetValue | RegistryRights.QueryValues.",
+      "RegistryHive.LocalMachine and RegistryView.Registry64 are unchanged.",
+      "Whitelist writes remain limited to Path, DateModified, and FileHash beneath TiaV21Worker.exe\\Entry.",
+      "Bootstrap-required remains the fail-closed result for actual access denial or missing key.",
+      "No candidate Windows/TIA execution occurs; candidate validation is Linux-only.",
+      "Linux deterministic CI remains green.",
+      "Primary connected ChatGPT performs independent exact-SHA CODE_REVIEW because the candidate is authored by the coding agent."
+    ],
+    "tia": [
+      "After merge, run trusted-main /run-olq-001 from issue #19 without changing the registry ACL.",
+      "phase:bootstrap-required must not recur.",
+      "No interactive Openness access (0033:000666) dialog may appear.",
+      "OLQ-001 PASS is not required; phase:retrieve-with-upgrade EngineeringTargetInvocationException remains a separate migration defect if encountered."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 54
+}
