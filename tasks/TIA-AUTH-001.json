@@ -54,11 +54,11 @@
   ],
   "repairBudgetExtension": {
     "authorizedOn": "2026-09-19",
-    "attempt": 4,
+    "attempt": 5,
     "findingIds": [
       "F009"
     ],
-    "scope": "Exactly one additional candidate-changing repair attempt, limited to F009 only: remove the six tests/**/__pycache__/*.pyc files, preserve the accepted F008 source fix unchanged, and make no other scope changes."
+    "scope": "Exactly one additional candidate-changing repair attempt, limited to F009 only: remove exactly the six tracked tests/**/__pycache__/*.pyc files as the final repository mutation; after deletion do not run Python, pytest, unittest, or any other command that can recreate .pyc files; preserve the accepted F008 source fix unchanged; make no other scope changes."
   },
-  "maxRepairAttempts": 4
+  "maxRepairAttempts": 5
 }
