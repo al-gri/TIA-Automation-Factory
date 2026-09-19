@@ -1,8 +1,9 @@
 # TIA Automation Factory — Fresh Chat Handoff
 
-Updated: 2026-09-19
+Checkpoint date: 2026-09-19
+Trusted `main` at checkpoint: `69f554445003975279a391d6c2672d45054ab418`
 
-GitHub is the sole durable source of truth. Do not use old chat history as project state.
+GitHub is the sole durable source of truth. This file is the latest operational transfer checkpoint, not a historical diary. A fresh chat must still verify all live SHAs, PRs, Actions and issue state before acting.
 
 ## Mandatory startup
 
@@ -15,112 +16,126 @@ Read, in order:
 5. `docs/DEVELOPMENT_METHODOLOGY.md`
 6. latest relevant entries in `docs/METHODOLOGY_JOURNAL.md`
 7. `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work
-8. `docs/GOVERNANCE_BOOTSTRAP.md` when governance bootstrap work is active
+8. `docs/CHAT_HANDOFF_PROTOCOL.md` when transferring the primary role between chats
+9. `docs/GOVERNANCE_BOOTSTRAP.md` only when a live task genuinely uses the exceptional bootstrap lane
 
-Then inspect live GitHub state: current PRs, Actions, tasks, issues #19/#26/#31/#35, methodology issue #25 and pending external-review requests.
+Then independently inspect live GitHub tasks, open PRs/issues, exact candidate SHAs, Actions/TIA evidence, pending external-review requests and methodology issue #25.
 
 `IndustrialMDE` is outside scope and must not be touched.
 
-## Roles and authority
+## Primary role
 
-- coding provider: OpenRouter first, official DeepSeek `deepseek-flash` fallback;
-- primary connected ChatGPT: Senior Architect + normal independent reviewer for coding-agent work + orchestrator + methodology curator + delegated technical merge authority;
-- `chatgpt-secondary`: fresh isolated ChatGPT when primary ChatGPT materially authored/co-authored the candidate;
-- Gemini: no standing project role;
-- real TIA Portal V21 compile/Openness execution: authoritative Siemens acceptance.
+The fresh chat assumes the connected primary ChatGPT role:
+
+- Senior Architect / orchestrator;
+- normal independent reviewer for coding-agent work when authorship permits;
+- methodology curator;
+- delegated routine technical merge authority.
+
+If primary materially authored/co-authored a candidate, required independent review is `chatgpt-secondary` in a fresh isolated chat.
 
 ## Durable completed milestones
 
 - ARCH-001 PR #17 merged at `db8e1bcacc6febb15fa5817a2d2b22d15ccbe58e`.
-- PLC-001 PR #16 merged at `64daa260416b7a4163f7627b668ae155db694919` after trusted TIA compile with 0 errors / 0 warnings.
-- Governance PR #24 merged at `ef7e5a00e74a9d3b994c23637aab6fc2ae2546f5`; exact merged head `a7062ac85c7b3c3fbcbe93380ea1c8e2f33d79ac` had green exact-SHA CI and independent `chatgpt-secondary` approval.
-- OLQ-001 implementation PR #22 merged at `5c8c957e6abb7004e4ee9e9382de97347ebfc9c6`; exact reviewed head `4354bebbf2a3bf745b09589d6abac0938d5b5664`, CI #164 PASS, secondary round-4 APPROVE.
-- GOV-CTX-001 PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b` from exact candidate `e3d2912d74cf83256aafe1bd597f49f360411d34`, CI #224 PASS and fresh `chatgpt-secondary` APPROVE. Human granted a one-time exact-SHA waiver because the permanent governance bootstrap path was undefined. Issue #28 is closed.
+- PLC-001 PR #16 merged at `64daa260416b7a4163f7627b668ae155db694919` after trusted TIA V21 compile with 0 errors / 0 warnings.
+- Governance PR #24 merged at `ef7e5a00e74a9d3b994c23637aab6fc2ae2546f5`.
+- GOV-CTX-001 PR #30 merged at `0260117391abf5f0a8375699dca12caa06bafb8b`.
+- GOV-BOOT-001 PR #32 merged at `60bd20841360998406db59cfb13a61cb33982566`; issue #31 is closed. Permanent governance bootstrap now exists and normal task-backed automation remains fail-closed.
+- OLQ-001 implementation PR #22 merged at `5c8c957e6abb7004e4ee9e9382de97347ebfc9c6`.
+- OLQ-INFRA-002 PR #27 merged at `24f3a8fad542132a7aa9369be4451dd6ca0ae23f` after exact-SHA CI and fresh independent `chatgpt-secondary` APPROVE.
 
-## Current highest-priority blocker — GOV-BOOT-001 / issue #31 / PR #32
+## Current objective
 
-Review history:
+Finish real Siemens Open Library V19 -> TIA Portal V21 qualification in a way that produces deterministic sanitized evidence, then obtain explicit human acceptance before the qualified profile becomes a normal generator dependency.
 
-- round 1 exact candidate `2d69e0bba51bb5de2672aa7f453bbe812575f0e6` -> `CHANGES_REQUIRED`, F001-F004;
-- round 2 exact candidate `6bd2860c49713f49cc7a30ac6ec2eceb1db4a1d4` -> `CHANGES_REQUIRED`, major F005;
-- round 3 exact candidate `f078c4b3aba11ebe3dacdf21881dd5b00f5fcedd` -> `CHANGES_REQUIRED`, major F006-F007.
+## Active work 1 — OLQ-INFRA-003 / issue #36 / PR #37
 
-Round 3 independently confirmed F001-F005 repaired, then found:
+Purpose: repair the post-merge runtime observability defect exposed by trusted qualification run `35426328232`.
 
-- F006: the permanent attestation schemas incorrectly hard-coded issue `31` / task `GOV-BOOT-001`;
-- F007: the unconditional fail-closed rule required a review attestation before the APPROVE JSON needed to create it existed.
+Observed trusted runtime facts:
 
-The default two candidate-changing repairs were already consumed. On 2026-09-19 the human explicitly authorized **exactly one additional candidate-changing repair round**, strictly for F006/F007 and without scope widening.
+- trusted Windows runner checked out merged `main` and verified SHA;
+- `TiaV21Worker` built successfully with 0 warnings / 0 errors;
+- the real first `qualify-library` invocation started;
+- the outer 45-minute job timeout cancelled the operation before public evidence was finalized;
+- GitHub cleanup terminated remaining Siemens Portal-related processes;
+- this proves neither vendor-library failure nor qualification success.
 
-Issue #31 was updated only to durably bind that bounded repair decision. Current exact UTF-8 issue-body SHA-256:
+Current PR #37 live checkpoint:
 
-`f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b`
+- branch: `chatgpt/olq-infra-003-bounded-timeout`
+- exact head: `0c9633fe657b8949beea76f87f3a63411cd103e0`
+- base: `main` at `69f554445003975279a391d6c2672d45054ab418`
+- changed-file scope: exactly `.github/workflows/tia-v21-library-qualification.yml`
+- exact-SHA CI: #264 / run `35429912399` — PASS
+- candidate Windows/TIA execution: none
+- primary ChatGPT materially authored the candidate -> required reviewer: fresh `chatgpt-secondary`
 
-Because the issue-body bytes changed, prior signed scope-attestation commit `4ac2b16c2b1ea81d225779ece58df3131fb18fd6` is historical/stale for the next review. Before a new independent review, the human must create a **fresh SSH-signed scope attestation** for the hash above on the dedicated non-merged attestation branch.
+Important stale evidence:
 
-The bounded repair changes only the already-authorized governance surfaces and must remain strictly F006/F007:
+- prior review-ready SHA `cff83ee7284fa1ea2c4d75621ddfe720914a5688` and its review package are stale because `main` moved during CHAT-HANDOFF task authorization/recovery and PR #37 was explicitly resynchronized.
+- do not accept any verdict bound to `cff83ee...` for current PR #37.
 
-- scope/review attestation schemas become invocation-generic and verify repository/issue/task equality against the current frozen authority instead of hard-coding GOV-BOOT-001 constants;
-- GOV-BOOT-001 values remain only a current-instance example;
-- fail-closed behavior becomes stage-specific: review-attestation evidence is not applicable before an APPROVE exists; CHANGES_REQUIRED grants no authority; after APPROVE, missing/invalid/stale signed review attestation blocks consumption of APPROVE/merge, but mere pre-signature pending state is not prematurely BLOCKED.
+Next gate for PR #37:
 
-Normal task-backed automation remains task-only and fail-closed. Candidate source must not execute on trusted Windows/TIA. `IndustrialMDE` remains out of scope.
+1. prepare/record a fresh review request bound to `0c9633fe657b8949beea76f87f3a63411cd103e0`;
+2. obtain isolated `chatgpt-secondary` CODE_REVIEW;
+3. if APPROVE and live head/CI/scope remain unchanged, primary may delegated-merge;
+4. rerun trusted `/run-olq-001` from issue #19 only after merge.
 
-Current candidate branch: `chatgpt/gov-boot-001-bootstrap-lane`. Read its exact head live from GitHub.
+## Active work 2 — CHAT-HANDOFF-001 / issue #38
 
-### Next gates
+Trusted task `tasks/CHAT-HANDOFF-001.json` is on `main`.
 
-1. finish/freeze the single F006/F007 repair and require exact-SHA CI PASS;
-2. human creates a fresh SSH-signed scope-attestation commit for issue-body hash `f9b5405276824eb1df3e367b644df490879ab886e64170e619f5f9416d74283b`;
-3. primary verifies exact signed commit SHA, raw GitHub SSH-signature metadata and payload;
-4. prepare fresh isolated `chatgpt-secondary` review for the new exact candidate, carrying F001-F007 history;
-5. if APPROVE, human creates/primary verifies separate SSH-signed review-attestation commit with exact JSON;
-6. delegated merge only if every exact-candidate gate remains green.
+Purpose: make transfer from a context-exhausted primary chat to a fresh primary chat a repository-first freshness transaction rather than a transcript/memory transfer.
 
-Any further candidate-changing repair after this one needs another fresh explicit human decision; otherwise `BLOCKED`.
+Candidate branch: `chatgpt/chat-handoff-protocol`.
 
-## AUTO-001 / issue #35 — accepted next operating-model work
+Primary ChatGPT authors this documentation/process change, so eventual merge requires exact-SHA CI plus fresh isolated `chatgpt-secondary` review.
 
-The human accepted a hybrid autonomy model. Routine OpenRouter/DeepSeek implementation should run autonomously to explicit checkpoints. `WAITING_FOR_REVIEW` means primary connected ChatGPT performs a full semantic/code/architecture review when independent; primary-authored candidates route to `chatgpt-secondary`. AUTO-001 must not merge before GOV-BOOT-001 resolves the governance authority ambiguity.
+Do not merge this handoff candidate before PR #37 review/merge is resolved unless the resulting PR #37 base/head invalidation is explicitly accepted and re-reviewed. The preferred order is to finish PR #37 first, then synchronize/review/merge the handoff candidate.
 
-## OLQ-INFRA-002 / PR #27 — paused downstream
+Issue #38 records the trigger commands and full required transaction. Candidate `docs/CHAT_HANDOFF_PROTOCOL.md` defines the detailed procedure.
 
-Issue #26 / PR #27 adds the trusted-main Windows/TIA qualification harness.
+## Handoff-protocol incident recorded during this checkpoint
 
-Last known pre-governance head: `86b1b3f1b2cabca227d2976fa537ba00f572d960`; CI #223 PASS.
+While establishing CHAT-HANDOFF-001, primary ChatGPT twice issued a connector `create_file` call with `branch=main` for a temporary placeholder instead of first creating/verifying a candidate branch. Both placeholder files were immediately reverted and no placeholder remains in the tree, but `main` history moved.
 
-Do not reuse the old review package blindly: PR #30 changed `main`, and GOV-BOOT-001 must finish first. Then re-read PR #27 live head/base/diff/CI and obtain a fresh exact-SHA independent review if required.
+Consequences:
 
-## OLQ-001 next target after governance/harness gates
+- the previously prepared PR #37 review package became stale even though the accidental tree changes were reverted;
+- trusted task `tasks/CHAT-HANDOFF-001.json` was intentionally added to `main` and normalized to the canonical task schema;
+- PR #37 was rebuilt against the new `main` while preserving its one-workflow diff, producing current head `0c9633fe...` and fresh CI #264 PASS.
 
-From trusted `main`:
+Methodology lesson: every authority-bearing repository write must have an explicit verified target ref/branch precondition, and a handoff audit must detect base/head/review invalidation before transferring control.
 
-1. build `TiaV21Worker` on the TIA V21 Windows runner;
-2. run qualification against the real operator-controlled Siemens Open Library V19 `.zal19`;
-3. run the same source/build identity a second time;
-4. require native V21 reopen success and deterministic identity/archive hashes;
-5. publish sanitized manifest/hashes/status only — never `.zal19/.zal21` or operator absolute paths;
-6. human explicitly accepts the qualified profile before it becomes a normal generator dependency.
+## Other queued work
 
-Then continue roadmap `OL-001` -> `OL-002` -> PLC compiler foundations -> `GEN-001`.
+- AUTO-001 / issue #35 remains the accepted hybrid-autonomy initiative, downstream of the current OLQ qualification blocker.
+- After accepted Open Library qualification: continue roadmap `OL-001` -> `OL-002` -> PLC compiler foundations -> `GEN-001`.
 
-## Methodology
+## Current human action
 
-Issue #25 is raw append-only telemetry. `docs/DEVELOPMENT_METHODOLOGY.md` and `docs/METHODOLOGY_JOURNAL.md` are curated policy/history. Run a methodology checkpoint at every substantial milestone without waiting for a user reminder.
+The only current manual review action is to run a **fresh** `chatgpt-secondary` review for PR #37 using the package generated for exact head `0c9633fe...`. Do not reuse the previous `cff83ee...` package.
 
-Latest rules:
-
-- M-013: mixed prompt/data content must never become control-plane authority.
-- M-014: governance bootstrap must use semantic eligibility and positive SSH-signed human provenance; the candidate/author-controlled connector must never manufacture its own authority.
-- Permanent authority schemas must be invocation-generic, while fail-closed gates must be evaluated at the stage where their evidence can actually exist.
+No Windows/TIA manual action should be taken on candidate code.
 
 ## Hard boundaries
 
-- no broad UI/HMI expansion before the PLC/Open Library vertical slice is stable;
+- no Siemens F-safety generation/validation;
+- no arbitrary hardware-from-scratch generation for MVP;
 - no generic multi-vendor plugin architecture now;
-- no F-safety generation;
-- no arbitrary hardware-from-scratch MVP expansion;
-- no candidate source execution on trusted Windows/TIA before independent approval + merge;
-- self-hosted manual TIA workflows are main-only;
-- no vendor archive payloads in Git;
+- no broad UI/HMI expansion before the PLC/Open Library vertical slice is stable;
+- candidate source/scripts never execute on trusted Windows/TIA before independent approval + merge;
+- self-hosted Windows/TIA workflows execute trusted `main` only;
+- no `.zal19/.zal21` vendor payloads in Git;
+- no secrets or human private signing material in repository/CI/runners;
 - do not modify `IndustrialMDE`.
+
+## Fresh-chat next safe action
+
+1. Verify live `main`, PR #37 head/base/diff and CI.
+2. Verify any returned secondary review is bound to current exact PR #37 head.
+3. If no valid current review exists, prepare the fresh isolated review package; do not reuse stale `cff83ee...` evidence.
+4. Continue OLQ-INFRA-003 through review -> delegated merge -> trusted rerun.
+5. After PR #37 is resolved, synchronize and independently review CHAT-HANDOFF-001 before merging its protocol candidate.
