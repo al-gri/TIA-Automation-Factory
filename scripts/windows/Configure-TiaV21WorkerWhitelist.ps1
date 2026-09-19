@@ -85,7 +85,7 @@ function Grant-MinimumPermissions {
     $existingRule = $acl.Access | Where-Object {
         $_.IdentityReference.Value -eq $UserSid -and
         $_.AccessControlType -eq "Allow" -and
-        $_.RegistryRights -eq [System.Security.AccessControl.RegistryRights]::SetValue -bor [System.Security.AccessControl.RegistryRights]::QueryValues -and
+        $_.RegistryRights -eq ([System.Security.AccessControl.RegistryRights]::SetValue -bor [System.Security.AccessControl.RegistryRights]::QueryValues) -and
         $_.InheritanceFlags -eq "None" -and
         $_.PropagationFlags -eq "None"
     }
