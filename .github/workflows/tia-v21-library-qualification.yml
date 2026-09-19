@@ -147,14 +147,11 @@ jobs:
               [int]$TimeoutMinutes
             )
 
-            $quotedSource = '"' -replace '\\', ''
-            $quotedSource = $quotedSource + $SourceArchive + $quotedSource
-            $quotedOutput = '"' -replace '\\', ''
-            $quotedOutput = $quotedOutput + $OutputRoot + $quotedOutput
-            $quotedManifest = '"' -replace '\\', ''
-            $quotedManifest = $quotedManifest + $ManifestPath + $quotedManifest
-            $quotedWork = '"' -replace '\\', ''
-            $quotedWork = $quotedWork + $WorkPath + $quotedWork
+            $quote = [char]34
+            $quotedSource = $quote + $SourceArchive + $quote
+            $quotedOutput = $quote + $OutputRoot + $quote
+            $quotedManifest = $quote + $ManifestPath + $quote
+            $quotedWork = $quote + $WorkPath + $quote
             $arguments = "qualify-library $quotedSource $quotedOutput $quotedManifest $quotedWork"
 
             $startProcess = @{
