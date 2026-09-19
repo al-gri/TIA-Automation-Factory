@@ -121,7 +121,7 @@ jobs:
               fh.write(f'branch={branch}\n')
           PY
 
-          BASE_SHA=${{ steps.state.outputs.base_sha }}
+          BASE_SHA=$(jq -r .baseSha "$RUNNER_TEMP/pending-review-state.json")
           CANDIDATE_SHA=$(jq -r .headRefOid "$RUNNER_TEMP/pr.json")
           REVIEWER_SLOT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["reviewerSlot"])' "$RUNNER_TEMP/external-review-response.json")
           git fetch --no-tags origin "$BASE_SHA" "$CANDIDATE_SHA"
