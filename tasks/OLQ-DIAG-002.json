@@ -1,0 +1,56 @@
+{
+  "id": "OLQ-DIAG-002",
+  "title": "Add privacy-safe EngineeringException classification for OLQ failures",
+  "goal": "Diagnose the remaining RetrieveWithUpgrade EngineeringTargetInvocationException without changing migration behavior or publishing arbitrary Siemens exception text, by deriving bounded semantic tags and deterministic text fingerprints from the official EngineeringException MessageData/DetailMessageData surfaces.",
+  "scope": [
+    "Coding-agent candidate scope is exactly src/TiaV21Worker/Program.cs unless a tiny source-level test file is strictly necessary. Do not modify workflows, other tasks, bootstrap scripts, generator/domain/compiler semantics, runner configuration, secrets, vendor payloads, or IndustrialMDE.",
+    "Preserve the exact qualification sequence and behavior: RetrieveWithUpgrade -> Save -> Archive -> current-version Retrieve verification. Do not add fallback APIs, retries, alternate OpenMode, UI/headless changes, migration workarounds, or exception swallowing.",
+    "For caught Siemens.Engineering.EngineeringException instances, inspect MessageData.Text and DetailMessageData only in memory and derive public-safe diagnostics. Never copy arbitrary MessageData/DetailMessageData text into QualificationResult.Failure, console output, uploaded artifacts, issue comments, or other public evidence.",
+    "Append to the existing public-safe failure token a deterministic bounded diagnostic suffix containing: zero or more tags from the fixed allowlist, detail-count, a SHA-256 fingerprint of MessageData.Text when present, and a SHA-256 aggregate fingerprint of DetailMessageData.Text values when present. Fingerprints may be truncated only if the truncation length is fixed and at least 16 hexadecimal characters.",
+    "The only allowed public semantic tag labels are: missing-product, unreleased-content, unsupported-version, invalid-archive, access-denied, user-abort, target-conflict, license-missing, unknown. No source/library/type/product names or arbitrary words may appear in the public suffix.",
+    "Tag derivation must be deterministic from case-insensitive matching of the in-memory Siemens text. Use conservative phrase/term checks for the fixed categories; when no category matches, emit unknown. Multiple matching safe tags may be emitted in a stable deterministic order.",
+    "Preserve full Exception.ToString() only in the existing runner-local QualificationResult.FailureDetails exactly as today; do not broaden its publication. Preserve current phase/type/HRESULT tokens unchanged as the prefix of Failure.",
+    "The classification must be null-safe for absent MessageData or DetailMessageData and must not turn diagnostic-access failures into qualification success or a new migration failure. If safe diagnostic extraction itself cannot be completed, preserve the original phase/type/HRESULT failure token and optionally append only unknown.",
+    "Candidate/unmerged worker code must never execute on the trusted Windows/TIA runner. Windows/TIA validation is post-merge trusted-main only."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate diff stays within src/TiaV21Worker/Program.cs plus at most one strictly bounded source-level test if justified; no protected infrastructure changes.",
+      "RetrieveWithUpgrade, Save, Archive, close, native Retrieve and success/failure semantics are unchanged.",
+      "Existing public failure prefix remains exactly phase:<token> type:<ExceptionType> hresult:0xXXXXXXXX.",
+      "For EngineeringException failures, the suffix exposes only fixed allowlist tags, detail-count, and deterministic SHA-256 fingerprints; arbitrary Siemens MessageData/DetailMessageData text is never public.",
+      "Tag output order and fingerprint construction are deterministic; absent/no-match data is handled safely and yields unknown rather than raw text.",
+      "FailureDetails continues to retain full raw exception information only in the runner-local manifest and the trusted public workflow remains unchanged.",
+      "Qualification identity, source/output hashes, archive naming, existing-archive conflict behavior, whitelist synchronization and TIA connection ordering remain unchanged.",
+      "Linux deterministic CI remains green and no candidate Windows/TIA execution occurs.",
+      "Primary connected ChatGPT performs independent exact-SHA CODE_REVIEW because the candidate is authored by the coding agent."
+    ],
+    "tia": [
+      "After independent review and trusted merge, run /run-olq-001 from issue #19 on trusted main without changing registry ACLs or runner configuration.",
+      "If RetrieveWithUpgrade still fails, public evidence must retain phase/type/HRESULT and additionally provide only the bounded safe tags/detail-count/fingerprints needed for the next diagnosis.",
+      "No arbitrary Siemens exception text, absolute paths, usernames, vendor payload content or library object names may appear in public evidence.",
+      "A PASS still requires the unchanged OLQ-001 qualification gates; this diagnostic task does not claim to fix migration."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 56
+}
