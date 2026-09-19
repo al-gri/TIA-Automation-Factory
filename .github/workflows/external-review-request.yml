@@ -250,6 +250,7 @@ jobs:
           test "$(jq -r .review.riskClass "$RUNNER_TEMP/task.json")" = "$RISK_CLASS"
           python3 agents/runtime/reviewer-policy.py authorize-slot \
             --task-file "$RUNNER_TEMP/task.json" --reviewer-slot "$REVIEWER_SLOT"
+          TASK_SHA256=$(python3 agents/runtime/review-authority.py task-sha --task "$RUNNER_TEMP/task.json")
 
           gh pr view "$PR_NUMBER" --json state,baseRefName,headRefOid > "$RUNNER_TEMP/pr.json"
           test "$(jq -r .state "$RUNNER_TEMP/pr.json")" = "OPEN"
@@ -275,9 +276,10 @@ jobs:
 
           jq -n \
             --arg baseSha "$BASE_SHA" --argjson pr "$PR_NUMBER" --arg taskPath "$TASK_PATH" --arg taskId "$TASK_ID" \
-            --arg candidateSha "$CANDIDATE_SHA" --arg reviewType "$REVIEW_TYPE" --arg riskClass "$RISK_CLASS" \
-            --arg reviewerSlot "$REVIEWER_SLOT" --argjson reviewRound "$REVIEW_ROUND" --arg requestId "$REQUEST_ID" \
-            '{baseSha:$baseSha,pr:$pr,taskPath:$taskPath,taskId:$taskId,candidateSha:$candidateSha,reviewType:$reviewType,riskClass:$riskClass,reviewerSlot:$reviewerSlot,reviewRound:$reviewRound,requestId:$requestId}' \
+            --arg taskSha256 "$TASK_SHA256" --arg candidateSha "$CANDIDATE_SHA" --arg reviewType "$REVIEW_TYPE" \
+            --arg riskClass "$RISK_CLASS" --arg reviewerSlot "$REVIEWER_SLOT" --argjson reviewRound "$REVIEW_ROUND" \
+            --arg requestId "$REQUEST_ID" \
+            '{baseSha:$baseSha,pr:$pr,taskPath:$taskPath,taskId:$taskId,taskSha256:$taskSha256,candidateSha:$candidateSha,reviewType:$reviewType,riskClass:$riskClass,reviewerSlot:$reviewerSlot,reviewRound:$reviewRound,requestId:$requestId}' \
             > "$RUNNER_TEMP/review-meta.json"
 
       - name: Build source context from immutable Git objects
@@ -376,7 +378,7 @@ jobs:
             'LINUX_EVIDENCE':(temp/'linux-evidence.txt').read_text(),
             'GENERATED_ARTIFACT_EVIDENCE':(temp/'artifact-evidence.txt').read_text(),
             'TIA_EVIDENCE_OR_NOT_AVAILABLE':'Trusted TIA evidence is not included in this pre-merge package.',
-            'ARTIFACT_MANIFEST':json.dumps({'candidateSha':meta['candidateSha']},indent=2),
+            'ARTIFACT_MANIFEST':json.dumps({'baseSha':meta['baseSha'],'taskPath':meta['taskPath'],'taskSha256':meta['taskSha256'],'candidateSha':meta['candidateSha']},indent=2),
             'PLC_ARTIFACT':(temp/'artifact-evidence.txt').read_text(),
             'TIA_DIAGNOSTICS':'Not available in this pre-merge request.',
             'PREVIOUS_FINDINGS_OR_NONE':(temp/'previous-findings.txt').read_text(),
@@ -404,6 +406,7 @@ jobs:
           meta=json.loads((temp/'review-meta.json').read_text())
           state={
             'protocolVersion':'1.0','reviewRequestId':meta['requestId'],'reviewerSlot':meta['reviewerSlot'],
+            'baseSha':meta['baseSha'],'taskPath':meta['taskPath'],'taskSha256':meta['taskSha256'],
             'taskId':meta['taskId'],'candidateSha':meta['candidateSha'],'reviewType':meta['reviewType'],
             'reviewRound':meta['reviewRound'],'riskClass':meta['riskClass'],'state':'WAITING_FOR_EXTERNAL_REVIEW'
           }
