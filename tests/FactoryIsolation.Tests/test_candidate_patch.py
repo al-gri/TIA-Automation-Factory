@@ -98,7 +98,7 @@ class CandidatePatchTests(unittest.TestCase):
         self.assertIn("outside candidatePolicy.allowedPaths", result.stderr)
 
     def test_symlink_is_rejected(self):
-        task = write_task(self.tmp / "task-a", ["src/**"])
+        task = write_task(self.tmp / "task-a", ["src/link.txt"])
         os.symlink("allowed.txt", self.repo / "src" / "link.txt")
         result = self.run_helper(
             "prepare", "--task", task, "--patch", self.tmp / "p", "--manifest", self.tmp / "m"
