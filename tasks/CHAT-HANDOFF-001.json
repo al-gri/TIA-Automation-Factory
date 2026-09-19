@@ -1,0 +1,36 @@
+{
+  "taskId": "CHAT-HANDOFF-001",
+  "title": "Define seamless primary ChatGPT chat handoff protocol",
+  "risk": "MEDIUM",
+  "reviewerSlot": "chatgpt-secondary",
+  "reviewType": "CODE_REVIEW",
+  "maxRepairAttempts": 2,
+  "goal": "Define a repository-first procedure that is activated by a short human handoff phrase and makes the current primary ChatGPT audit live GitHub state, persist a fresh operational checkpoint, and produce a minimal bootstrap package so a fresh chat can seamlessly assume the primary Senior Architect/orchestrator role without relying on prior-chat memory.",
+  "scope": [
+    "AGENTS.md",
+    "docs/CHAT_HANDOFF_PROTOCOL.md",
+    "docs/AI_COLLABORATION_MODEL.md",
+    "docs/DEVELOPMENT_METHODOLOGY.md",
+    "docs/NEXT_CHAT_HANDOFF.md",
+    "docs/PROJECT_STATE.md",
+    "docs/INFRASTRUCTURE_LOG.md",
+    "docs/METHODOLOGY_JOURNAL.md"
+  ],
+  "acceptanceCriteria": [
+    "Canonical trigger phrase and accepted aliases are documented; 'переходим в другой чат' and 'переходим в новый чат' activate the procedure without a clarifying question.",
+    "On trigger, primary ChatGPT stops starting new discretionary work and performs a live GitHub freshness audit before producing handoff output.",
+    "The audit re-reads mandatory startup/governance/methodology files, active trusted tasks, open PRs/issues, exact candidate SHAs, review state, relevant Actions/TIA evidence, and pending external-review requests.",
+    "Chat-only claims are not promoted to durable state unless independently verified in GitHub; stale repository snapshots are corrected or explicitly marked stale/pending.",
+    "The procedure updates factual operational surfaces including PROJECT_STATE, NEXT_CHAT_HANDOFF and INFRASTRUCTURE_LOG when state changed, and performs the normal methodology checkpoint when material lessons exist.",
+    "Normative architecture/authority/review-policy changes are never smuggled into a handoff checkpoint; they remain separate task/review work.",
+    "If another exact-SHA review is currently frozen, handoff persistence must not silently invalidate it; any unavoidable base/head invalidation is explicitly recorded and a fresh review is required.",
+    "NEXT_CHAT_HANDOFF contains a concise machine-usable checkpoint: trusted main SHA, active work/gates, exact candidate SHA(s), pending reviewer/user actions, blockers, and next safe action.",
+    "The old chat returns one short bootstrap prompt for the new chat. The prompt tells the new chat to use GitHub as sole truth, execute AGENTS.md startup, verify live state itself, assume the primary role, process pending requests, and keep IndustrialMDE out of scope.",
+    "The new chat must be able to recover without receiving the old conversation transcript or hidden memory.",
+    "No secrets, vendor payloads, private signing material, or unnecessary raw logs are copied into handoff artifacts."
+  ],
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": false
+  },
+  "notes": "Primary ChatGPT is expected to author this process/documentation change, so independent review is chatgpt-secondary. This task does not authorize product/generator/workflow/runner changes and does not modify delegated merge authority."
+}
