@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
 using Microsoft.Win32;
 
@@ -24,7 +25,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             try
             {
                 using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
-                using (RegistryKey entryKey = baseKey.OpenSubKey(entryKeyPath, writable: true))
+                using (RegistryKey entryKey = baseKey.OpenSubKey(entryKeyPath, RegistryRights.SetValue | RegistryRights.QueryValues))
                 {
                     if (entryKey == null)
                     {
