@@ -257,3 +257,26 @@ The default bootstrap repair budget was already exhausted. The human explicitly 
 ### Methodology effect
 
 The bootstrap policy now uses invocation-generic scope/review attestation schemas with verifier equality to the current repository/frozen issue/task identity, and stage-specific fail-closed semantics for pre-review, CHANGES_REQUIRED/BLOCKED, and post-APPROVE signed evidence. The one additional F006/F007 repair remains an exception for this invocation only; it does not change the default two-repair budget.
+
+## 2026-09-19 — Chat handoff must audit repository freshness before role transfer
+
+### Evidence
+
+While preparing a durable primary-chat transfer protocol, live GitHub inspection showed that `docs/PROJECT_STATE.md` and `docs/NEXT_CHAT_HANDOFF.md` were materially stale: they still described GOV-BOOT-001/PR #32 and PR #27 as active blockers even though both had already completed/advanced.
+
+During the same work, primary ChatGPT twice issued a temporary `create_file` operation against `main` before creating/verifying the intended candidate branch. Both placeholder files were immediately reverted and no placeholder remained in the tree, but the `main` history moved. That base movement made the previously prepared PR #37 review package stale despite no lasting placeholder content.
+
+PR #37 therefore had to be explicitly resynchronized with current `main`; its new exact head `0c9633fe657b8949beea76f87f3a63411cd103e0` required fresh exact-SHA CI (#264 PASS) and a fresh secondary review request.
+
+### Lessons
+
+- Repository-first operation is insufficient if state snapshots are not refreshed before a chat boundary; a fresh chat can faithfully read stale GitHub documents.
+- Handoff must be a transaction: freeze discretionary work, inspect live GitHub, reconcile stale/chat-only claims, persist factual state, then transfer the role.
+- Exact-SHA review validity depends on surrounding base/ref state as well as candidate intent. A reverted accidental write can still invalidate a prepared review package because history moved.
+- Every authority-bearing repository write needs an explicit verified target ref/branch precondition. Omitted/default branch behavior is not acceptable during handoff or protected orchestration.
+- The new chat should receive a compact navigation prompt, not the old transcript; it must independently verify the checkpoint before exercising primary authority.
+- Operational handoff updates may synchronize facts but must not be used to smuggle normative architecture/authority/risk changes around normal task/review gates.
+
+### Methodology effect
+
+CHAT-HANDOFF-001 / issue #38 introduces `docs/CHAT_HANDOFF_PROTOCOL.md` and M-015. The primary-role transfer becomes a repository freshness checkpoint with explicit stale-evidence handling and write-target verification.
