@@ -14,9 +14,11 @@ A fresh session must recover project state from:
 2. `docs/PROJECT_STATE.md`;
 3. `docs/NEXT_CHAT_HANDOFF.md`;
 4. this document;
-5. `docs/EXTERNAL_REVIEW_PROTOCOL.md` when review is involved;
-6. active `tasks/*.json`, PRs, issues, Actions and artifacts;
-7. `docs/GOVERNANCE_BOOTSTRAP.md` plus the authorized issue only when governance-authority recursion is explicitly active.
+5. `docs/DEVELOPMENT_METHODOLOGY.md` and relevant journal entries;
+6. `docs/EXTERNAL_REVIEW_PROTOCOL.md` when review is involved;
+7. `docs/CHAT_HANDOFF_PROTOCOL.md` when assuming/handing off the primary role;
+8. active `tasks/*.json`, PRs, issues, Actions and artifacts;
+9. `docs/GOVERNANCE_BOOTSTRAP.md` plus the authorized issue only when governance-authority recursion is explicitly active.
 
 All durable role rules, provider policy, blockers, review states and meaningful outcomes must be persisted to GitHub. Secret values are never project context.
 
@@ -44,7 +46,9 @@ Responsibilities:
 - code-quality/maintainability review;
 - root-cause analysis and bounded maintainer fixes;
 - exact-SHA gate verification;
-- routine technical merge/no-merge decisions.
+- routine technical merge/no-merge decisions;
+- repository-first state/methodology persistence;
+- clean transfer of the primary role to a fresh chat when context is exhausted or the human requests handoff.
 
 Primary ChatGPT may author architecture or repairs. When it materially authors/co-authors a candidate, it cannot fill that candidate's required independent-review slot.
 
@@ -61,6 +65,29 @@ The secondary chat receives a self-contained package generated from GitHub sourc
 The human is strategic/risk authority and has delegated routine technical merge decisions to primary connected ChatGPT. Human input is reserved for strategic/materially irreversible decisions, project-goal changes, risk waivers, destructive external actions, licensing/vendor-distribution choices, governance-bootstrap scope authorization/reauthorization, repair-budget extension and unresolved reviewer conflict/ambiguity.
 
 For the exceptional bootstrap lane, positive human authority is represented by an SSH-signed Git attestation commit created outside ChatGPT/Codex/project automation with a human-controlled signing key. Owner attribution, comments, app-attribution metadata and unsigned API actions are not substitutes.
+
+## Primary-chat continuity
+
+The primary role belongs to the repository operating contract, not to one conversation instance.
+
+When the human writes `переходим в другой чат`, `переходим в новый чат`, `готовь handoff`, or an equivalent unambiguous transfer request, the current primary must execute `docs/CHAT_HANDOFF_PROTOCOL.md`.
+
+The transfer model is:
+
+```text
+old primary chat
+  -> live GitHub audit
+  -> factual state persistence
+  -> explicit stale-evidence detection
+  -> compact bootstrap prompt
+  -> fresh primary chat
+  -> independent live GitHub verification
+  -> continue current authorized gate
+```
+
+The old transcript and hidden memory are not authority and are not required for continuity. The fresh primary receives the same role/merge authority only after it re-runs the repository startup sequence and verifies live state itself.
+
+A handoff must not silently invalidate or carry forward exact-SHA review evidence. If a base/head/review becomes stale during checkpoint persistence, that fact and the required fresh gate are durable handoff state.
 
 ## Independence rule
 
@@ -93,6 +120,8 @@ For a normal repository/review request primary ChatGPT should:
 9. report only operationally useful results to the user.
 
 For the exceptional governance-bootstrap lane, replace step 4's trusted-task scope check with validation of the frozen issue-body fingerprint, the exact SSH-signed human scope-attestation commit and `docs/GOVERNANCE_BOOTSTRAP.md`. A primary-authored bootstrap candidate uses fresh `chatgpt-secondary`; an authority-bearing APPROVE must also be contained in a separate SSH-signed human review-attestation commit. Normal task-only automation remains unchanged and must fail closed when the task is absent.
+
+For a primary-chat transfer, the connected operator workflow is suspended at a handoff checkpoint and `docs/CHAT_HANDOFF_PROTOCOL.md` controls the transition. A handoff does not create new implementation/merge authority.
 
 ## Risk-based review policy
 
@@ -215,4 +244,5 @@ BLOCKED
 6. Routine technical merge authority delegated to primary ChatGPT.
 7. Secondary isolated ChatGPT replaces Gemini as the independent reviewer when primary ChatGPT authored/co-authored a candidate.
 8. Explicit manual governance-authority bootstrap lane added without weakening normal task-only automation.
-9. Continue measuring real cost/throughput and improve automation only when generator work exposes a concrete blocker.
+9. Repository-first primary-chat handoff protocol added so conversation replacement does not depend on memory/transcript continuity.
+10. Continue measuring real cost/throughput and improve automation only when generator work exposes a concrete blocker.
