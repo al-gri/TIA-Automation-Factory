@@ -146,7 +146,7 @@ if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
       --agent build \
       --format json \
       --model "openrouter/$OPENROUTER_MODEL" \
-      "$(cat "$PROMPT_PATH")" \
+      < "$PROMPT_PATH" \
       2> >(tee "$OPENROUTER_ERROR" >&2) \
       | tee "$OPENROUTER_OUTPUT"
   OPENROUTER_STATUS=${PIPESTATUS[0]}
@@ -193,7 +193,7 @@ if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
       --agent build \
       --format json \
       --model "deepseek/$DEEPSEEK_MODEL" \
-      "$(cat "$PROMPT_PATH")" \
+      < "$PROMPT_PATH" \
       2> >(tee "$DEEPSEEK_ERROR" >&2) \
       | tee "$DEEPSEEK_OUTPUT"
   DEEPSEEK_STATUS=${PIPESTATUS[0]}
