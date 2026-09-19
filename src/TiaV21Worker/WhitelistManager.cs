@@ -25,7 +25,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             try
             {
                 using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
-                using (RegistryKey entryKey = baseKey.OpenSubKey(entryKeyPath, RegistryRights.SetValue | RegistryRights.QueryValues))
+                using (RegistryKey entryKey = baseKey.OpenSubKey(entryKeyPath, RegistryKeyPermissionCheck.ReadWriteSubTree, RegistryRights.SetValue | RegistryRights.QueryValues))
                 {
                     if (entryKey == null)
                     {
