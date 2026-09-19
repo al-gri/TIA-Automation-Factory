@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -686,6 +687,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 if (exception.DetailMessageData != null)
                 {
                     var detailTexts = new List<string>();
+                    detailCount = exception.DetailMessageData.Count;
                     foreach (var detail in exception.DetailMessageData)
                     {
                         if (!string.IsNullOrEmpty(detail.Text))
@@ -694,11 +696,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                             tags.AddRange(DeriveTagsFromText(detail.Text));
                         }
                     }
-                    detailCount = detailTexts.Count;
                     if (detailTexts.Count > 0)
                     {
-                        string combined = string.Join("|", detailTexts);
-                        detailDataAggregateFingerprint = ComputeSha256Truncated(combined, 16);
+                        detailDataAggregateFingerprint = ComputeAggregateFingerprint(detailTexts, 16);
                     }
                 }
 
@@ -714,7 +714,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
                 var parts = new List<string>();
                 parts.Add("tags:" + string.Join(",", tags));
-                parts.Add("details:" + detailCount);
+                parts.Add("detail-count:" + detailCount);
                 if (messageDataFingerprint != null)
                 {
                     parts.Add("msgfp:" + messageDataFingerprint);
@@ -732,6 +732,25 @@ namespace TiaAutomationFactory.TiaV21Worker
             }
         }
 
+        private static string ComputeAggregateFingerprint(List<string> texts, int length)
+        {
+            using (var sha256 = SHA256.Create())
+            {
+                foreach (string text in texts)
+                {
+                    byte[] textBytes = Encoding.UTF8.GetBytes(text);
+                    byte[] lengthBytes = BitConverter.GetBytes(textBytes.Length);
+                    if (BitConverter.IsLittleEndian)
+                        Array.Reverse(lengthBytes);
+                    sha256.TransformBlock(lengthBytes, 0, lengthBytes.Length, null, 0);
+                    sha256.TransformBlock(textBytes, 0, textBytes.Length, null, 0);
+                }
+                sha256.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                string hex = BitConverter.ToString(sha256.Hash).Replace("-", "").ToLowerInvariant();
+                return hex.Substring(0, Math.Min(length, hex.Length));
+            }
+        }
+
         private static List<string> DeriveTagsFromText(string text)
         {
             var tags = new List<string>();
@@ -739,19 +758,19 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             if (ContainsAny(lowerText, "missing product", "product not found", "product missing"))
                 tags.Add("missing-product");
-            if (ContainsAny(lowerText, "unreleased", "not released", "pre-release", "preview"))
+            if (ContainsAny(lowerText, "unreleased content", "not released", "pre-release version"))
                 tags.Add("unreleased-content");
             if (ContainsAny(lowerText, "unsupported version", "version not supported", "incompatible version"))
                 tags.Add("unsupported-version");
             if (ContainsAny(lowerText, "invalid archive", "corrupt archive", "archive corrupt", "not a valid archive"))
                 tags.Add("invalid-archive");
-            if (ContainsAny(lowerText, "access denied", "permission denied", "unauthorized", "no access"))
+            if (ContainsAny(lowerText, "access denied", "permission denied", "unauthorized access", "no access"))
                 tags.Add("access-denied");
             if (ContainsAny(lowerText, "user abort", "cancelled by user", "aborted by user"))
                 tags.Add("user-abort");
-            if (ContainsAny(lowerText, "target conflict", "conflict with target", "target already"))
+            if (ContainsAny(lowerText, "target conflict", "conflict with target"))
                 tags.Add("target-conflict");
-            if (ContainsAny(lowerText, "license missing", "license not found", "no license", "licensing"))
+            if (ContainsAny(lowerText, "license missing", "license not found", "no license"))
                 tags.Add("license-missing");
 
             return tags;
