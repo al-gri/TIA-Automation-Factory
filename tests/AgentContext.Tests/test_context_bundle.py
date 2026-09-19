@@ -220,7 +220,8 @@ class AgentContextBundleTests(unittest.TestCase):
         self.assertIn(".client_payload.task_path", script)
         self.assertIn("--trusted-task-path", script)
         self.assertIn('PROMPT_PATH="$TRUSTED_CONTEXT_PROMPT"', script)
-        self.assertEqual(2, script.count('"$(cat "$PROMPT_PATH")"'))
+        self.assertEqual(2, script.count('< "$PROMPT_PATH"'))
+        self.assertNotIn('"$(cat "$PROMPT_PATH")"', script)
         self.assertIn("context_bundle:$context_bundle", script)
 
         builder = BUILDER.read_text(encoding="utf-8")
