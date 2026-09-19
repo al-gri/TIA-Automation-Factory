@@ -1,0 +1,56 @@
+{
+  "id": "OLQ-DIAG-001",
+  "title": "Add privacy-safe phase diagnostics for Open Library qualification failures",
+  "goal": "Instrument the trusted TIA V21 Open Library qualification path so a failed migration exposes only a stable operation phase, exception type and HRESULT through the existing public-safe failure field, while raw exception details remain runner-local and qualification/migration semantics remain unchanged.",
+  "scope": [
+    "Primary-maintainer scope: modify only src/TiaV21Worker/Program.cs unless a tiny source-level test file is strictly necessary. Do not modify workflows, generator/domain/compiler semantics, agents, other tasks, runner configuration, secrets, vendor payloads, or IndustrialMDE.",
+    "Preserve the exact migration sequence RetrieveWithUpgrade -> Save -> Archive -> current-version Retrieve verification. Do not add fallback APIs, retries, UI/headless changes, or vendor-specific semantic workarounds.",
+    "Track stable sanitized phases sufficient to distinguish retrieve-with-upgrade, save, archive, upgrade-close, native-reopen and native-reopen-close failures.",
+    "For caught qualification exceptions, expose through QualificationResult.Failure only bounded tokens: stable phase, exception type, and HRESULT rendered in hexadecimal. Do not expose exception Message, stack trace, source/output/work absolute paths, usernames, arbitrary Siemens text, or vendor contents.",
+    "Continue storing full Exception.ToString() only in QualificationResult.FailureDetails for runner-local diagnostics. The public qualification workflow must remain unchanged and continue omitting FailureDetails.",
+    "Preserve all existing manifest identity/hash/native-reopen/success fields and deterministic identity derivation.",
+    "Review the observed run1 process-exit versus manifest discrepancy from trusted run 35430943663. If trusted worker code already returns nonzero for Success=false, do not broaden this candidate into workflow repair; record that the discrepancy is outside this worker-only task.",
+    "Candidate/unmerged worker code must never execute on the trusted Windows/TIA runner. Windows/TIA diagnostic validation is post-merge only from trusted main."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate scope is only src/TiaV21Worker/Program.cs plus an optional strictly bounded source-level test justified by the implementation; no workflow or product/generator files change.",
+      "RetrieveWithUpgrade, Save, Archive and native current-version Retrieve execution order and semantics are unchanged.",
+      "Upgrade-path caught exceptions produce a public-safe Failure string that identifies the stable phase, exception type and hexadecimal HRESULT without including exception message, stack trace or filesystem paths.",
+      "Close failures and native-reopen failures use the same privacy-safe classification discipline.",
+      "FailureDetails continues to retain full raw exception information only in the runner-local manifest and is not promoted into public evidence.",
+      "Qualification Success remains false on every classified failure and becomes true only after native reopen succeeds exactly as before.",
+      "Qualification identity derivation, qualified archive naming, SHA256 handling, existing-archive conflict behavior and deterministic semantics are unchanged.",
+      "The candidate does not reinterpret migration failures as BLOCKED; BLOCKED remains a workflow-level timeout/configuration state.",
+      "The candidate documents or otherwise makes explicit that Program.RunQualifyLibrary already returns exit code 1 when result.Success is false; no workflow change is included to chase the run1ExitCode observation.",
+      "Exact candidate Linux CI is green before merge.",
+      "Because primary ChatGPT is expected to materially author this bounded diagnostic candidate, a fresh isolated chatgpt-secondary CODE_REVIEW APPROVE is required for the exact current candidate SHA before merge."
+    ],
+    "tia": [
+      "No candidate Windows/TIA execution occurs before independent review and merge.",
+      "After merge, rerun /run-olq-001 from issue #19 on trusted main.",
+      "A failing trusted run must publish a sanitized failure token that identifies the exact operation phase, exception type and HRESULT while still withholding raw FailureDetails and vendor payloads.",
+      "A PASS still requires the unchanged OLQ-001 archive hash/native-reopen/deterministic gates and remains subject to explicit human acceptance before the qualified profile becomes a normal generator dependency."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2
+}
