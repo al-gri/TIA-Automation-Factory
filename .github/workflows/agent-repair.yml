@@ -23,6 +23,7 @@ jobs:
       candidate_sha: ${{ steps.context.outputs.candidate_sha }}
       trusted_main_sha: ${{ steps.context.outputs.trusted_main_sha }}
       task_path: ${{ steps.context.outputs.task_path }}
+      task_sha256: ${{ steps.context.outputs.task_sha256 }}
       max_attempts: ${{ steps.context.outputs.max_attempts }}
       reviewer_slot: ${{ steps.context.outputs.reviewer_slot }}
     steps:
@@ -49,6 +50,8 @@ jobs:
           BRANCH: ${{ github.event.client_payload.branch }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
           TASK_PATH: ${{ github.event.client_payload.task_path }}
+          TASK_SHA256: ${{ github.event.client_payload.task_sha256 }}
+          BOUND_BASE_SHA: ${{ github.event.client_payload.base_sha }}
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           ATTEMPT: ${{ github.event.client_payload.attempt }}
           REVIEW_SOURCE: ${{ github.event.client_payload.review_source }}
@@ -63,21 +66,35 @@ jobs:
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
           [[ "$ATTEMPT" =~ ^[1-9][0-9]*$ ]]
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BOUND_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TASK_SHA256" =~ ^[0-9a-f]{64}$ ]]
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
 
-          git fetch --no-tags origin main
-          TRUSTED_MAIN_SHA=$(git rev-parse origin/main)
-          [[ "$TRUSTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin main "$BOUND_BASE_SHA"
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          test "$LIVE_MAIN_SHA" = "$BOUND_BASE_SHA" || {
+            echo "Trusted main moved after external review: expected $BOUND_BASE_SHA got $LIVE_MAIN_SHA"
+            exit 1
+          }
+          TRUSTED_MAIN_SHA="$BOUND_BASE_SHA"
           git show "$TRUSTED_MAIN_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
           jq -e '.id and .review.riskClass and .review.reviewType and .maxRepairAttempts and (.candidatePolicy.allowedPaths | type == "array" and length > 0)' "$RUNNER_TEMP/task.json" >/dev/null
           test "$(jq -r .review.riskClass "$RUNNER_TEMP/task.json")" = "$RISK_CLASS"
           test "$(jq -r .review.reviewType "$RUNNER_TEMP/task.json")" = "$REVIEW_TYPE"
 
           mkdir -p "$RUNNER_TEMP/trusted-runtime"
-          for path in agents/runtime/run-coder.sh agents/runtime/build-coder-context.py agents/runtime/candidate-patch.py agents/runtime/reviewer-policy.py; do
+          for path in agents/runtime/run-coder.sh agents/runtime/build-coder-context.py agents/runtime/candidate-patch.py agents/runtime/reviewer-policy.py agents/runtime/review-authority.py; do
             git show "$TRUSTED_MAIN_SHA:$path" > "$RUNNER_TEMP/trusted-runtime/$(basename "$path")"
           done
-          chmod +x "$RUNNER_TEMP/trusted-runtime/run-coder.sh" "$RUNNER_TEMP/trusted-runtime/candidate-patch.py"
+          chmod +x "$RUNNER_TEMP/trusted-runtime/run-coder.sh" "$RUNNER_TEMP/trusted-runtime/candidate-patch.py" "$RUNNER_TEMP/trusted-runtime/review-authority.py"
+          TASK_ID=$(jq -r .id "$RUNNER_TEMP/task.json")
+          python3 "$RUNNER_TEMP/trusted-runtime/review-authority.py" verify-continuation \
+            --bound-base-sha "$TRUSTED_MAIN_SHA" \
+            --live-main-sha "$LIVE_MAIN_SHA" \
+            --task-path "$TASK_PATH" \
+            --task-sha256 "$TASK_SHA256" \
+            --task-file "$RUNNER_TEMP/task.json" \
+            --task-id "$TASK_ID"
           python3 "$RUNNER_TEMP/trusted-runtime/reviewer-policy.py" authorize-slot \
             --task-file "$RUNNER_TEMP/task.json" --reviewer-slot "$REVIEWER_SLOT"
           python3 "$RUNNER_TEMP/trusted-runtime/candidate-patch.py" validate-current \
@@ -91,6 +108,7 @@ jobs:
           echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "trusted_main_sha=$TRUSTED_MAIN_SHA" >> "$GITHUB_OUTPUT"
           echo "task_path=$TASK_PATH" >> "$GITHUB_OUTPUT"
+          echo "task_sha256=$TASK_SHA256" >> "$GITHUB_OUTPUT"
           echo "max_attempts=$MAX_ATTEMPTS" >> "$GITHUB_OUTPUT"
           echo "reviewer_slot=$REVIEWER_SLOT" >> "$GITHUB_OUTPUT"
 
@@ -235,17 +253,33 @@ jobs:
           name: repair-patch-${{ github.run_id }}
           path: ${{ runner.temp }}/repair-patch
 
-      - name: Resolve trusted publisher policy
+      - name: Resolve bound trusted publisher policy
         shell: bash
         env:
           TRUSTED_MAIN_SHA: ${{ needs.repair.outputs.trusted_main_sha }}
           TASK_PATH: ${{ needs.repair.outputs.task_path }}
+          TASK_SHA256: ${{ needs.repair.outputs.task_sha256 }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$TRUSTED_MAIN_SHA"
+          git fetch --no-tags origin main "$TRUSTED_MAIN_SHA"
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          test "$LIVE_MAIN_SHA" = "$TRUSTED_MAIN_SHA" || {
+            echo "Trusted main moved before repair publication: expected $TRUSTED_MAIN_SHA got $LIVE_MAIN_SHA"
+            exit 1
+          }
           git show "$TRUSTED_MAIN_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
           git show "$TRUSTED_MAIN_SHA:agents/runtime/candidate-patch.py" > "$RUNNER_TEMP/trusted-candidate-patch.py"
-          chmod +x "$RUNNER_TEMP/trusted-candidate-patch.py"
+          git show "$TRUSTED_MAIN_SHA:agents/runtime/review-authority.py" > "$RUNNER_TEMP/trusted-review-authority.py"
+          chmod +x "$RUNNER_TEMP/trusted-candidate-patch.py" "$RUNNER_TEMP/trusted-review-authority.py"
+          TASK_ID=$(jq -r '.id // empty' "$RUNNER_TEMP/task.json")
+          test -n "$TASK_ID"
+          python3 "$RUNNER_TEMP/trusted-review-authority.py" verify-continuation \
+            --bound-base-sha "$TRUSTED_MAIN_SHA" \
+            --live-main-sha "$LIVE_MAIN_SHA" \
+            --task-path "$TASK_PATH" \
+            --task-sha256 "$TASK_SHA256" \
+            --task-file "$RUNNER_TEMP/task.json" \
+            --task-id "$TASK_ID"
 
       - name: Validate repair patch and final candidate scope
         shell: bash
@@ -268,9 +302,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.event.client_payload.branch }}
           CANDIDATE_SHA: ${{ needs.repair.outputs.candidate_sha }}
+          TRUSTED_MAIN_SHA: ${{ needs.repair.outputs.trusted_main_sha }}
           ATTEMPT: ${{ github.event.client_payload.attempt }}
         run: |
           set -euo pipefail
+          git fetch --no-tags origin main
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          test "$LIVE_MAIN_SHA" = "$TRUSTED_MAIN_SHA" || {
+            echo "Trusted main moved immediately before repair push: expected $TRUSTED_MAIN_SHA got $LIVE_MAIN_SHA"
+            exit 1
+          }
           REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')
           test "$REMOTE_SHA" = "$CANDIDATE_SHA" || {
             echo "Candidate branch moved before repair publication: expected $CANDIDATE_SHA got $REMOTE_SHA"
