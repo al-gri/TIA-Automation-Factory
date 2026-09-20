@@ -306,24 +306,33 @@ jobs:
           ATTEMPT: ${{ github.event.client_payload.attempt }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
-          LIVE_MAIN_SHA=$(git rev-parse origin/main)
-          test "$LIVE_MAIN_SHA" = "$TRUSTED_MAIN_SHA" || {
-            echo "Trusted main moved immediately before repair push: expected $TRUSTED_MAIN_SHA got $LIVE_MAIN_SHA"
-            exit 1
-          }
-          REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')
-          test "$REMOTE_SHA" = "$CANDIDATE_SHA" || {
-            echo "Candidate branch moved before repair publication: expected $CANDIDATE_SHA got $REMOTE_SHA"
-            exit 1
-          }
           TASK_ID=$(jq -r .id "$RUNNER_TEMP/task.json")
           git config user.name "tia-automation-agent"
           git config user.email "tia-automation-agent@users.noreply.github.com"
           git commit -m "Agent: repair ${TASK_ID} attempt ${ATTEMPT}"
           NEW_SHA=$(git rev-parse HEAD)
           gh auth setup-git
-          git push origin "HEAD:$BRANCH"
+
+          # Final publication boundary: refresh both authority refs only after the
+          # commit and authentication are prepared. The atomic push leases make
+          # this server-enforced rather than a best-effort local TOCTOU check.
+          git fetch --no-tags origin main
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          test "$LIVE_MAIN_SHA" = "$TRUSTED_MAIN_SHA" || {
+            echo "Trusted main moved at final repair publication boundary: expected $TRUSTED_MAIN_SHA got $LIVE_MAIN_SHA"
+            exit 1
+          }
+          REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')
+          test "$REMOTE_SHA" = "$CANDIDATE_SHA" || {
+            echo "Candidate branch moved at final repair publication boundary: expected $CANDIDATE_SHA got $REMOTE_SHA"
+            exit 1
+          }
+          git push --atomic \
+            --force-with-lease="refs/heads/main:$TRUSTED_MAIN_SHA" \
+            --force-with-lease="refs/heads/$BRANCH:$CANDIDATE_SHA" \
+            origin \
+            "$TRUSTED_MAIN_SHA:refs/heads/main" \
+            "HEAD:refs/heads/$BRANCH"
           echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Record repair and dispatch fresh exact-SHA review
