@@ -35,7 +35,10 @@ class RepairRuntimeSourceTests(unittest.TestCase):
         self.assertIn('git ls-remote origin "refs/heads/$BRANCH"', publish)
         self.assertIn('--scope-base "$TRUSTED_MAIN_SHA"', publish)
         self.assertIn('Trusted main moved before repair publication', publish)
-        self.assertIn('Trusted main moved immediately before repair push', publish)
+        self.assertIn('Trusted main moved at final repair publication boundary', publish)
+        self.assertIn('git push --atomic', publish)
+        self.assertIn('--force-with-lease="refs/heads/main:$TRUSTED_MAIN_SHA"', publish)
+        self.assertIn('--force-with-lease="refs/heads/$BRANCH:$CANDIDATE_SHA"', publish)
         self.assertNotIn('git add -A', workflow)
 
 
