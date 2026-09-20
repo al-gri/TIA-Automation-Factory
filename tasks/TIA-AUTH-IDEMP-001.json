@@ -36,6 +36,9 @@
     ]
   },
   "candidatePolicy": {
+    "allowedPaths": [
+      "scripts/windows/Configure-TiaV21WorkerWhitelist.ps1"
+    ],
     "allowTiaV21WorkerChanges": false
   },
   "protectedPaths": [

@@ -32,6 +32,9 @@
     ]
   },
   "candidatePolicy": {
+    "allowedPaths": [
+      "src/TiaV21Worker/Program.cs"
+    ],
     "allowTiaV21WorkerChanges": true
   },
   "protectedPaths": [
