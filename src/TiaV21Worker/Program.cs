@@ -12,6 +12,7 @@ using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.ExternalSources;
+using Siemens.Engineering.SW.Blocks;
 using Siemens.Engineering.Library;
 
 namespace TiaAutomationFactory.TiaV21Worker
@@ -859,6 +860,11 @@ namespace TiaAutomationFactory.TiaV21Worker
         public string NativeReopenDetails { get; set; }
         public string Failure { get; set; }
         public string FailureDetails { get; set; }
+        public bool IsReuse { get; set; }
+        public string ReuseVerificationRunId { get; set; }
+        public DateTimeOffset ReuseOriginalCompletedAt { get; set; }
+        public ValveProfileContract ValveProfile { get; set; }
+        public ReferenceValidationResult ReferenceValidation { get; set; }
 
         public static QualificationResult FromException(Exception exception, string sourceArchivePath)
         {
@@ -903,6 +909,19 @@ namespace TiaAutomationFactory.TiaV21Worker
         }
     }
 
+    internal sealed class ReferenceValidationResult
+    {
+        public bool Success { get; set; }
+        public int ErrorCount { get; set; }
+        public int WarningCount { get; set; }
+        public string ProjectPath { get; set; }
+        public string State { get; set; }
+        public List<DiagnosticRecord> Diagnostics { get; set; } = new List<DiagnosticRecord>();
+        public bool SaveReopenVerified { get; set; }
+        public string Failure { get; set; }
+        public string FailureDetails { get; set; }
+    }
+
     internal static class QualificationJson
     {
         public static string Serialize(QualificationResult result)
@@ -918,9 +937,60 @@ namespace TiaAutomationFactory.TiaV21Worker
             AppendProperty(builder, "qualifiedArchiveSha256", result.QualifiedArchiveSha256, true, true);
             AppendProperty(builder, "nativeReopenSuccess", result.NativeReopenSuccess ? "true" : "false", false, true);
             AppendProperty(builder, "nativeReopenDetails", result.NativeReopenDetails, true, true);
+            AppendProperty(builder, "isReuse", result.IsReuse ? "true" : "false", false, true);
+            AppendProperty(builder, "reuseVerificationRunId", result.ReuseVerificationRunId, true, true);
+            AppendProperty(builder, "reuseOriginalCompletedAt", result.ReuseOriginalCompletedAt == DateTimeOffset.MinValue ? "null" : "\"" + result.ReuseOriginalCompletedAt.ToString("o") + "\"", false, true);
             AppendProperty(builder, "failure", result.Failure, true, true);
-            AppendProperty(builder, "failureDetails", result.FailureDetails, true, false);
+            AppendProperty(builder, "failureDetails", result.FailureDetails, true, true);
+            if (result.ValveProfile != null)
+            {
+                AppendProperty(builder, "valveProfile", result.ValveProfile.Serialize().Replace("\n", "\n  "), false, true);
+            }
+            else
+            {
+                AppendProperty(builder, "valveProfile", "null", false, true);
+            }
+            if (result.ReferenceValidation != null)
+            {
+                builder.Append("  \"referenceValidation\": ");
+                builder.AppendLine(SerializeReferenceValidation(result.ReferenceValidation));
+            }
+            else
+            {
+                AppendProperty(builder, "referenceValidation", "null", false, false);
+            }
             builder.AppendLine("}");
+            return builder.ToString();
+        }
+
+        private static string SerializeReferenceValidation(ReferenceValidationResult result)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("{");
+            AppendProperty(builder, "success", result.Success ? "true" : "false", false, true, 4);
+            AppendProperty(builder, "errorCount", result.ErrorCount.ToString(), false, true, 4);
+            AppendProperty(builder, "warningCount", result.WarningCount.ToString(), false, true, 4);
+            AppendProperty(builder, "projectPath", result.ProjectPath, true, true, 4);
+            AppendProperty(builder, "state", result.State, true, true, 4);
+            AppendProperty(builder, "saveReopenVerified", result.SaveReopenVerified ? "true" : "false", false, true, 4);
+            AppendProperty(builder, "failure", result.Failure, true, true, 4);
+            AppendProperty(builder, "failureDetails", result.FailureDetails, true, true, 4);
+            builder.AppendLine("    \"diagnostics\": [");
+            for (int i = 0; i < result.Diagnostics.Count; i++)
+            {
+                var item = result.Diagnostics[i];
+                builder.AppendLine("      {");
+                AppendProperty(builder, "path", item.Path, true, true, 8);
+                AppendProperty(builder, "state", item.State, true, true, 8);
+                AppendProperty(builder, "description", item.Description, true, true, 8);
+                AppendProperty(builder, "warnings", item.WarningCount.ToString(), false, true, 8);
+                AppendProperty(builder, "errors", item.ErrorCount.ToString(), false, i == result.Diagnostics.Count - 1 ? false : true, 8);
+                builder.Append("      }");
+                if (i < result.Diagnostics.Count - 1) builder.Append(",");
+                builder.AppendLine();
+            }
+            builder.AppendLine("    ]");
+            builder.Append("  }");
             return builder.ToString();
         }
 
@@ -949,6 +1019,16 @@ namespace TiaAutomationFactory.TiaV21Worker
                     result.NativeReopenSuccess = trimmed.Contains("true");
                 else if (trimmed.StartsWith("\"nativeReopenDetails\":"))
                     result.NativeReopenDetails = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"isReuse\":"))
+                    result.IsReuse = trimmed.Contains("true");
+                else if (trimmed.StartsWith("\"reuseVerificationRunId\":"))
+                    result.ReuseVerificationRunId = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"reuseOriginalCompletedAt\":"))
+                {
+                    var val = ExtractValue(trimmed);
+                    if (val != "null")
+                        DateTimeOffset.TryParse(val, out result.ReuseOriginalCompletedAt);
+                }
                 else if (trimmed.StartsWith("\"failure\":"))
                     result.Failure = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"failureDetails\":"))
