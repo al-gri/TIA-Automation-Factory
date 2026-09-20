@@ -1,0 +1,84 @@
+{
+  "id": "OLQ-VALVE-PROFILE-001",
+  "title": "Qualify one truthful V21 Valve profile and contract",
+  "goal": "Turn the trusted OLQ evidence into one truthful Siemens Open Library V21 Valve profile for one exact S7-1500 target. Correct qualification transaction/reuse semantics, derive the real fbValve_Solenoid contract and dependency closure only from a successfully qualified V21 library, and prove a minimal trusted reference compile after merge. If the current V19 archive still cannot be upgraded, stop with a precise sanitized BLOCKED prerequisite instead of inventing a migration workaround.",
+  "baselineEvidence": {
+    "trustedMainSha": "118bcc77c0ea790250cbcb0fcf04981c3e9d63a2",
+    "olqRunId": "35502551443",
+    "sourceArchiveSha256": "ed8fe3f52e90399475b321e40f7ce842d86e414324f06f1b078f44fcb666eed3",
+    "tiaBuildIdentity": "Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)",
+    "qualificationIdentity": "olq-c6c75a368b16bbf34a367cb843ba5e55",
+    "failure": "phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:5fd3443943908efc"
+  },
+  "targetProfile": {
+    "cpuTypeIdentifier": "OrderNumber:6ES7 516-3AP03-0AB0/V4.0",
+    "valveLibraryObject": "fbValve_Solenoid"
+  },
+  "scope": [
+    "Work only inside the trusted TiaV21Worker qualification/profile boundary plus the smallest Linux-testable pure helper/tests listed in candidatePolicy.allowedPaths. Do not modify workflows, tasks, prompts, Domain, PlcCompiler, SiemensBackend, GeneratorCli, runner configuration, secrets, vendor payloads, or IndustrialMDE.",
+    "Treat trusted OLQ run 35502551443 as the starting evidence. It proves the worker builds and reaches the documented RetrieveWithUpgrade call, but the V19 archive still fails there with EngineeringTargetInvocationException and sanitized detail-count/fingerprints. Do not interpret this as a reason to change API, OpenMode, TiaPortalMode, add retries, substitute OpenWithUpgrade, suppress exceptions, or fabricate success.",
+    "Preserve the documented migration sequence: GlobalLibraries.RetrieveWithUpgrade(source .zal19, target directory, OpenMode.ReadWrite) -> Save -> compressed .zal21 Archive -> close -> current-version GlobalLibraries.Retrieve verification. Migration remains qualification-only and must never enter normal generator/project assembly.",
+    "Repair audit M08 transaction semantics. A qualification attempt must be staged and considered completed only after the native archive hash and real current-version native reopen succeed. Incomplete/corrupt/false-success state must never be reused as success or permanently block a valid retry. Publish/reuse state must be deterministic and recoverable after interruption.",
+    "Existing-success reuse must validate source hash, TIA build, profile/recipe identity, archive hash and completed-success provenance. Reuse must be explicitly represented as reuse and preserve the original successful verification/run provenance; it must not claim a fresh migration or set nativeReopenSuccess=true merely because files match.",
+    "Keep transaction/provenance decision logic in a small Siemens-independent helper that can be linked into the existing Linux test project. Do not create a general persistence framework, plugin system, service, or new orchestration layer.",
+    "For the selected profile, use the exact target CPU OrderNumber:6ES7 516-3AP03-0AB0/V4.0. Do not broaden to multiple CPUs, device families, library versions or the whole Open Library catalog.",
+    "After and only after a native V21 qualified library is successfully opened, locate the exact library object fbValve_Solenoid. Derive its actual V21 type/version identity and recursively derive its dependency closure using the V21 library object/version relationships. Do not hardcode dependency names from historical documentation.",
+    "Capture a bounded public Valve contract from the qualified profile: profile/source/build identity, fbValve_Solenoid block/type/version identity, parameter names with directions and PLC types, dependency identities, instance/data ownership requirements, and target/DB prerequisites needed for a deterministic call. Temporary exported vendor XML/source may be used runner-locally for inspection but must not be committed or copied into public evidence.",
+    "Provide a deterministic, schema-versioned sanitized contract representation and stable hash/signature. Public contract data must contain only the bounded identifiers/interface facts required by issue #61; raw exception text, absolute paths, usernames, vendor payload content and unrelated library catalog/object data remain runner-local.",
+    "Provide the worker-side operation needed for a trusted post-merge reference proof: materialize only the selected Valve/dependency closure into a project for the selected CPU, create the minimal required instance/data ownership and one deterministic call/reference, compile, and record errors/warnings plus saved/reopen provenance. Do not build the product generator in this task.",
+    "If the trusted post-merge environment cannot pass RetrieveWithUpgrade or another vendor/environment prerequisite prevents contract discovery/reference compile, return explicit sanitized BLOCKED evidence naming only the supported prerequisite category/evidence. Do not code-repair an external prerequisite and do not claim a qualified Valve profile."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate changes are limited exactly to candidatePolicy.allowedPaths; Siemens.Engineering remains isolated to src/TiaV21Worker.",
+      "The existing qualify-library CLI and the migration sequence RetrieveWithUpgrade -> Save -> compressed Archive -> current-version Retrieve remain behaviorally intact except for transaction/reuse/provenance correctness and bounded Valve-profile capability.",
+      "Qualification publication is staged/transactional: no completed-success record is visible before archive hash plus native reopen verification; interrupted/incomplete/corrupt/false-success records are rejected or recoverable without silently overwriting a different valid identity.",
+      "Reuse requires a valid completed-success record and matching source/build/profile/archive identities, is explicitly marked as reuse, preserves original verification/run provenance, and never fabricates fresh native-reopen evidence.",
+      "Linux deterministic tests cover at least: completed-success reuse, incomplete state, corrupt state, stored false-success, archive/hash mismatch, interrupted publication/recovery, and retry. Existing SiemensBackend tests and motor regression stay green.",
+      "The selected profile is exactly source SHA256 ed8fe3f52e90399475b321e40f7ce842d86e414324f06f1b078f44fcb666eed3 + TIA build Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1) + CPU OrderNumber:6ES7 516-3AP03-0AB0/V4.0 + Valve target fbValve_Solenoid; no catalog-wide abstraction is introduced.",
+      "Valve contract/dependency discovery runs only from a successfully opened native V21 qualified library, derives dependency identities from the actual V21 library relationships rather than a hardcoded historical list, and emits a bounded schema-versioned sanitized contract/hash.",
+      "The contract model records the actual Valve block/type/version identity, parameter names/directions/PLC types, dependency identities, instance/data ownership and relevant target/DB prerequisites without publishing vendor payload or unrelated catalog data.",
+      "Worker-side reference validation is bounded to the selected CPU and selected Valve/dependency closure and records compile errors/warnings plus save/reopen provenance; it does not add generator semantics, UI, graph, plugin or catalog infrastructure.",
+      "Current trusted failure evidence remains safely classifiable. No arbitrary Siemens exception message, absolute path, username or vendor payload is added to public failure evidence."
+    ],
+    "tia": [
+      "After independent PLC_REVIEW approval and trusted merge, TiaV21Worker builds on TIA-V21-PC against the installed V21 net48 Openness assemblies with zero compile errors.",
+      "A trusted merged-main qualification uses the exact source SHA/build identity from baselineEvidence and either completes a native .zal21 qualification with actual current-version reopen or ends BLOCKED/FAIL with a precise sanitized external prerequisite. No alternative migration API/workaround is introduced without separate evidence and authorization.",
+      "On successful qualification, a completed manifest records source/build/profile recipe identity, native archive name/hash, actual verification provenance and explicit fresh-vs-reuse status. A second run proves truthful deterministic reuse without claiming a new migration/reopen.",
+      "On successful qualification, trusted Valve profile discovery proves the actual fbValve_Solenoid interface and recursive dependency closure for the selected V21 library and publishes only the bounded sanitized contract/signature.",
+      "A trusted reference project for CPU OrderNumber:6ES7 516-3AP03-0AB0/V4.0 using the selected Valve/dependency closure compiles with zero errors; warnings are recorded/classified, then the project is saved and reopened with expected block/data ownership provenance.",
+      "If migration or a required Siemens product/package/environment prerequisite remains unresolved, issue #61 remains BLOCKED with the exact sanitized prerequisite/evidence and no downstream #62/#63 claim is made."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "PLC_REVIEW",
+    "reviewerSlots": [
+      "chatgpt",
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "src/TiaV21Worker/Program.cs",
+      "src/TiaV21Worker/QualificationState.cs",
+      "src/TiaV21Worker/ValveProfileContract.cs",
+      "src/TiaV21Worker/ValveProfileProbe.cs",
+      "tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj",
+      "tests/SiemensBackend.Tests/QualificationStateTests.cs",
+      "tests/SiemensBackend.Tests/ValveProfileContractTests.cs"
+    ],
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 61
+}
