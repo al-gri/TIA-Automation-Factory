@@ -70,7 +70,7 @@ class ReviewAuthorityTests(unittest.TestCase):
                 "validate", "--state", state_path, "--current-base-sha", base,
                 "--task-path", "tasks/T-1.json", "--task-file", changed, expect=2,
             )
-            self.assertIn("stale external review task/policy hash", completed.stderr)
+            self.assertIn("stale continuation task/policy hash", completed.stderr)
 
     def test_main_movement_is_rejected_even_when_task_blob_is_same(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -90,7 +90,45 @@ class ReviewAuthorityTests(unittest.TestCase):
                 "validate", "--state", state_path, "--current-base-sha", "c" * 40,
                 "--task-path", "tasks/T-1.json", "--task-file", task, expect=2,
             )
-            self.assertIn("stale external review base", completed.stderr)
+            self.assertIn("stale continuation base", completed.stderr)
+
+    def test_continuation_rejects_main_move_between_dispatch_and_start(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            task = root / "task.json"
+            task.write_text(json.dumps({"id": "T-1", "candidatePolicy": {"allowedPaths": ["src/A.cs"]}}), encoding="utf-8")
+            task_hash = hashlib.sha256(task.read_bytes()).hexdigest()
+            completed = self.run_helper(
+                "verify-continuation",
+                "--bound-base-sha", "a" * 40,
+                "--live-main-sha", "c" * 40,
+                "--task-path", "tasks/T-1.json",
+                "--task-sha256", task_hash,
+                "--task-file", task,
+                "--task-id", "T-1",
+                expect=2,
+            )
+            self.assertIn("stale continuation base", completed.stderr)
+
+    def test_continuation_rejects_task_policy_change_after_dispatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            original = root / "original.json"
+            original.write_text(json.dumps({"id": "T-1", "candidatePolicy": {"allowedPaths": ["src/A.cs"]}}), encoding="utf-8")
+            bound_hash = hashlib.sha256(original.read_bytes()).hexdigest()
+            changed = root / "changed.json"
+            changed.write_text(json.dumps({"id": "T-1", "candidatePolicy": {"allowedPaths": ["src/B.cs"]}}), encoding="utf-8")
+            completed = self.run_helper(
+                "verify-continuation",
+                "--bound-base-sha", "a" * 40,
+                "--live-main-sha", "a" * 40,
+                "--task-path", "tasks/T-1.json",
+                "--task-sha256", bound_hash,
+                "--task-file", changed,
+                "--task-id", "T-1",
+                expect=2,
+            )
+            self.assertIn("stale continuation task/policy hash", completed.stderr)
 
 
 if __name__ == "__main__":
