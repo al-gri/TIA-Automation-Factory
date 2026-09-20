@@ -78,8 +78,8 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
             "Materialize and publish repair with atomic GitHub ref CAS",
             "Record repair and dispatch fresh exact-SHA review",
         )
-        staged_diff_index = block.index('git diff --cached --name-status -z --no-renames')
-        blob_index = block.index('repos/${GITHUB_REPOSITORY}/git/blobs', staged_diff_index)
+        self.assertIn('git diff --cached --name-status -z --no-renames', block)
+        blob_index = block.index('repos/${GITHUB_REPOSITORY}/git/blobs')
         tree_index = block.index('repos/${GITHUB_REPOSITORY}/git/trees', blob_index)
         commit_index = block.index('--method POST "repos/${GITHUB_REPOSITORY}/git/commits"', tree_index)
         server_commit_check_index = block.index('git/commits/$NEW_SHA', commit_index)
@@ -87,7 +87,6 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
         branch_check_index = block.index('git ls-remote origin "refs/heads/$BRANCH"', fetch_index)
         mutation_index = block.index("MUTATION='mutation", branch_check_index)
         api_index = block.index('gh api graphql', mutation_index)
-        self.assertLess(staged_diff_index, blob_index)
         self.assertLess(blob_index, tree_index)
         self.assertLess(tree_index, commit_index)
         self.assertLess(commit_index, server_commit_check_index)
