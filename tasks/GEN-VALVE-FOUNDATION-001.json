@@ -1,0 +1,60 @@
+{
+  "id": "GEN-VALVE-FOUNDATION-001",
+  "title": "Start deterministic Valve generator foundations without inventing Siemens contract facts",
+  "goal": "Begin real GEN-VALVE-001 product development in parallel with OLQ-VALVE-PROFILE-001 by implementing only generator capabilities that are required by issue #62 and do not depend on the still-unqualified fbValve_Solenoid interface. Build deterministic output identity/manifest, safe output containment, centralized Siemens engineering-name and symbol validation/allocation, and stable input diagnostics now; defer exact Valve call parameters, dependency names, versions and instance/data ownership until #61 produces the verified V21 contract.",
+  "scope": [
+    "Work only in Domain, PlcCompiler/IR, SiemensBackend, GeneratorCli, focused tests and examples listed in candidatePolicy.allowedPaths. Do not modify TiaV21Worker, workflows, agents, tasks, runner configuration, vendor payloads, or IndustrialMDE.",
+    "Add deterministic multi-artifact output manifest plumbing suitable for the upcoming Valve slice. The manifest must contain generator identity, deterministic input identity, an explicit externally supplied profile/contract identity token, and relative paths plus SHA-256 hashes for every generated PLC/source artifact. The manifest itself is not included in its own hash list; its bytes must nevertheless be deterministic. Do not fabricate a Valve profile identity or Siemens library metadata.",
+    "Derive input identity from a canonical representation of the normalized parsed input model, not from raw JSON whitespace, the input filename/path, output path, timestamps, locale, machine identity or other environment data. Semantically identical parsed input must have the same input identity.",
+    "Enforce output-root containment for every generated artifact and for the manifest before write. Reject absolute/escaping paths and traversal rather than normalizing them outside the requested root.",
+    "Introduce the smallest centralized Siemens engineering-name/symbol policy needed for first-device generation: reject null/empty required names, invalid names that cannot be emitted safely, and case-insensitive duplicate allocated symbols. Do not silently rename user input unless an existing documented deterministic naming rule already requires it.",
+    "Add stable diagnostic codes/categories and locations for malformed or omitted required type tokens, unsupported enum tokens, null/empty required data, invalid names, duplicate symbols and output containment violations where those checks are independent of the final Valve FB interface.",
+    "Keep existing Motor UDT generation behavior and CLI usage compatible unless a strictly additive manifest/output/profile API is required. Do not convert the repository into a generic graph compiler, plugin framework, catalog abstraction, general SCL AST or UI platform.",
+    "Do not add any fbValve_Solenoid call, parameter name, dependency identity, version, DB requirement, multi-instance requirement, target-memory requirement or other Siemens fact that has not been proven by #61. The follow-up GEN-VALVE-001 completion step will bind these foundations to the verified contract."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate changes are limited exactly to candidatePolicy.allowedPaths and Siemens.Engineering remains absent from Domain/PlcCompiler core.",
+      "Same normalized parsed input plus the same explicit profile identity produces the same input identity and byte-identical generated artifacts and manifest across repeated Linux runs, even when non-semantic JSON whitespace differs.",
+      "The deterministic manifest contains generator identity, canonical parsed-model input identity, explicit profile identity and SHA-256 for every generated PLC/source artifact. It lists only relative artifact paths, does not hash/include itself in its artifact hash list, and contains no timestamps, absolute input/output paths, locale, machine/user identity or other environment-specific data.",
+      "The manifest itself is emitted deterministically beneath the requested output root and repeated generation produces byte-identical manifest bytes.",
+      "Every output path is proven contained beneath the requested output root before write. Absolute paths, traversal and containment escapes fail with a stable diagnostic and do not write outside the root.",
+      "Null/empty required names, invalid engineering names and case-insensitive duplicate symbols fail with stable diagnostic codes/categories and locations rather than producing ambiguous SCL.",
+      "Malformed or omitted required type tokens and unsupported enum tokens fail rather than silently defaulting semantics.",
+      "Focused Linux tests cover canonical input identity across whitespace-only JSON differences, deterministic manifest/artifact bytes and hashes, duplicate/invalid-name rejection, malformed/omitted type, unsupported enum and output containment.",
+      "Existing Motor UDT generation and current Linux regressions remain green.",
+      "No code, example or test asserts any unqualified fbValve_Solenoid parameter, dependency, version, ownership, DB or target prerequisite fact.",
+      "No candidate Windows/TIA execution occurs."
+    ],
+    "tia": []
+  },
+  "review": {
+    "riskClass": "MEDIUM",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "src/Domain/**",
+      "src/PlcCompiler/**",
+      "src/SiemensBackend/**",
+      "src/GeneratorCli/**",
+      "tests/SiemensBackend.Tests/**",
+      "examples/**"
+    ],
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 62
+}
