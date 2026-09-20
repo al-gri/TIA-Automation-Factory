@@ -295,7 +295,7 @@ jobs:
             --expected-head "$CANDIDATE_SHA" \
             --scope-base "$TRUSTED_MAIN_SHA"
 
-      - name: Commit and publish repair with atomic GitHub ref CAS
+      - name: Materialize and publish repair with atomic GitHub ref CAS
         id: push
         shell: bash
         env:
@@ -307,12 +307,66 @@ jobs:
         run: |
           set -euo pipefail
           TASK_ID=$(jq -r .id "$RUNNER_TEMP/task.json")
-          git config user.name "tia-automation-agent"
-          git config user.email "tia-automation-agent@users.noreply.github.com"
-          git commit -m "Agent: repair ${TASK_ID} attempt ${ATTEMPT}"
-          NEW_SHA=$(git rev-parse HEAD)
+          COMMIT_MESSAGE="Agent: repair ${TASK_ID} attempt ${ATTEMPT}"
+          BASE_TREE_SHA=$(git rev-parse "$CANDIDATE_SHA^{tree}")
+          LOCAL_TREE_SHA=$(git write-tree)
+          printf '[]' > "$RUNNER_TEMP/tree-entries.json"
 
-          # Diagnostic freshness checks happen before the authoritative server CAS.
+          while IFS= read -r -d '' status && IFS= read -r -d '' path; do
+            case "$status" in
+              D)
+                BASE_META=$(git ls-tree "$CANDIDATE_SHA" -- "$path")
+                test -n "$BASE_META"
+                MODE=${BASE_META%% *}
+                TYPE_REST=${BASE_META#* }
+                TYPE=${TYPE_REST%% *}
+                test "$TYPE" = "blob"
+                jq --arg path "$path" --arg mode "$MODE" --arg type "$TYPE" \
+                  '. + [{path:$path,mode:$mode,type:$type,sha:null}]' \
+                  "$RUNNER_TEMP/tree-entries.json" > "$RUNNER_TEMP/tree-entries.next.json"
+                ;;
+              A|M)
+                INDEX_META=$(git ls-files -s -- "$path")
+                test -n "$INDEX_META"
+                MODE=${INDEX_META%% *}
+                case "$MODE" in 100644|100755) ;; *) echo "Unsupported staged mode: $MODE $path"; exit 1 ;; esac
+                git show ":$path" | base64 -w0 | jq -Rs '{content:.,encoding:"base64"}' > "$RUNNER_TEMP/blob-request.json"
+                BLOB_SHA=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/blobs" \
+                  --input "$RUNNER_TEMP/blob-request.json" --jq .sha)
+                [[ "$BLOB_SHA" =~ ^[0-9a-f]{40}$ ]]
+                jq --arg path "$path" --arg mode "$MODE" --arg sha "$BLOB_SHA" \
+                  '. + [{path:$path,mode:$mode,type:"blob",sha:$sha}]' \
+                  "$RUNNER_TEMP/tree-entries.json" > "$RUNNER_TEMP/tree-entries.next.json"
+                ;;
+              *) echo "Unsupported staged status: $status $path"; exit 1 ;;
+            esac
+            mv "$RUNNER_TEMP/tree-entries.next.json" "$RUNNER_TEMP/tree-entries.json"
+          done < <(git diff --cached --name-status -z --no-renames "$CANDIDATE_SHA")
+
+          test "$(jq 'length' "$RUNNER_TEMP/tree-entries.json")" -gt 0
+          jq --arg base "$BASE_TREE_SHA" '{base_tree:$base,tree:.}' \
+            "$RUNNER_TEMP/tree-entries.json" > "$RUNNER_TEMP/tree-request.json"
+          TREE_SHA=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/trees" \
+            --input "$RUNNER_TEMP/tree-request.json" --jq .sha)
+          [[ "$TREE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$TREE_SHA" = "$LOCAL_TREE_SHA" || {
+            echo "Server tree differs from validated staged tree: local $LOCAL_TREE_SHA server $TREE_SHA"
+            exit 1
+          }
+
+          jq -n --arg message "$COMMIT_MESSAGE" --arg tree "$TREE_SHA" --arg parent "$CANDIDATE_SHA" \
+            '{message:$message,tree:$tree,parents:[$parent],author:{name:"tia-automation-agent",email:"tia-automation-agent@users.noreply.github.com"},committer:{name:"tia-automation-agent",email:"tia-automation-agent@users.noreply.github.com"}}' \
+            > "$RUNNER_TEMP/commit-request.json"
+          NEW_SHA=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/commits" \
+            --input "$RUNNER_TEMP/commit-request.json" --jq .sha)
+          [[ "$NEW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/$NEW_SHA" --jq .sha)" = "$NEW_SHA"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/$NEW_SHA" --jq .tree.sha)" = "$TREE_SHA"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/$NEW_SHA" --jq '.parents[0].sha')" = "$CANDIDATE_SHA"
+
+          # Diagnostic freshness checks happen after object materialization but
+          # before the authoritative server-side compare-and-swap transaction.
+          # Unreachable Git objects may exist if these checks fail; no ref moves.
           git fetch --no-tags origin main
           LIVE_MAIN_SHA=$(git rev-parse origin/main)
           test "$LIVE_MAIN_SHA" = "$TRUSTED_MAIN_SHA" || {
@@ -325,11 +379,10 @@ jobs:
             exit 1
           }
 
-          # GitHub GraphQL updateRefs is the security boundary. beforeOid is
-          # evaluated server-side for both refs in one atomic mutation. Main is
-          # condition-only (before == after); the candidate branch is the only
-          # ref whose target changes. If either ref no longer matches, neither
-          # update is committed.
+          # GitHub GraphQL updateRefs is the ref-publication security boundary.
+          # Both stale-ref conditions are checked server-side in one atomic
+          # mutation. The Git Database operations above created objects only and
+          # did not advance main or the candidate branch.
           REPOSITORY_ID=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .node_id)
           BRANCH_REF="refs/heads/$BRANCH"
           MUTATION='mutation($repositoryId:ID!,$mainBefore:GitObjectID!,$branchName:GitRefname!,$branchBefore:GitObjectID!,$branchAfter:GitObjectID!){updateRefs(input:{repositoryId:$repositoryId,refUpdates:[{name:"refs/heads/main",beforeOid:$mainBefore,afterOid:$mainBefore,force:false},{name:$branchName,beforeOid:$branchBefore,afterOid:$branchAfter,force:false}]}){clientMutationId}}'
@@ -342,6 +395,8 @@ jobs:
             -f branchAfter="$NEW_SHA" \
             > "$RUNNER_TEMP/update-refs-result.json"
           jq -e '.data.updateRefs' "$RUNNER_TEMP/update-refs-result.json" >/dev/null
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)" = "$TRUSTED_MAIN_SHA"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/$BRANCH" --jq .object.sha)" = "$NEW_SHA"
           echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Record repair and dispatch fresh exact-SHA review
