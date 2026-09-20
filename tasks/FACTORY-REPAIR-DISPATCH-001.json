@@ -7,15 +7,18 @@
     "blockedReviewResponseRunId": "35510563780",
     "blockedCandidatePr": 71,
     "blockedCandidateSha": "4b90b1331a7bb059cdd266cbbb8f2c809325138c",
+    "implementationPr": 75,
+    "implementationSha": "1ca71c029c2610a0dd091b85c61142f590b53308",
     "failure": "repository_dispatch HTTP 422: No more than 10 properties are allowed; 12 were supplied."
   },
   "scope": [
     "Protected infrastructure-only correction for issue #72. Do not change product Domain/Compiler/Backend semantics, TiaV21Worker behavior, generator behavior, provider selection, secrets, runner configuration, vendor assets, or IndustrialMDE.",
+    "Primary/maintainer protected implementation scope is exactly .github/workflows/external-review-response.yml and .github/workflows/agent-repair.yml, plus tests/ExternalReviewProtocol.Tests/test_repair_dispatch_payload.py for deterministic regression coverage. The protected workflow files are not coding-agent publication scope and therefore must not appear in candidatePolicy.allowedPaths.",
     "Reduce the candidate-repair repository_dispatch client_payload to GitHub's supported top-level property bound while preserving exact PR, candidate SHA, branch, base SHA, task path, task hash, repair attempt and review authority binding.",
     "Nested review metadata may be used to reduce top-level property count only if Autonomous Repair consumes it consistently and still validates review type, risk class and reviewer slot against trusted task authority before candidate repair.",
     "Remove only metadata that is demonstrably unused for this repair continuation path; do not weaken exact-SHA review or task-hash checks.",
     "Add a deterministic Linux regression test proving the producer payload remains within the GitHub property limit and the consumer reads the same nested review fields.",
-    "No Windows/TIA execution is permitted or required for this task. After this task is merged, resume issue #61 by repairing PR #71 through the contained lane; do not advance #62."
+    "No Windows/TIA execution is permitted or required for this task. After this task authority is merged, first synchronize implementation PR #75 with the new trusted main, rerun exact-SHA CI, obtain a fresh independent chatgpt-secondary exact-SHA review, and merge PR #75 only if all gates pass. Only after PR #75 is merged may issue #61 resume through bounded repair of PR #71. Do not advance #62 before #61 completes or becomes explicitly BLOCKED by an external Siemens prerequisite."
   ],
   "acceptance": {
     "requirements": [
@@ -25,8 +28,9 @@
       "No validation_run_id or other removed property is required by the active repair path.",
       "A deterministic regression test covers the top-level property bound and producer/consumer field agreement.",
       "Existing ExternalReviewProtocol, FactoryIsolation, SiemensBackend and generator regressions remain green on the exact candidate SHA.",
-      "Only task-authorized paths change; there is no product, TiaV21Worker, Siemens project, workflow unrelated to repair/review continuation, secrets, vendor payload, or IndustrialMDE change.",
-      "Because the implementation is primary-authored protected infrastructure, a fresh independent chatgpt-secondary exact-SHA ARCHITECTURE_REVIEW must APPROVE after this task is trusted on main before merge of the implementation PR."
+      "Protected implementation changes are limited to .github/workflows/external-review-response.yml and .github/workflows/agent-repair.yml; the only non-protected implementation path is tests/ExternalReviewProtocol.Tests/test_repair_dispatch_payload.py. candidatePolicy.allowedPaths contains no protected infrastructure path and cannot authorize self-modification of workflow/task authority.",
+      "Because the implementation is primary-authored protected infrastructure, a fresh independent chatgpt-secondary exact-SHA ARCHITECTURE_REVIEW must APPROVE after this task is trusted on main before merge of implementation PR #75.",
+      "Repair of PR #71 must not resume merely because this task authority merged. PR #75 must first be synchronized with trusted main, pass fresh exact-SHA CI, receive fresh independent approval, and merge; only then may the candidate-repair continuation for PR #71 run."
     ],
     "tia": [
       "No candidate Windows/TIA execution is permitted or required.",
@@ -42,10 +46,7 @@
   },
   "candidatePolicy": {
     "allowedPaths": [
-      ".github/workflows/external-review-response.yml",
-      ".github/workflows/agent-repair.yml",
-      "tests/ExternalReviewProtocol.Tests/test_repair_dispatch_payload.py",
-      "tasks/FACTORY-REPAIR-DISPATCH-001.json"
+      "tests/ExternalReviewProtocol.Tests/test_repair_dispatch_payload.py"
     ],
     "allowTiaV21WorkerChanges": false
   },
