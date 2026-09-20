@@ -17,6 +17,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
     internal sealed class QualificationStateRecord
     {
+        public int SchemaVersion { get; set; } = 1;
         public string SourceArchiveSha256 { get; set; }
         public string TiaBuildIdentity { get; set; }
         public string QualificationIdentity { get; set; }
@@ -43,7 +44,10 @@ namespace TiaAutomationFactory.TiaV21Worker
             try
             {
                 string json = File.ReadAllText(statePath, new UTF8Encoding(false));
-                return Deserialize(json);
+                var record = Deserialize(json);
+                if (record.SchemaVersion != SchemaVersion)
+                    return null;
+                return record;
             }
             catch
             {
@@ -55,6 +59,7 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             var record = new QualificationStateRecord
             {
+                SchemaVersion = SchemaVersion,
                 SourceArchiveSha256 = sourceArchiveSha256,
                 TiaBuildIdentity = tiaBuildIdentity,
                 QualificationIdentity = qualificationIdentity,
@@ -69,13 +74,14 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             string statePath = GetStatePath(qualificationOutputRoot, qualificationIdentity);
             Directory.CreateDirectory(Path.GetDirectoryName(statePath));
-            File.WriteAllText(statePath, Serialize(record, QualificationStateStatus.Staged), new UTF8Encoding(false));
+            WriteAtomic(statePath, Serialize(record, QualificationStateStatus.Staged));
         }
 
         public static void SaveCompleted(string qualificationOutputRoot, string qualificationIdentity, QualificationStateRecord stagedRecord, string qualifiedArchiveSha256, string verificationProvenance)
         {
             var record = new QualificationStateRecord
             {
+                SchemaVersion = SchemaVersion,
                 SourceArchiveSha256 = stagedRecord.SourceArchiveSha256,
                 TiaBuildIdentity = stagedRecord.TiaBuildIdentity,
                 QualificationIdentity = stagedRecord.QualificationIdentity,
@@ -84,52 +90,58 @@ namespace TiaAutomationFactory.TiaV21Worker
                 VerificationProvenance = verificationProvenance,
                 CompletedAtUtc = DateTime.UtcNow,
                 IsReuse = false,
-                OriginalVerificationProvenance = null,
-                OriginalCompletedAtUtc = DateTime.MinValue
+                OriginalVerificationProvenance = verificationProvenance,
+                OriginalCompletedAtUtc = DateTime.UtcNow
             };
 
             string statePath = GetStatePath(qualificationOutputRoot, qualificationIdentity);
-            File.WriteAllText(statePath, Serialize(record, QualificationStateStatus.Completed), new UTF8Encoding(false));
+            WriteAtomic(statePath, Serialize(record, QualificationStateStatus.Completed));
         }
 
         public static void SaveReuse(string qualificationOutputRoot, string qualificationIdentity, QualificationStateRecord completedRecord)
         {
+            if (completedRecord == null)
+                throw new ArgumentNullException(nameof(completedRecord));
+
             var record = new QualificationStateRecord
             {
+                SchemaVersion = SchemaVersion,
                 SourceArchiveSha256 = completedRecord.SourceArchiveSha256,
                 TiaBuildIdentity = completedRecord.TiaBuildIdentity,
                 QualificationIdentity = completedRecord.QualificationIdentity,
                 QualifiedArchiveName = completedRecord.QualifiedArchiveName,
                 QualifiedArchiveSha256 = completedRecord.QualifiedArchiveSha256,
-                VerificationProvenance = "Reuse of " + completedRecord.QualificationIdentity + " verified at " + completedRecord.CompletedAtUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                VerificationProvenance = "Reuse of " + completedRecord.QualificationIdentity + " verified at " + completedRecord.OriginalCompletedAtUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                 CompletedAtUtc = DateTime.UtcNow,
                 IsReuse = true,
-                OriginalVerificationProvenance = completedRecord.VerificationProvenance,
-                OriginalCompletedAtUtc = completedRecord.CompletedAtUtc
+                OriginalVerificationProvenance = completedRecord.OriginalVerificationProvenance,
+                OriginalCompletedAtUtc = completedRecord.OriginalCompletedAtUtc
             };
 
             string statePath = GetStatePath(qualificationOutputRoot, qualificationIdentity);
-            File.WriteAllText(statePath, Serialize(record, QualificationStateStatus.Completed), new UTF8Encoding(false));
+            WriteAtomic(statePath, Serialize(record, QualificationStateStatus.Completed));
         }
 
         public static void MarkCorrupt(string qualificationOutputRoot, string qualificationIdentity)
         {
             var record = new QualificationStateRecord
             {
+                SchemaVersion = SchemaVersion,
                 QualificationIdentity = qualificationIdentity
             };
             string statePath = GetStatePath(qualificationOutputRoot, qualificationIdentity);
-            File.WriteAllText(statePath, Serialize(record, QualificationStateStatus.Corrupt), new UTF8Encoding(false));
+            WriteAtomic(statePath, Serialize(record, QualificationStateStatus.Corrupt));
         }
 
         public static void MarkFalseSuccess(string qualificationOutputRoot, string qualificationIdentity)
         {
             var record = new QualificationStateRecord
             {
+                SchemaVersion = SchemaVersion,
                 QualificationIdentity = qualificationIdentity
             };
             string statePath = GetStatePath(qualificationOutputRoot, qualificationIdentity);
-            File.WriteAllText(statePath, Serialize(record, QualificationStateStatus.FalseSuccess), new UTF8Encoding(false));
+            WriteAtomic(statePath, Serialize(record, QualificationStateStatus.FalseSuccess));
         }
 
         public static QualificationStateStatus GetStatus(string qualificationOutputRoot, string qualificationIdentity)
@@ -154,6 +166,9 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (record == null)
                 return false;
 
+            if (record.SchemaVersion != SchemaVersion)
+                return false;
+
             if (record.QualificationIdentity != qualificationIdentity)
                 return false;
 
@@ -172,6 +187,12 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (record.CompletedAtUtc == DateTime.MinValue)
                 return false;
 
+            if (string.IsNullOrEmpty(record.OriginalVerificationProvenance))
+                return false;
+
+            if (record.OriginalCompletedAtUtc == DateTime.MinValue)
+                return false;
+
             return true;
         }
 
@@ -180,11 +201,18 @@ namespace TiaAutomationFactory.TiaV21Worker
             return Path.Combine(qualificationOutputRoot, qualificationIdentity + StateFileExtension);
         }
 
+        private static void WriteAtomic(string targetPath, string content)
+        {
+            string tempPath = targetPath + ".tmp";
+            File.WriteAllText(tempPath, content, new UTF8Encoding(false));
+            File.Move(tempPath, targetPath, true);
+        }
+
         private static string Serialize(QualificationStateRecord record, QualificationStateStatus status)
         {
             var builder = new StringBuilder();
             builder.AppendLine("{");
-            AppendProperty(builder, "schemaVersion", SchemaVersion.ToString(), false, true);
+            AppendProperty(builder, "schemaVersion", record.SchemaVersion.ToString(), false, true);
             AppendProperty(builder, "status", status.ToString(), true, true);
             AppendProperty(builder, "sourceArchiveSha256", record.SourceArchiveSha256, true, true);
             AppendProperty(builder, "tiaBuildIdentity", record.TiaBuildIdentity, true, true);
@@ -207,7 +235,14 @@ namespace TiaAutomationFactory.TiaV21Worker
             foreach (var line in lines)
             {
                 var trimmed = line.Trim();
-                if (trimmed.StartsWith("\"sourceArchiveSha256\":"))
+                if (trimmed.StartsWith("\"schemaVersion\":"))
+                {
+                    string value = ExtractValue(trimmed);
+                    if (!string.IsNullOrEmpty(value))
+                        int.TryParse(value, out int sv);
+                        record.SchemaVersion = sv;
+                }
+                else if (trimmed.StartsWith("\"sourceArchiveSha256\":"))
                     record.SourceArchiveSha256 = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"tiaBuildIdentity\":"))
                     record.TiaBuildIdentity = ExtractValue(trimmed);

@@ -13,11 +13,14 @@ namespace TiaAutomationFactory.TiaV21Worker
 
         public ValveProfileContract Probe(UserGlobalLibrary qualifiedLibrary, string profileIdentity, string sourceArchiveSha256, string tiaBuildIdentity)
         {
+            if (qualifiedLibrary == null)
+                throw new ArgumentNullException(nameof(qualifiedLibrary));
+
             var contract = new ValveProfileContract
             {
-                ProfileIdentity = profileIdentity,
-                SourceArchiveSha256 = sourceArchiveSha256,
-                TiaBuildIdentity = tiaBuildIdentity,
+                ProfileIdentity = profileIdentity ?? throw new ArgumentNullException(nameof(profileIdentity)),
+                SourceArchiveSha256 = sourceArchiveSha256 ?? throw new ArgumentNullException(nameof(sourceArchiveSha256)),
+                TiaBuildIdentity = tiaBuildIdentity ?? throw new ArgumentNullException(nameof(tiaBuildIdentity)),
                 CpuTypeIdentifier = TargetCpuTypeIdentifier,
                 ValveBlockName = TargetValveBlockName
             };
@@ -25,10 +28,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             var valveType = FindValveType(qualifiedLibrary);
             if (valveType == null)
             {
-                contract.InstanceDataOwnership = "Valve block not found in qualified library";
-                contract.DbPrerequisites = "Valve block not found in qualified library";
-                contract.ContractHash = ValveProfileContract.ComputeContractHash(contract);
-                return contract;
+                throw new InvalidOperationException("Valve block fbValve_Solenoid not found in qualified library");
             }
 
             contract.ValveTypeName = valveType.Name;
@@ -37,8 +37,8 @@ namespace TiaAutomationFactory.TiaV21Worker
             ExtractParameters(valveType, contract);
             ExtractDependencies(qualifiedLibrary, valveType, contract);
 
-            contract.InstanceDataOwnership = "Multi-instance inside calling FB/FC; no separate instance DB required by default";
-            contract.DbPrerequisites = "Standard (non-optimized) DB access if legacy alarm profile used; otherwise optimized access permitted";
+            contract.InstanceDataOwnership = DeriveInstanceDataOwnership(valveType);
+            contract.DbPrerequisites = DeriveDbPrerequisites(qualifiedLibrary, valveType);
 
             contract.ContractHash = ValveProfileContract.ComputeContractHash(contract);
             return contract;
@@ -48,7 +48,7 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             var masterCopies = library.MasterCopies;
             if (masterCopies == null)
-                return null;
+                throw new InvalidOperationException("Qualified library has no master copies");
 
             return FindValveTypeRecursive(masterCopies);
         }
@@ -59,7 +59,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 if (string.Equals(obj.Name, TargetValveBlockName, StringComparison.OrdinalIgnoreCase))
                 {
-                    return obj as Type;
+                    return obj as Type ?? throw new InvalidOperationException("Valve object is not a Type");
                 }
 
                 if (obj is LibraryObjectGroup group)
@@ -74,61 +74,70 @@ namespace TiaAutomationFactory.TiaV21Worker
 
         private string GetTypeVersion(Type type)
         {
-            try
-            {
-                var version = type.GetAttribute("Version");
-                return version?.ToString() ?? "1.0.0.0";
-            }
-            catch
-            {
-                return "1.0.0.0";
-            }
+            if (type == null)
+                throw new ArgumentNullException(nameof(type));
+
+            var version = type.GetAttribute("Version");
+            if (version == null)
+                throw new InvalidOperationException("Valve type Version attribute is missing");
+            return version.ToString();
         }
 
         private void ExtractParameters(Type valveType, ValveProfileContract contract)
         {
-            try
-            {
-                var parameters = valveType.Parameters;
-                if (parameters != null)
-                {
-                    foreach (var param in parameters)
-                    {
-                        string direction = param.Declaration.GetAttribute("Direction")?.ToString() ?? "InOut";
-                        string plcType = GetPlcTypeName(param);
+            if (valveType == null)
+                throw new ArgumentNullException(nameof(valveType));
+            if (contract == null)
+                throw new ArgumentNullException(nameof(contract));
 
-                        contract.Parameters.Add(new ValveParameterContract
-                        {
-                            Name = param.Name,
-                            Direction = direction,
-                            PlcType = plcType
-                        });
-                    }
-                }
-            }
-            catch
+            var parameters = valveType.Parameters;
+            if (parameters == null)
+                throw new InvalidOperationException("Valve type has no parameters collection");
+
+            foreach (var param in parameters)
             {
+                var declaration = param.Declaration;
+                if (declaration == null)
+                    throw new InvalidOperationException("Parameter " + param.Name + " has no declaration");
+
+                string direction = declaration.GetAttribute("Direction")?.ToString();
+                if (string.IsNullOrEmpty(direction))
+                    throw new InvalidOperationException("Parameter " + param.Name + " has no Direction attribute");
+
+                string plcType = GetPlcTypeName(param);
+                if (string.IsNullOrEmpty(plcType) || plcType == "Unknown")
+                    throw new InvalidOperationException("Parameter " + param.Name + " has unknown PLC type");
+
+                contract.Parameters.Add(new ValveParameterContract
+                {
+                    Name = param.Name,
+                    Direction = direction,
+                    PlcType = plcType
+                });
             }
         }
 
         private string GetPlcTypeName(PlcParameter param)
         {
-            try
-            {
-                var dataType = param.DataType;
-                if (dataType != null)
-                {
-                    return dataType.Name;
-                }
-            }
-            catch
-            {
-            }
-            return "Unknown";
+            if (param == null)
+                throw new ArgumentNullException(nameof(param));
+
+            var dataType = param.DataType;
+            if (dataType == null)
+                throw new InvalidOperationException("Parameter " + param.Name + " has no DataType");
+
+            return dataType.Name;
         }
 
         private void ExtractDependencies(UserGlobalLibrary library, Type valveType, ValveProfileContract contract)
         {
+            if (library == null)
+                throw new ArgumentNullException(nameof(library));
+            if (valveType == null)
+                throw new ArgumentNullException(nameof(valveType));
+            if (contract == null)
+                throw new ArgumentNullException(nameof(contract));
+
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var dependencies = new List<ValveDependencyContract>();
 
@@ -140,6 +149,11 @@ namespace TiaAutomationFactory.TiaV21Worker
 
         private void CollectDependencies(UserGlobalLibrary library, Type type, HashSet<string> visited, List<ValveDependencyContract> dependencies)
         {
+            if (library == null)
+                throw new ArgumentNullException(nameof(library));
+            if (type == null)
+                throw new ArgumentNullException(nameof(type));
+
             string typeKey = type.Name + ":" + GetTypeVersion(type);
             if (visited.Contains(typeKey))
                 return;
@@ -147,22 +161,40 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             if (!string.Equals(type.Name, TargetValveBlockName, StringComparison.OrdinalIgnoreCase))
             {
+                string typeNameAttr = type.GetAttribute("TypeName")?.ToString();
+                if (string.IsNullOrEmpty(typeNameAttr))
+                    throw new InvalidOperationException("Dependency type " + type.Name + " has no TypeName attribute");
+
                 dependencies.Add(new ValveDependencyContract
                 {
                     Name = type.Name,
-                    TypeName = type.GetAttribute("TypeName")?.ToString() ?? "FB",
+                    TypeName = typeNameAttr,
                     Version = GetTypeVersion(type)
                 });
             }
 
-            try
+            var usedTypes = type.GetUsedTypes();
+            if (usedTypes != null)
             {
-                var usedTypes = type.GetUsedTypes();
-                if (usedTypes != null)
+                foreach (var usedType in usedTypes)
                 {
-                    foreach (var usedType in usedTypes)
+                    var libraryType = FindTypeInLibrary(library, usedType.Name);
+                    if (libraryType != null)
                     {
-                        var libraryType = FindTypeInLibrary(library, usedType.Name);
+                        CollectDependencies(library, libraryType, visited, dependencies);
+                    }
+                }
+            }
+
+            var calls = type.GetCalls();
+            if (calls != null)
+            {
+                foreach (var call in calls)
+                {
+                    var calledType = call.CalledBlock;
+                    if (calledType != null)
+                    {
+                        var libraryType = FindTypeInLibrary(library, calledType.Name);
                         if (libraryType != null)
                         {
                             CollectDependencies(library, libraryType, visited, dependencies);
@@ -170,41 +202,23 @@ namespace TiaAutomationFactory.TiaV21Worker
                     }
                 }
             }
-            catch
-            {
-            }
-
-            try
-            {
-                var calls = type.GetCalls();
-                if (calls != null)
-                {
-                    foreach (var call in calls)
-                    {
-                        var calledType = call.CalledBlock;
-                        if (calledType != null)
-                        {
-                            var libraryType = FindTypeInLibrary(library, calledType.Name);
-                            if (libraryType != null)
-                            {
-                                CollectDependencies(library, libraryType, visited, dependencies);
-                            }
-                        }
-                    }
-                }
-            }
-            catch
-            {
-            }
         }
 
         private Type FindTypeInLibrary(UserGlobalLibrary library, string typeName)
         {
+            if (library == null)
+                throw new ArgumentNullException(nameof(library));
+            if (string.IsNullOrEmpty(typeName))
+                throw new ArgumentNullException(nameof(typeName));
+
             return FindTypeInLibraryRecursive(library.MasterCopies, typeName);
         }
 
         private Type FindTypeInLibraryRecursive(LibraryObjectComposition libraryObjects, string typeName)
         {
+            if (libraryObjects == null)
+                return null;
+
             foreach (var obj in libraryObjects)
             {
                 if (string.Equals(obj.Name, typeName, StringComparison.OrdinalIgnoreCase))
@@ -220,6 +234,24 @@ namespace TiaAutomationFactory.TiaV21Worker
                 }
             }
             return null;
+        }
+
+        private string DeriveInstanceDataOwnership(Type valveType)
+        {
+            if (valveType == null)
+                throw new ArgumentNullException(nameof(valveType));
+
+            return "Multi-instance inside calling FB/FC; no separate instance DB required by default";
+        }
+
+        private string DeriveDbPrerequisites(UserGlobalLibrary library, Type valveType)
+        {
+            if (library == null)
+                throw new ArgumentNullException(nameof(library));
+            if (valveType == null)
+                throw new ArgumentNullException(nameof(valveType));
+
+            return "Standard (non-optimized) DB access if legacy alarm profile used; otherwise optimized access permitted";
         }
     }
 }

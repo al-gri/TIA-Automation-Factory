@@ -130,7 +130,114 @@ namespace TiaAutomationFactory.TiaV21Worker
 
         public static ValveProfileContract Deserialize(string json)
         {
+            if (string.IsNullOrWhiteSpace(json))
+                throw new ArgumentException("JSON cannot be null or empty", nameof(json));
+
             var contract = new ValveProfileContract();
+            var lines = json.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+
+            bool inParameters = false;
+            bool inDependencies = false;
+            ValveParameterContract currentParam = null;
+            ValveDependencyContract currentDep = null;
+
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+
+                if (trimmed.StartsWith("\"schemaVersion\":"))
+                {
+                    string value = ExtractValue(trimmed);
+                    if (!string.IsNullOrEmpty(value) && !int.TryParse(value, out int sv))
+                        throw new FormatException("Invalid schemaVersion value");
+                    contract.SchemaVersion = sv;
+                }
+                else if (trimmed.StartsWith("\"profileIdentity\":"))
+                    contract.ProfileIdentity = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"sourceArchiveSha256\":"))
+                    contract.SourceArchiveSha256 = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"tiaBuildIdentity\":"))
+                    contract.TiaBuildIdentity = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"cpuTypeIdentifier\":"))
+                    contract.CpuTypeIdentifier = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"valveBlockName\":"))
+                    contract.ValveBlockName = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"valveTypeName\":"))
+                    contract.ValveTypeName = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"valveVersion\":"))
+                    contract.ValveVersion = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"instanceDataOwnership\":"))
+                    contract.InstanceDataOwnership = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"dbPrerequisites\":"))
+                    contract.DbPrerequisites = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"contractHash\":"))
+                    contract.ContractHash = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"parameters\":"))
+                    inParameters = true;
+                else if (trimmed.StartsWith("\"dependencies\":"))
+                {
+                    inParameters = false;
+                    inDependencies = true;
+                }
+                else if (inParameters && trimmed.StartsWith("{"))
+                {
+                    currentParam = new ValveParameterContract();
+                }
+                else if (inParameters && currentParam != null)
+                {
+                    if (trimmed.StartsWith("\"name\":"))
+                        currentParam.Name = ExtractValue(trimmed);
+                    else if (trimmed.StartsWith("\"direction\":"))
+                        currentParam.Direction = ExtractValue(trimmed);
+                    else if (trimmed.StartsWith("\"plcType\":"))
+                        currentParam.PlcType = ExtractValue(trimmed);
+                    else if (trimmed.StartsWith("}"))
+                    {
+                        if (string.IsNullOrEmpty(currentParam.Name) || string.IsNullOrEmpty(currentParam.Direction) || string.IsNullOrEmpty(currentParam.PlcType))
+                            throw new FormatException("Incomplete parameter entry");
+                        contract.Parameters.Add(currentParam);
+                        currentParam = null;
+                    }
+                }
+                else if (inDependencies && trimmed.StartsWith("{"))
+                {
+                    currentDep = new ValveDependencyContract();
+                }
+                else if (inDependencies && currentDep != null)
+                {
+                    if (trimmed.StartsWith("\"name\":"))
+                        currentDep.Name = ExtractValue(trimmed);
+                    else if (trimmed.StartsWith("\"typeName\":"))
+                        currentDep.TypeName = ExtractValue(trimmed);
+                    else if (trimmed.StartsWith("\"version\":"))
+                        currentDep.Version = ExtractValue(trimmed);
+                    else if (trimmed.StartsWith("}"))
+                    {
+                        if (string.IsNullOrEmpty(currentDep.Name) || string.IsNullOrEmpty(currentDep.TypeName) || string.IsNullOrEmpty(currentDep.Version))
+                            throw new FormatException("Incomplete dependency entry");
+                        contract.Dependencies.Add(currentDep);
+                        currentDep = null;
+                    }
+                }
+            }
+
+            if (contract.SchemaVersion != 1)
+                throw new FormatException("Unsupported schema version: " + contract.SchemaVersion);
+
+            if (string.IsNullOrEmpty(contract.ProfileIdentity) ||
+                string.IsNullOrEmpty(contract.SourceArchiveSha256) ||
+                string.IsNullOrEmpty(contract.TiaBuildIdentity) ||
+                string.IsNullOrEmpty(contract.CpuTypeIdentifier) ||
+                string.IsNullOrEmpty(contract.ValveBlockName) ||
+                string.IsNullOrEmpty(contract.ValveTypeName) ||
+                string.IsNullOrEmpty(contract.ValveVersion) ||
+                string.IsNullOrEmpty(contract.InstanceDataOwnership) ||
+                string.IsNullOrEmpty(contract.DbPrerequisites) ||
+                string.IsNullOrEmpty(contract.ContractHash))
+            {
+                throw new FormatException("Missing required contract fields");
+            }
+
             return contract;
         }
 
