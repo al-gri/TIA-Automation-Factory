@@ -295,7 +295,7 @@ jobs:
             --expected-head "$CANDIDATE_SHA" \
             --scope-base "$TRUSTED_MAIN_SHA"
 
-      - name: Commit and push repair from clean publisher
+      - name: Commit and publish repair with atomic GitHub ref CAS
         id: push
         shell: bash
         env:
@@ -311,28 +311,37 @@ jobs:
           git config user.email "tia-automation-agent@users.noreply.github.com"
           git commit -m "Agent: repair ${TASK_ID} attempt ${ATTEMPT}"
           NEW_SHA=$(git rev-parse HEAD)
-          gh auth setup-git
 
-          # Final publication boundary: refresh both authority refs only after the
-          # commit and authentication are prepared. The atomic push leases make
-          # this server-enforced rather than a best-effort local TOCTOU check.
+          # Diagnostic freshness checks happen before the authoritative server CAS.
           git fetch --no-tags origin main
           LIVE_MAIN_SHA=$(git rev-parse origin/main)
           test "$LIVE_MAIN_SHA" = "$TRUSTED_MAIN_SHA" || {
-            echo "Trusted main moved at final repair publication boundary: expected $TRUSTED_MAIN_SHA got $LIVE_MAIN_SHA"
+            echo "Trusted main moved before atomic repair publication: expected $TRUSTED_MAIN_SHA got $LIVE_MAIN_SHA"
             exit 1
           }
           REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')
           test "$REMOTE_SHA" = "$CANDIDATE_SHA" || {
-            echo "Candidate branch moved at final repair publication boundary: expected $CANDIDATE_SHA got $REMOTE_SHA"
+            echo "Candidate branch moved before atomic repair publication: expected $CANDIDATE_SHA got $REMOTE_SHA"
             exit 1
           }
-          git push --atomic \
-            --force-with-lease="refs/heads/main:$TRUSTED_MAIN_SHA" \
-            --force-with-lease="refs/heads/$BRANCH:$CANDIDATE_SHA" \
-            origin \
-            "$TRUSTED_MAIN_SHA:refs/heads/main" \
-            "HEAD:refs/heads/$BRANCH"
+
+          # GitHub GraphQL updateRefs is the security boundary. beforeOid is
+          # evaluated server-side for both refs in one atomic mutation. Main is
+          # condition-only (before == after); the candidate branch is the only
+          # ref whose target changes. If either ref no longer matches, neither
+          # update is committed.
+          REPOSITORY_ID=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .node_id)
+          BRANCH_REF="refs/heads/$BRANCH"
+          MUTATION='mutation($repositoryId:ID!,$mainBefore:GitObjectID!,$branchName:GitRefname!,$branchBefore:GitObjectID!,$branchAfter:GitObjectID!){updateRefs(input:{repositoryId:$repositoryId,refUpdates:[{name:"refs/heads/main",beforeOid:$mainBefore,afterOid:$mainBefore,force:false},{name:$branchName,beforeOid:$branchBefore,afterOid:$branchAfter,force:false}]}){clientMutationId}}'
+          gh api graphql \
+            -f query="$MUTATION" \
+            -f repositoryId="$REPOSITORY_ID" \
+            -f mainBefore="$TRUSTED_MAIN_SHA" \
+            -f branchName="$BRANCH_REF" \
+            -f branchBefore="$CANDIDATE_SHA" \
+            -f branchAfter="$NEW_SHA" \
+            > "$RUNNER_TEMP/update-refs-result.json"
+          jq -e '.data.updateRefs' "$RUNNER_TEMP/update-refs-result.json" >/dev/null
           echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Record repair and dispatch fresh exact-SHA review
