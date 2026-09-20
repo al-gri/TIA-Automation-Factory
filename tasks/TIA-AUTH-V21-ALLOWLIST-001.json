@@ -1,0 +1,71 @@
+{
+  "id": "TIA-AUTH-V21-ALLOWLIST-001",
+  "title": "Use TIA V21 Openness AllowList and eliminate recurring access prompt",
+  "goal": "Correct the trusted TiaV21Worker Openness admission contract for TIA Portal V21 so repeated trusted-main runs from the self-hosted Actions workspace are non-interactive. Replace the legacy versioned Whitelist registry layout with the V21 version-independent AllowList application Entry while preserving narrow ACLs, exact executable identity synchronization, fail-closed behavior, and merged-main-only Windows/TIA execution.",
+  "baselineEvidence": {
+    "issue": 80,
+    "trustedMainSha": "e819620d1bfd4467cfa63ada27567a1918179eee",
+    "observedDialog": "Openness access (0033:000666)",
+    "currentLegacyBasePath": "SOFTWARE\\Siemens\\Automation\\Openness\\Whitelist",
+    "requiredV21BasePath": "SOFTWARE\\Siemens\\Automation\\Openness\\AllowList",
+    "relatedBootstrapIdempotenceIssue": 53
+  },
+  "scope": [
+    "Change only the trusted TIA V21 Openness admission implementation listed in candidatePolicy.allowedPaths. Do not modify workflows, prompts, tasks, Domain, PlcCompiler, SiemensBackend, GeneratorCli, runner configuration, secrets, vendor library payload handling, or IndustrialMDE.",
+    "For TIA Portal V21, target the version-independent Registry64 key SOFTWARE\\Siemens\\Automation\\Openness\\AllowList\\TiaV21Worker.exe\\Entry. Do not retain or create the legacy versioned Whitelist\\<version>\\Entries layout for this V21 worker path.",
+    "Before every code path that creates or attaches a Siemens.Engineering.TiaPortal instance, synchronize the exact trusted executable identity used for that run: absolute executable Path, UTC DateModified formatted yyyy/MM/dd HH:mm:ss.fff, and SHA-256 FileHash encoded Base64.",
+    "The elevated bootstrap must create/locate only the TiaV21Worker.exe AllowList Entry and grant the current dedicated runner identity only the minimum rights required for subsequent worker self-sync. Do not grant permissions on the parent Openness or AllowList tree and do not disable UAC, firewall, TIA security, or any system protection.",
+    "Make bootstrap existing-rule detection genuinely idempotent: normalize/translate each relevant existing ACL IdentityReference to SecurityIdentifier before comparison with the current runner SID, and require exact Allow + SetValue|QueryValues + no inheritance/propagation semantics. A display-name NTAccount versus SID representation must not cause the same rule to be added again. A non-translatable unrelated ACL identity must not justify broadening rights.",
+    "If the application Entry is absent or cannot be written, fail before any TiaPortal connection with the existing sanitized bootstrap-required behavior. Do not fall through to an interactive Siemens Openness prompt.",
+    "Keep RegistryHive.LocalMachine and RegistryView.Registry64. Preserve the existing Path/DateModified/FileHash value formats and exact-executable hashing semantics except where required to match the V21 AllowList path.",
+    "Add the smallest deterministic Linux regression needed to prove the source/bootstrap registry path, value contract, and SID-normalized exact-rule idempotence logic. Do not simulate or claim Windows/TIA acceptance in Linux tests.",
+    "Do not change library migration semantics in this task. RetrieveWithUpgrade failures remain a separate #61 migration/qualification concern once non-interactive admission is proven."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate changes are limited exactly to candidatePolicy.allowedPaths and preserve Siemens.Engineering isolation inside src/TiaV21Worker.",
+      "WhitelistManager and the elevated bootstrap target SOFTWARE\\Siemens\\Automation\\Openness\\AllowList\\TiaV21Worker.exe\\Entry for TIA V21 and contain no live use of the legacy versioned Openness\\Whitelist\\<version>\\Entries path.",
+      "Worker self-sync writes only Path, DateModified and FileHash beneath the application Entry, using the actual executing TiaV21Worker.exe absolute path, UTC yyyy/MM/dd HH:mm:ss.fff DateModified and SHA-256 Base64 FileHash.",
+      "All TiaPortal create/attach paths remain guarded by admission synchronization before Openness access; missing/unwritable Entry fails closed as bootstrap-required before connection.",
+      "Bootstrap requires elevation and grants only SetValue | QueryValues (or an equally narrow proven minimum) on the TiaV21Worker.exe Entry for the dedicated runner identity with no inheritance/propagation or broad parent ACL changes.",
+      "Bootstrap compares existing rules by normalized SecurityIdentifier plus exact access type/rights/inheritance/propagation, so an equivalent rule returned as NTAccount is recognized and a second execution does not add/reapply the same rule.",
+      "Deterministic Linux regression verifies the exact V21 AllowList registry path, required value names/formats, and the source-level SID-normalized idempotence contract without executing candidate code on Windows/TIA.",
+      "Existing SiemensBackend tests and motor regression remain green.",
+      "No migration API/OpenMode/TiaPortalMode workaround, retry logic, vendor payload change, generator behavior change or IndustrialMDE change is introduced."
+    ],
+    "tia": [
+      "After independent review and trusted merge, build TiaV21Worker on TIA-V21-PC against the installed V21 net48 Openness assemblies with zero compile errors.",
+      "Run the elevated bootstrap twice under the same Windows identity used by the self-hosted Actions runner: the first may create/grant the exact application rule; the second must recognize the equivalent existing rule and must not add/reapply it.",
+      "Then execute trusted-main OLQ/TIA worker from its actual Actions workspace path.",
+      "At least two consecutive trusted worker connections complete without interactive Openness access dialog 0033:000666 and without manual Yes/Yes to all interaction.",
+      "The trusted run records enough bounded evidence to confirm the executing worker path identity was synchronized to the V21 AllowList Entry without publishing user profile data or other sensitive runner-local paths.",
+      "Once non-interactive admission is proven, immediately resume #61 V19-to-V21 qualification; this task does not itself claim library migration success."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "src/TiaV21Worker/WhitelistManager.cs",
+      "scripts/windows/Configure-TiaV21WorkerWhitelist.ps1",
+      "tests/SiemensBackend.Tests/TiaV21AllowListContractTests.cs"
+    ],
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 80
+}
