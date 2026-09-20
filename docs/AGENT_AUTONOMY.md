@@ -1,60 +1,73 @@
 # Autonomous coding-agent loop
 
-The autonomous implementation agent runs on a disposable GitHub-hosted Linux runner. TIA Portal V21 remains behind a trusted Windows acceptance boundary.
+`AGENTS.md` is the normative repository operating contract. This document is a concise implementation overview of the current autonomous coding/review loop and must not override `AGENTS.md` or the trusted task.
 
-The infrastructure design and current milestones are tracked in:
-- `docs/INFRASTRUCTURE_PLAN.md`
-- `docs/INFRASTRUCTURE_LOG.md`
+## Provider/runtime policy
 
-## Agent runtime
+Routine coding uses the bounded provider cascade defined by `AGENTS.md`:
 
-Provider: Google Gemini Developer API.
+1. OpenRouter first with the configured coding model.
+2. Official DeepSeek API `deepseek-flash` as fallback when OpenRouter is unavailable, rate-limited, timed out, or exhausted.
 
-CLI: pinned stable Google Gemini CLI (`@google/gemini-cli`).
-
-Requested coding model: `gemini-3.8-flash`.
-
-Authentication: repository Actions secret `GEMINI_API_KEY`; never commit the key.
-
-Gemini CLI can route/fallback internal calls. Therefore each run must record both the requested model and the actual model names reported in the CLI result statistics. In the first successful autonomous run, the session was initialized as `gemini-3.8-flash`, while final usage statistics attributed tokens to `gemini-3.5-flash`.
+Provider completion is not acceptance. Provider/model/fallback evidence is recorded separately from deterministic and independent review evidence.
 
 ## Versioned instructions
 
-Agent behavior is not defined only inside workflow YAML.
+Active instruction surfaces are:
 
-- Coder prompt: `agents/prompts/coder.md`
-- Requirements reviewer: `agents/prompts/reviewer-requirements.md`
-- PLC/TIA reviewer: `agents/prompts/reviewer-tia.md`
-- Machine-readable tasks: `tasks/*.json`
+- coding agent: `agents/prompts/coder.md`;
+- bounded repair agent: `agents/prompts/repair.md`;
+- canonical CODE_REVIEW: `reviews/templates/code-review.md`;
+- canonical PLC_REVIEW: `reviews/templates/plc-review.md`;
+- shared external-review response schema: `reviews/schemas/external-review-response.schema.json`;
+- machine-readable authority/acceptance: `tasks/*.json`.
 
-The target smoke task is `tasks/INFRA-001.json`.
+`agents/prompts/reviewer-requirements.md` and `agents/prompts/reviewer-tia.md` are retired compatibility markers, not active review protocols.
 
-## Security boundary
+## Candidate / publication authority boundary
 
-Candidate/AI-authored code may execute only on disposable GitHub-hosted Linux runners.
+AI candidate implementation and tests execute only on disposable GitHub-hosted Linux runners without GitHub publication authority.
 
-The coding agent may not modify:
-- `.github/**`
-- `agents/**`
-- `tasks/**`
-- `.gemini/**`
-- `.openhands/**`
-- `.gitignore`
-- `src/TiaV21Worker/**`
+Candidate execution produces bounded patch/evidence data. A separate fresh publisher job:
 
-The Windows self-hosted runner must not check out or execute code from an AI candidate branch. A candidate branch is allowed to produce bounded PLC artifacts in Linux. The Windows gate consumes those artifacts while running a trusted `TiaV21Worker` checked out from `main`.
+- starts from a trusted clean checkout;
+- never executes candidate code/runtime;
+- validates the patch against the immutable baseline and trusted task `candidatePolicy.allowedPaths`;
+- rejects path escapes, protected paths, unsupported symlinks/modes and unexpected byproducts;
+- stages/publishes only validated paths.
 
-This prevents a modified `GeneratorCli` or test project from becoming arbitrary code execution on the Windows/TIA workstation.
+Repair uses the same execution/publication split.
 
-## Review model
+## Protected paths and TIA worker exception
 
-Two independent read-only review sessions are planned:
+Ordinary candidates do not modify protected orchestration/governance paths listed in `AGENTS.md` and the trusted task.
 
-1. Requirements Reviewer — task specification + diff + Linux test/generator evidence.
-2. PLC/TIA Reviewer — task specification + generated PLC artifact + real `tia-diagnostics.json`.
+`src/TiaV21Worker/**` is protected by default but may be changed by a normal candidate only when the trusted task explicitly sets `candidatePolicy.allowTiaV21WorkerChanges=true` **and** positively authorizes the exact worker path through `candidatePolicy.allowedPaths`.
 
-Reviewers do not replace deterministic tests or TIA compile. TIA diagnostics are authoritative for real Siemens import/compile status.
+That exception never authorizes workflows, prompts, task files, secrets, runner configuration or direct candidate execution on Windows/TIA.
 
-## Bounded execution
+## Windows / TIA boundary
 
-The future repair loop is bounded by the task's `maxRepairAttempts`. A failed candidate receives structured reviewer/TIA feedback and may be repaired on the same branch. Exhausted attempts become `BLOCKED`; no unbounded `while (!success) askAI()` loop is permitted.
+Unmerged candidate source/scripts never execute on the trusted Windows/TIA machine.
+
+Windows workflows fail closed to trusted `main`, explicitly check out `main`, and run the trusted `src/TiaV21Worker` path. Real TIA Portal V21 evidence is authoritative only for the exact import/compile/save/reopen operations actually executed.
+
+## Independent review model
+
+One independent reviewer is the default, selected by material authorship:
+
+- coding-agent-authored candidate with no material primary authorship -> primary connected `chatgpt`;
+- primary-authored/co-authored candidate -> fresh isolated `chatgpt-secondary`;
+- additional simultaneous reviewers are escalation only.
+
+Review type is task-defined (`CODE_REVIEW`, `PLC_REVIEW`, or `ARCHITECTURE_REVIEW`). Review instructions come from the canonical templates and all external verdicts use the shared response schema.
+
+Deterministic tests/TIA evidence and semantic review are complementary; neither substitutes for the other.
+
+## Bounded repair
+
+Repair attempts are limited by the trusted task's `maxRepairAttempts`. Repair remains inside the same task, exact finding/round and positive path authority.
+
+Candidate defects may be repaired. Infrastructure failures, missing evidence and external TIA/vendor prerequisites fail closed as blockers rather than consuming code repairs or triggering unrelated edits.
+
+Exhausted repair budget becomes `BLOCKED`; there is no unbounded retry loop.
