@@ -71,22 +71,32 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
         self.assertIn("Trusted main moved before atomic repair publication", text)
         self.assertIn("review-authority.py", text)
 
-    def test_repair_publication_uses_github_update_refs_atomic_cas(self):
+    def test_repair_publication_materializes_server_objects_then_uses_update_refs_cas(self):
         text = self.read("agent-repair.yml")
         block = self.step_block(
             text,
-            "Commit and publish repair with atomic GitHub ref CAS",
+            "Materialize and publish repair with atomic GitHub ref CAS",
             "Record repair and dispatch fresh exact-SHA review",
         )
-        commit_index = block.index('git commit -m')
-        fetch_index = block.index('git fetch --no-tags origin main', commit_index)
+        staged_diff_index = block.index('git diff --cached --name-status -z --no-renames')
+        blob_index = block.index('repos/${GITHUB_REPOSITORY}/git/blobs', staged_diff_index)
+        tree_index = block.index('repos/${GITHUB_REPOSITORY}/git/trees', blob_index)
+        commit_index = block.index('--method POST "repos/${GITHUB_REPOSITORY}/git/commits"', tree_index)
+        server_commit_check_index = block.index('git/commits/$NEW_SHA', commit_index)
+        fetch_index = block.index('git fetch --no-tags origin main', server_commit_check_index)
         branch_check_index = block.index('git ls-remote origin "refs/heads/$BRANCH"', fetch_index)
         mutation_index = block.index("MUTATION='mutation", branch_check_index)
         api_index = block.index('gh api graphql', mutation_index)
-        self.assertLess(commit_index, fetch_index)
+        self.assertLess(staged_diff_index, blob_index)
+        self.assertLess(blob_index, tree_index)
+        self.assertLess(tree_index, commit_index)
+        self.assertLess(commit_index, server_commit_check_index)
+        self.assertLess(server_commit_check_index, fetch_index)
         self.assertLess(fetch_index, branch_check_index)
         self.assertLess(branch_check_index, mutation_index)
         self.assertLess(mutation_index, api_index)
+        self.assertIn('test "$TREE_SHA" = "$LOCAL_TREE_SHA"', block)
+        self.assertIn('test "$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/$NEW_SHA" --jq .sha)" = "$NEW_SHA"', block)
         self.assertIn('updateRefs(input:{repositoryId:$repositoryId,refUpdates:[', block)
         self.assertIn('{name:"refs/heads/main",beforeOid:$mainBefore,afterOid:$mainBefore,force:false}', block)
         self.assertIn('{name:$branchName,beforeOid:$branchBefore,afterOid:$branchAfter,force:false}', block)
@@ -94,6 +104,7 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
         self.assertIn('-f branchBefore="$CANDIDATE_SHA"', block)
         self.assertIn('-f branchAfter="$NEW_SHA"', block)
         self.assertIn("jq -e '.data.updateRefs'", block)
+        self.assertNotIn('git commit -m', block)
         self.assertNotIn('git push --atomic', block)
         self.assertNotIn('--force-with-lease=', block)
 
