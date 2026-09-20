@@ -270,16 +270,35 @@ jobs:
 
           git diff --name-only "$BASE_SHA"..."$CANDIDATE_SHA" | sort -u > "$RUNNER_TEMP/changed-files.txt"
           test -s "$RUNNER_TEMP/changed-files.txt"
-          git diff --no-ext-diff --unified=80 "$BASE_SHA"..."$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate.diff"
-          DIFF_BYTES=$(wc -c < "$RUNNER_TEMP/candidate.diff")
-          [ "$DIFF_BYTES" -le 32000 ] || { echo "Candidate diff too large: $DIFF_BYTES"; exit 1; }
+          git diff --no-ext-diff --unified=80 "$BASE_SHA"..."$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate.full.diff"
+          DIFF_BYTES=$(wc -c < "$RUNNER_TEMP/candidate.full.diff")
+          DIFF_SHA256=$(sha256sum "$RUNNER_TEMP/candidate.full.diff" | awk '{print $1}')
+          DIFF_EMBEDDED=true
+          if [ "$DIFF_BYTES" -le 32000 ]; then
+            cp "$RUNNER_TEMP/candidate.full.diff" "$RUNNER_TEMP/candidate.diff"
+          else
+            test "$REVIEWER_SLOT" = "chatgpt" || {
+              echo "Candidate diff too large for self-contained reviewer slot ${REVIEWER_SLOT}: $DIFF_BYTES"
+              exit 1
+            }
+            DIFF_EMBEDDED=false
+            cat > "$RUNNER_TEMP/candidate.diff" <<EOF
+[full exact candidate diff omitted at trusted publication boundary]
+Connected reviewer slot: chatgpt
+Candidate SHA: $CANDIDATE_SHA
+Full diff bytes: $DIFF_BYTES
+Full diff SHA256: $DIFF_SHA256
+Review requirement: inspect the immutable exact candidate in GitHub before verdict. Do not treat this bounded package as complete source evidence.
+EOF
+          fi
 
           jq -n \
             --arg baseSha "$BASE_SHA" --argjson pr "$PR_NUMBER" --arg taskPath "$TASK_PATH" --arg taskId "$TASK_ID" \
             --arg taskSha256 "$TASK_SHA256" --arg candidateSha "$CANDIDATE_SHA" --arg reviewType "$REVIEW_TYPE" \
             --arg riskClass "$RISK_CLASS" --arg reviewerSlot "$REVIEWER_SLOT" --argjson reviewRound "$REVIEW_ROUND" \
-            --arg requestId "$REQUEST_ID" \
-            '{baseSha:$baseSha,pr:$pr,taskPath:$taskPath,taskId:$taskId,taskSha256:$taskSha256,candidateSha:$candidateSha,reviewType:$reviewType,riskClass:$riskClass,reviewerSlot:$reviewerSlot,reviewRound:$reviewRound,requestId:$requestId}' \
+            --arg requestId "$REQUEST_ID" --argjson fullDiffBytes "$DIFF_BYTES" --arg fullDiffSha256 "$DIFF_SHA256" \
+            --argjson fullDiffEmbedded "$DIFF_EMBEDDED" \
+            '{baseSha:$baseSha,pr:$pr,taskPath:$taskPath,taskId:$taskId,taskSha256:$taskSha256,candidateSha:$candidateSha,reviewType:$reviewType,riskClass:$riskClass,reviewerSlot:$reviewerSlot,reviewRound:$reviewRound,requestId:$requestId,fullDiffBytes:$fullDiffBytes,fullDiffSha256:$fullDiffSha256,fullDiffEmbedded:$fullDiffEmbedded}' \
             > "$RUNNER_TEMP/review-meta.json"
 
       - name: Build source context from immutable Git objects
@@ -365,6 +384,16 @@ jobs:
           temp=Path(os.environ['RUNNER_TEMP'])
           meta=json.loads((temp/'review-meta.json').read_text())
           task=json.loads((temp/'task.json').read_text())
+          connected_notice=''
+          artifact_manifest={'baseSha':meta['baseSha'],'taskPath':meta['taskPath'],'taskSha256':meta['taskSha256'],'candidateSha':meta['candidateSha']}
+          if not meta['fullDiffEmbedded']:
+              connected_notice=(
+                  'CONNECTED PRIMARY LARGE-DIFF FALLBACK: this package is intentionally not self-contained source evidence. '
+                  f"The exact full diff is {meta['fullDiffBytes']} bytes with SHA-256 {meta['fullDiffSha256']}. "
+                  f"Reviewer slot {meta['reviewerSlot']} MUST inspect PR #{meta['pr']} at exact candidate SHA {meta['candidateSha']} directly in GitHub before verdict, "
+                  'and must not claim omitted source text was reviewed from this package alone.\n\n'
+              )
+              artifact_manifest.update({'fullDiffBytes':meta['fullDiffBytes'],'fullDiffSha256':meta['fullDiffSha256'],'fullDiffEmbedded':False})
           context={
             'REVIEW_REQUEST_ID':meta['requestId'],'REVIEWER_SLOT':meta['reviewerSlot'],
             'TASK_ID':meta['taskId'],'CANDIDATE_SHA':meta['candidateSha'],'PR_REFERENCE':'#'+str(meta['pr']),
@@ -372,13 +401,13 @@ jobs:
             'TASK_SPECIFICATION':json.dumps(task,indent=2,ensure_ascii=False),
             'ACCEPTANCE_CRITERIA':json.dumps(task.get('acceptance',{}),indent=2,ensure_ascii=False),
             'TIA_ACCEPTANCE_CRITERIA':json.dumps(task.get('acceptance',{}).get('tia',[]),indent=2,ensure_ascii=False),
-            'IMPLEMENTATION_SUMMARY':'Changed files:\n'+(temp/'changed-files.txt').read_text(),
+            'IMPLEMENTATION_SUMMARY':connected_notice+'Changed files:\n'+(temp/'changed-files.txt').read_text(),
             'CANDIDATE_DIFF':(temp/'candidate.diff').read_text(),
-            'RELEVANT_SOURCE_CONTEXT':(temp/'source-context.txt').read_text(),
+            'RELEVANT_SOURCE_CONTEXT':connected_notice+(temp/'source-context.txt').read_text(),
             'LINUX_EVIDENCE':(temp/'linux-evidence.txt').read_text(),
             'GENERATED_ARTIFACT_EVIDENCE':(temp/'artifact-evidence.txt').read_text(),
             'TIA_EVIDENCE_OR_NOT_AVAILABLE':'Trusted TIA evidence is not included in this pre-merge package.',
-            'ARTIFACT_MANIFEST':json.dumps({'baseSha':meta['baseSha'],'taskPath':meta['taskPath'],'taskSha256':meta['taskSha256'],'candidateSha':meta['candidateSha']},indent=2),
+            'ARTIFACT_MANIFEST':json.dumps(artifact_manifest,indent=2),
             'PLC_ARTIFACT':(temp/'artifact-evidence.txt').read_text(),
             'TIA_DIAGNOSTICS':'Not available in this pre-merge request.',
             'PREVIOUS_FINDINGS_OR_NONE':(temp/'previous-findings.txt').read_text(),
@@ -410,8 +439,17 @@ jobs:
             'taskId':meta['taskId'],'candidateSha':meta['candidateSha'],'reviewType':meta['reviewType'],
             'reviewRound':meta['reviewRound'],'riskClass':meta['riskClass'],'state':'WAITING_FOR_EXTERNAL_REVIEW'
           }
+          if not meta['fullDiffEmbedded']:
+              state.update({'fullDiffBytes':meta['fullDiffBytes'],'fullDiffSha256':meta['fullDiffSha256'],'fullDiffEmbedded':False})
           marker='<!-- external-review-state-v1\n'+json.dumps(state,separators=(',',':'))+'\n-->\n'
-          header='### External review request\n\nState: **WAITING_FOR_EXTERNAL_REVIEW**\n\nCopy the REVIEW PACKAGE into the designated fresh reviewer chat and return its JSON via `/external-review`.\n\n---\n\n## REVIEW PACKAGE\n\n'
+          if not meta['fullDiffEmbedded']:
+              header=(
+                  '### External review request\n\nState: **WAITING_FOR_EXTERNAL_REVIEW**\n\n'
+                  'Connected primary large-diff review: inspect the exact immutable candidate in GitHub before returning JSON via `/external-review`. '
+                  'This bounded package intentionally omits the full source diff and is not self-contained source evidence.\n\n---\n\n## REVIEW PACKAGE\n\n'
+              )
+          else:
+              header='### External review request\n\nState: **WAITING_FOR_EXTERNAL_REVIEW**\n\nCopy the REVIEW PACKAGE into the designated fresh reviewer chat and return its JSON via `/external-review`.\n\n---\n\n## REVIEW PACKAGE\n\n'
           package=(temp/'review-request.md').read_text()
           (temp/'review-comment.md').write_text(marker+header+package,encoding='utf-8')
           PY
