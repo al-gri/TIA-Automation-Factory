@@ -378,7 +378,7 @@ jobs:
             --arg risk_class "$RISK_CLASS" \
             --arg reviewer_slot "$REVIEWER_SLOT" \
             --argjson attempt "$REPAIR_ATTEMPT" \
-            '{event_type:"candidate-repair",client_payload:{review_source:"external-review",pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,base_sha:$base_sha,task_path:$task_path,task_sha256:$task_sha256,validation_run_id:0,attempt:$attempt,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot}}' \
+            '{event_type:"candidate-repair",client_payload:{review_source:"external-review",pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,base_sha:$base_sha,task_path:$task_path,task_sha256:$task_sha256,attempt:$attempt,review:{type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot}}}' \
             > "$RUNNER_TEMP/repair-dispatch.json"
           cat > "$RUNNER_TEMP/repair-dispatched-comment.md" <<EOF
           External review requires changes. Dispatched bounded repair attempt **${REPAIR_ATTEMPT}/${MAX_REPAIRS}** for candidate \`${CANDIDATE_SHA}\` bound to base \`${BASE_SHA}\`.

@@ -55,9 +55,9 @@ jobs:
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
           ATTEMPT: ${{ github.event.client_payload.attempt }}
           REVIEW_SOURCE: ${{ github.event.client_payload.review_source }}
-          REVIEW_TYPE: ${{ github.event.client_payload.review_type }}
-          RISK_CLASS: ${{ github.event.client_payload.risk_class }}
-          REVIEWER_SLOT: ${{ github.event.client_payload.reviewer_slot }}
+          REVIEW_TYPE: ${{ github.event.client_payload.review.type }}
+          RISK_CLASS: ${{ github.event.client_payload.review.risk_class }}
+          REVIEWER_SLOT: ${{ github.event.client_payload.review.reviewer_slot }}
         run: |
           set -euo pipefail
           test "$REVIEW_SOURCE" = "external-review"
@@ -405,8 +405,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
           TASK_PATH: ${{ needs.repair.outputs.task_path }}
-          REVIEW_TYPE: ${{ github.event.client_payload.review_type }}
-          RISK_CLASS: ${{ github.event.client_payload.risk_class }}
+          REVIEW_TYPE: ${{ github.event.client_payload.review.type }}
+          RISK_CLASS: ${{ github.event.client_payload.review.risk_class }}
           REVIEWER_SLOT: ${{ needs.repair.outputs.reviewer_slot }}
           ATTEMPT: ${{ github.event.client_payload.attempt }}
           MAX_ATTEMPTS: ${{ needs.repair.outputs.max_attempts }}
