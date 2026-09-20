@@ -36,6 +36,19 @@ It may design architecture, create tasks, review coding-agent candidates, diagno
 
 Primary ChatGPT must not provide the required independent approval for a candidate it materially authored or co-authored.
 
+### Primary orchestration priorities
+
+Primary ChatGPT must optimize for **time to the first usable real device**, not infrastructure completeness for its own sake.
+
+- Decompose work into the smallest coherent versioned task with explicit acceptance/evidence.
+- Delegate routine product implementation to the coding-agent lane by default; primary may directly author protected infrastructure/governance or bounded maintainer repairs when that is the authorized task, but must then use an independent reviewer.
+- Use one independent reviewer by default. Add another reviewer only for explicit escalation, unresolved uncertainty/conflict, or user request.
+- Keep Windows/TIA execution on trusted merged `main`; candidate Linux checks and semantic review do not substitute for that boundary.
+- Do not place optional prompt, documentation, telemetry, UI, graph, catalog, or general-platform cleanup ahead of the active product route unless live evidence makes it a concrete blocker.
+- Every accepted audit/review recommendation must receive an explicit disposition and durable evidence; non-blocking does not mean forgotten.
+- After a blocker is closed, return to the canonical product sequence rather than expanding infrastructure scope.
+- Never overstate evidence: Linux green, qualification, native reopen, TIA compile, save/reopen, and process/runtime safety are distinct claims.
+
 ### Secondary independent ChatGPT
 
 `chatgpt-secondary` is the independent reviewer used when primary ChatGPT is not independent because it materially authored/co-authored the candidate, or when an explicit additional independent opinion is requested.
@@ -53,7 +66,7 @@ Routine implementation uses a bounded provider cascade:
 1. OpenRouter first using the configured free coding model.
 2. Official DeepSeek API `deepseek-flash` as continuity fallback when OpenRouter is unavailable, rate-limited, timed out, or exhausted.
 
-The coding agent may implement, test, prepare candidate PRs and perform bounded repairs. It may not approve its own work, change protected orchestration infrastructure from a normal candidate task, bypass deterministic gates, access the trusted Windows/TIA machine directly, or merge automatically.
+The coding agent may implement and test a bounded candidate workspace and perform bounded repairs. It may not publish/merge its own work, approve its own work, change protected orchestration infrastructure from a normal candidate task, bypass deterministic gates, or access the trusted Windows/TIA machine directly. GitHub publication is performed by a separate trusted clean publisher after bounded-patch validation.
 
 ## Reviewer independence
 
@@ -137,19 +150,18 @@ The coding agent must not modify:
 - `.gitignore`
 - `opencode.json`
 
-`src/TiaV21Worker/**` is candidate-protected by default. A trusted versioned task may explicitly allow bounded worker-source changes with:
+`src/TiaV21Worker/**` is candidate-protected by default. A trusted versioned task may allow a bounded worker-source change only when both conditions are true:
 
-```json
-"candidatePolicy": {
-  "allowTiaV21WorkerChanges": true
-}
-```
+1. `candidatePolicy.allowTiaV21WorkerChanges` is exactly `true`;
+2. the exact intended worker path is positively covered by `candidatePolicy.allowedPaths`.
 
-That exception never authorizes workflow/task/prompt changes, secrets, runner configuration or direct candidate execution on Windows/TIA.
+An ancestor-wide path pattern that merely happens to include the worker subtree is not sufficient worker authorization. The exception never authorizes workflow/task/prompt changes, secrets, runner configuration or direct candidate execution on Windows/TIA.
 
 Trust boundary:
 
-- AI candidate source executes only on disposable Linux runners in the autonomous path;
+- AI candidate source executes only on disposable Linux runners in the autonomous path and has no GitHub publication authority;
+- a separate fresh publisher validates bounded patch/data against the immutable trusted task/base and positive allowed paths before GitHub mutation;
+- the privileged publisher never executes candidate code/runtime and does not inherit the candidate workspace or `.git` state;
 - Windows checks out trusted `main`;
 - self-hosted Windows/TIA manual workflows must fail closed to the `main` ref and explicitly check out `main`;
 - Windows never executes candidate source/scripts before independent review + trusted merge;

@@ -1,42 +1,12 @@
-# Role: Requirements Reviewer
+# RETIRED — legacy Requirements Reviewer prompt
 
-You are an independent, read-only reviewer for one autonomous coding task.
+This file is intentionally non-authoritative and exists only so historical links fail safely.
 
-## Inputs
-You will receive:
-- the versioned task specification;
-- the candidate Git diff;
-- deterministic Linux build/test/generator results.
+Do **not** use it to build a review request, define a response shape, or decide acceptance.
 
-## Mission
-Evaluate every criterion in `acceptance.requirements` separately. Do not evaluate `acceptance.tia`; those criteria belong to the later trusted TIA gate and PLC/TIA Reviewer. Do not infer success from a green CI run alone.
+Canonical CODE_REVIEW authority:
+- review instructions: `reviews/templates/code-review.md`;
+- response contract: `reviews/schemas/external-review-response.schema.json`;
+- operating/reviewer independence rules: `AGENTS.md` and `docs/EXTERNAL_REVIEW_PROTOCOL.md`.
 
-## Rules
-- Do not modify files.
-- Do not run Git write operations.
-- Do not contact Windows/TIA infrastructure.
-- Require concrete evidence for every `acceptance.requirements` criterion.
-- Flag missing tests even when existing tests pass.
-- Flag changes outside the intended task scope.
-- Flag architecture-boundary violations.
-- Do not fail or block merely because `acceptance.tia` has not run yet.
-
-## Output
-Return a single JSON object with this shape:
-
-```json
-{
-  "status": "PASS | CHANGES_REQUIRED | BLOCKED",
-  "summary": "short summary",
-  "criteria": [
-    {
-      "criterion": "exact or concise requirements criterion text",
-      "status": "PASS | FAIL | BLOCKED",
-      "evidence": "specific diff/test evidence"
-    }
-  ],
-  "required_changes": ["actionable correction"]
-}
-```
-
-`PASS` is allowed only when every criterion in `acceptance.requirements` passes with evidence.
+The useful rule from the former prompt is preserved in the canonical CODE_REVIEW template: every applicable task acceptance criterion must be evaluated individually against concrete diff/test/evidence, and missing evidence must not be treated as PASS.
