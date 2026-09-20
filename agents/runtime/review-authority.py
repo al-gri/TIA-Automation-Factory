@@ -11,6 +11,7 @@ import sys
 from pathlib import Path, PurePosixPath
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class AuthorityError(ValueError):
@@ -38,41 +39,74 @@ def task_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def parse_task(task_file: Path) -> dict:
+    try:
+        task = json.loads(task_file.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AuthorityError(f"invalid trusted task JSON: {exc}") from exc
+    if not isinstance(task, dict) or not isinstance(task.get("id"), str) or not task["id"]:
+        raise AuthorityError("trusted task requires a non-empty id")
+    return task
+
+
+def validate_sha(raw: str, label: str) -> str:
+    value = str(raw).lower()
+    if not SHA_RE.fullmatch(value):
+        raise AuthorityError(f"{label} is invalid")
+    return value
+
+
+def validate_task_hash(raw: str) -> str:
+    value = str(raw).lower()
+    if not HASH_RE.fullmatch(value):
+        raise AuthorityError("taskSha256 is invalid")
+    return value
+
+
+def validate_continuation_authority(
+    bound_base_sha: str,
+    live_main_sha: str,
+    task_path: str,
+    task_sha: str,
+    task_file: Path,
+    task_id: str | None = None,
+) -> None:
+    bound = validate_sha(bound_base_sha, "bound base SHA")
+    live = validate_sha(live_main_sha, "live main SHA")
+    if live != bound:
+        raise AuthorityError(f"stale continuation base: expected {bound}, live main is {live}")
+
+    canonical_task_path(task_path)
+    expected_hash = validate_task_hash(task_sha)
+    actual_hash = task_sha256(task_file)
+    if actual_hash != expected_hash:
+        raise AuthorityError("stale continuation task/policy hash")
+
+    task = parse_task(task_file)
+    if task_id is not None and task.get("id") != task_id:
+        raise AuthorityError("stale continuation task identity")
+
+
 def validate_bound_state(state: dict, current_base_sha: str, task_path: str, task_file: Path) -> None:
     required = ("baseSha", "taskPath", "taskSha256", "taskId", "candidateSha")
     for key in required:
         if key not in state:
             raise AuthorityError(f"missing review authority field: {key}")
 
-    base_sha = str(state["baseSha"]).lower()
-    candidate_sha = str(state["candidateSha"]).lower()
-    current_base_sha = current_base_sha.lower()
-    if not SHA_RE.fullmatch(base_sha) or not SHA_RE.fullmatch(candidate_sha):
-        raise AuthorityError("review authority contains an invalid SHA")
-    if not SHA_RE.fullmatch(current_base_sha):
-        raise AuthorityError("current base SHA is invalid")
-    if current_base_sha != base_sha:
-        raise AuthorityError(
-            f"stale external review base: expected {base_sha}, current main is {current_base_sha}"
-        )
-
+    candidate_sha = validate_sha(str(state["candidateSha"]), "candidate SHA")
+    del candidate_sha
     canonical = canonical_task_path(task_path)
     if canonical != canonical_task_path(str(state["taskPath"])):
         raise AuthorityError("stale external review task path")
 
-    actual_hash = task_sha256(task_file)
-    expected_hash = str(state["taskSha256"]).lower()
-    if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
-        raise AuthorityError("review authority taskSha256 is invalid")
-    if actual_hash != expected_hash:
-        raise AuthorityError("stale external review task/policy hash")
-
-    try:
-        task = json.loads(task_file.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise AuthorityError(f"invalid trusted task JSON: {exc}") from exc
-    if not isinstance(task, dict) or task.get("id") != state["taskId"]:
-        raise AuthorityError("stale external review task identity")
+    validate_continuation_authority(
+        str(state["baseSha"]),
+        current_base_sha,
+        canonical,
+        str(state["taskSha256"]),
+        task_file,
+        str(state["taskId"]),
+    )
 
 
 def main() -> int:
@@ -88,15 +122,32 @@ def main() -> int:
     validate.add_argument("--task-path", required=True)
     validate.add_argument("--task-file", type=Path, required=True)
 
+    continuation = sub.add_parser("verify-continuation")
+    continuation.add_argument("--bound-base-sha", required=True)
+    continuation.add_argument("--live-main-sha", required=True)
+    continuation.add_argument("--task-path", required=True)
+    continuation.add_argument("--task-sha256", required=True)
+    continuation.add_argument("--task-file", type=Path, required=True)
+    continuation.add_argument("--task-id")
+
     args = parser.parse_args()
     try:
         if args.command == "task-sha":
             print(task_sha256(args.task))
-        else:
+        elif args.command == "validate":
             state = json.loads(args.state.read_text(encoding="utf-8"))
             if not isinstance(state, dict):
                 raise AuthorityError("review state must be a JSON object")
             validate_bound_state(state, args.current_base_sha, args.task_path, args.task_file)
+        else:
+            validate_continuation_authority(
+                args.bound_base_sha,
+                args.live_main_sha,
+                args.task_path,
+                args.task_sha256,
+                args.task_file,
+                args.task_id,
+            )
     except (AuthorityError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         print(f"review-authority: {exc}", file=sys.stderr)
         return 2
