@@ -282,14 +282,14 @@ jobs:
               exit 1
             }
             DIFF_EMBEDDED=false
-            cat > "$RUNNER_TEMP/candidate.diff" <<EOF
-[full exact candidate diff omitted at trusted publication boundary]
-Connected reviewer slot: chatgpt
-Candidate SHA: $CANDIDATE_SHA
-Full diff bytes: $DIFF_BYTES
-Full diff SHA256: $DIFF_SHA256
-Review requirement: inspect the immutable exact candidate in GitHub before verdict. Do not treat this bounded package as complete source evidence.
-EOF
+            printf '%s\n' \
+              '[full exact candidate diff omitted at trusted publication boundary]' \
+              'Connected reviewer slot: chatgpt' \
+              "Candidate SHA: $CANDIDATE_SHA" \
+              "Full diff bytes: $DIFF_BYTES" \
+              "Full diff SHA256: $DIFF_SHA256" \
+              'Review requirement: inspect the immutable exact candidate in GitHub before verdict. Do not treat this bounded package as complete source evidence.' \
+              > "$RUNNER_TEMP/candidate.diff"
           fi
 
           jq -n \
