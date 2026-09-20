@@ -1,0 +1,63 @@
+{
+  "id": "FACTORY-REPAIR-DISPATCH-001",
+  "title": "Bound autonomous repair repository_dispatch payload",
+  "goal": "Restore the bounded repair continuation path after GitHub rejected the trusted candidate-repair repository_dispatch payload for exceeding the platform top-level client_payload property limit, without weakening immutable task/candidate/base/review authority or changing product/TIA behavior.",
+  "baseline": {
+    "trustedMainSha": "abce701509d2597d1d868fca5156c6b3d0c1bf1b",
+    "blockedReviewResponseRunId": "35510563780",
+    "blockedCandidatePr": 71,
+    "blockedCandidateSha": "4b90b1331a7bb059cdd266cbbb8f2c809325138c",
+    "failure": "repository_dispatch HTTP 422: No more than 10 properties are allowed; 12 were supplied."
+  },
+  "scope": [
+    "Protected infrastructure-only correction for issue #72. Do not change product Domain/Compiler/Backend semantics, TiaV21Worker behavior, generator behavior, provider selection, secrets, runner configuration, vendor assets, or IndustrialMDE.",
+    "Reduce the candidate-repair repository_dispatch client_payload to GitHub's supported top-level property bound while preserving exact PR, candidate SHA, branch, base SHA, task path, task hash, repair attempt and review authority binding.",
+    "Nested review metadata may be used to reduce top-level property count only if Autonomous Repair consumes it consistently and still validates review type, risk class and reviewer slot against trusted task authority before candidate repair.",
+    "Remove only metadata that is demonstrably unused for this repair continuation path; do not weaken exact-SHA review or task-hash checks.",
+    "Add a deterministic Linux regression test proving the producer payload remains within the GitHub property limit and the consumer reads the same nested review fields.",
+    "No Windows/TIA execution is permitted or required for this task. After this task is merged, resume issue #61 by repairing PR #71 through the contained lane; do not advance #62."
+  ],
+  "acceptance": {
+    "requirements": [
+      "The candidate-repair repository_dispatch client_payload contains no more than 10 top-level properties.",
+      "The dispatch still binds pr_number, candidate_sha, branch, base_sha, task_path, task_sha256 and repair attempt, and carries review type/risk/reviewer-slot metadata without losing those semantics.",
+      "Autonomous Repair consumes the revised payload shape and continues to validate task id/hash, exact base/candidate identity, review type, risk class and reviewer slot against trusted task state before candidate execution/publication.",
+      "No validation_run_id or other removed property is required by the active repair path.",
+      "A deterministic regression test covers the top-level property bound and producer/consumer field agreement.",
+      "Existing ExternalReviewProtocol, FactoryIsolation, SiemensBackend and generator regressions remain green on the exact candidate SHA.",
+      "Only task-authorized paths change; there is no product, TiaV21Worker, Siemens project, workflow unrelated to repair/review continuation, secrets, vendor payload, or IndustrialMDE change.",
+      "Because the implementation is primary-authored protected infrastructure, a fresh independent chatgpt-secondary exact-SHA ARCHITECTURE_REVIEW must APPROVE after this task is trusted on main before merge of the implementation PR."
+    ],
+    "tia": [
+      "No candidate Windows/TIA execution is permitted or required.",
+      "Trusted merged-main TIA workflows remain unchanged by this task."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "ARCHITECTURE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      ".github/workflows/external-review-response.yml",
+      ".github/workflows/agent-repair.yml",
+      "tests/ExternalReviewProtocol.Tests/test_repair_dispatch_payload.py",
+      "tasks/FACTORY-REPAIR-DISPATCH-001.json"
+    ],
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 72
+}
