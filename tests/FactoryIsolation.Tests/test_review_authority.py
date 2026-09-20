@@ -39,6 +39,33 @@ class ReviewAuthorityTests(unittest.TestCase):
         self.git(repo, "config", "user.name", "Factory Isolation Test")
         self.git(repo, "config", "user.email", "factory-isolation@example.invalid")
 
+    def materialize_objects_without_refs(self, source_repo, bare_repo, base_sha, commit_sha):
+        objects = self.git(
+            source_repo,
+            "rev-list",
+            "--objects",
+            f"{base_sha}..{commit_sha}",
+        ).stdout.splitlines()
+        self.assertTrue(objects)
+        for item in objects:
+            oid = item.split(" ", 1)[0]
+            object_type = self.git(source_repo, "cat-file", "-t", oid).stdout.strip()
+            raw = subprocess.run(
+                ["git", "cat-file", object_type, oid],
+                cwd=source_repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(0, raw.returncode, raw.stderr.decode(errors="replace"))
+            stored = subprocess.run(
+                ["git", f"--git-dir={bare_repo}", "hash-object", "-t", object_type, "-w", "--stdin"],
+                input=raw.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(0, stored.returncode, stored.stderr.decode(errors="replace"))
+            self.assertEqual(oid, stored.stdout.decode().strip())
+
     def test_exact_base_task_path_and_hash_validate(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -149,7 +176,7 @@ class ReviewAuthorityTests(unittest.TestCase):
             )
             self.assertIn("stale continuation task/policy hash", completed.stderr)
 
-    def test_atomic_ref_transaction_rejects_main_move_after_client_observation(self):
+    def test_ref_free_object_materialization_then_atomic_cas_rejects_main_race(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             remote = root / "remote.git"
@@ -183,14 +210,20 @@ class ReviewAuthorityTests(unittest.TestCase):
             self.git(publisher, "commit", "-m", "repair prepared")
             repair_sha = self.git(publisher, "rev-parse", "HEAD").stdout.strip()
 
-            # Transfer the repair object to the bare repository without changing
-            # the candidate branch. Production GraphQL already has the commit
-            # object because the publisher checkout/upload path created it in the
-            # same GitHub repository object database before updateRefs is called.
-            self.git(publisher, "push", "origin", "HEAD:refs/heads/repair-object")
+            # Model GitHub Git Database object creation: materialize every new
+            # object directly in the server object database without creating or
+            # moving any ref. This is deliberately not a hidden repair branch.
+            self.materialize_objects_without_refs(publisher, remote, candidate_sha, repair_sha)
+            self.git(remote, "cat-file", "-e", f"{repair_sha}^{{commit}}")
+            refs_containing_repair = self.git(
+                remote, "for-each-ref", "--format=%(refname)", "--contains", repair_sha
+            ).stdout.strip()
+            self.assertEqual("", refs_containing_repair)
+            self.assertEqual(candidate_sha, self.git(remote, "rev-parse", "refs/heads/agent/task").stdout.strip())
+            self.assertEqual(base_sha, self.git(remote, "rev-parse", "refs/heads/main").stdout.strip())
 
             # Client has already observed main == base. A concurrent writer moves
-            # main before the authoritative multi-ref transaction is committed.
+            # main after object materialization but before the atomic ref CAS.
             self.git(root, "clone", "--branch", "main", remote, racer)
             self.configure_identity(racer)
             (racer / "authority.txt").write_text("moved\n", encoding="utf-8")
