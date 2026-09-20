@@ -24,23 +24,45 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Validate trusted task and positive candidate scope
+      - name: Validate bound review authority and positive candidate scope
         shell: bash
         env:
           TASK_PATH: ${{ github.event.client_payload.task_path }}
+          TASK_SHA256: ${{ github.event.client_payload.task_sha256 }}
+          BOUND_BASE_SHA: ${{ github.event.client_payload.base_sha }}
           CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha }}
         run: |
           set -euo pipefail
           case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid task path"; exit 1 ;; esac
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BOUND_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TASK_SHA256" =~ ^[0-9a-f]{64}$ ]]
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-          git fetch --no-tags origin main
-          TRUSTED_MAIN_SHA=$(git rev-parse origin/main)
-          git show "$TRUSTED_MAIN_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
-          git show "$TRUSTED_MAIN_SHA:agents/runtime/candidate-patch.py" > "$RUNNER_TEMP/trusted-candidate-patch.py"
-          chmod +x "$RUNNER_TEMP/trusted-candidate-patch.py"
-          python3 "$RUNNER_TEMP/trusted-candidate-patch.py" validate-current \
-            --task "$RUNNER_TEMP/task.json" --base "$TRUSTED_MAIN_SHA"
+
+          git fetch --no-tags origin main "$BOUND_BASE_SHA"
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          test "$LIVE_MAIN_SHA" = "$BOUND_BASE_SHA" || {
+            echo "Trusted main moved after external review: expected $BOUND_BASE_SHA got $LIVE_MAIN_SHA"
+            exit 1
+          }
+
+          git show "$BOUND_BASE_SHA:$TASK_PATH" > "$RUNNER_TEMP/task.json"
+          mkdir -p "$RUNNER_TEMP/trusted-authority"
+          for path in agents/runtime/review-authority.py agents/runtime/candidate-patch.py; do
+            git show "$BOUND_BASE_SHA:$path" > "$RUNNER_TEMP/trusted-authority/$(basename "$path")"
+          done
+          chmod +x "$RUNNER_TEMP/trusted-authority/review-authority.py" "$RUNNER_TEMP/trusted-authority/candidate-patch.py"
+          TASK_ID=$(jq -r '.id // empty' "$RUNNER_TEMP/task.json")
+          test -n "$TASK_ID"
+          python3 "$RUNNER_TEMP/trusted-authority/review-authority.py" verify-continuation \
+            --bound-base-sha "$BOUND_BASE_SHA" \
+            --live-main-sha "$LIVE_MAIN_SHA" \
+            --task-path "$TASK_PATH" \
+            --task-sha256 "$TASK_SHA256" \
+            --task-file "$RUNNER_TEMP/task.json" \
+            --task-id "$TASK_ID"
+          python3 "$RUNNER_TEMP/trusted-authority/candidate-patch.py" validate-current \
+            --task "$RUNNER_TEMP/task.json" --base "$BOUND_BASE_SHA"
 
       - name: Deterministic Linux requirements evidence only
         shell: bash
