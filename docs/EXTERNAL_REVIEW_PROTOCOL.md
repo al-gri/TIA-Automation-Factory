@@ -61,7 +61,11 @@ No standing dual-review gate exists. If multiple independent reviews are intenti
 
 ## Review package requirements
 
-Every package must be self-contained and safe for a reviewer with no prior conversation context. Include only bounded relevant evidence.
+Normal review packages must be self-contained and safe for a reviewer with no prior conversation context. Include only bounded relevant evidence.
+
+There is one narrow transport exception for the connected primary reviewer. When `reviewerSlot=chatgpt`, the exact full candidate diff exceeds the existing embedded-diff bound, and primary ChatGPT is independent of the candidate, trusted review-request automation may publish `WAITING_FOR_EXTERNAL_REVIEW` without embedding the full diff. That fallback must preserve the immutable request ID, trusted base SHA, trusted task path/hash/id, candidate SHA, review type/round/risk class, changed-file list and deterministic evidence; it must also publish the full exact diff byte count and SHA-256. The package must explicitly state that omitted source text was not reviewed from the package and require the connected reviewer to inspect the exact immutable candidate directly in GitHub before issuing a verdict. The reviewer must actually perform that exact-SHA GitHub inspection; the bounded package alone is insufficient source evidence.
+
+This exception does **not** apply to `chatgpt-secondary` or any other package-dependent isolated reviewer. Those reviewers remain fail-closed unless sufficient source evidence fits a self-contained bounded package. The fallback does not weaken reviewer independence, trusted-task authorization, exact-SHA binding, response validation, repair budgets, or TIA evidence requirements.
 
 Required sections:
 
@@ -71,7 +75,7 @@ Required sections:
 4. risk class and review type;
 5. candidate PR and exact SHA;
 6. implementation summary as orientation only;
-7. complete bounded diff or changed symbols plus enough unchanged context;
+7. complete bounded diff or changed symbols plus enough unchanged context; for the connected-primary large-diff exception above, the full-diff byte count/SHA-256 plus mandatory exact-GitHub-candidate inspection replaces embedded full source evidence;
 8. deterministic Linux evidence;
 9. generated artifact/TIA evidence when available and applicable;
 10. previous findings/repair attempts when relevant;
