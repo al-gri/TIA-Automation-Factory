@@ -21,7 +21,7 @@ class RepairRuntimeSourceTests(unittest.TestCase):
         self.assertIn('"$RUNNER_TEMP/trusted-runtime/review-authority.py" verify-continuation', workflow)
         self.assertIn('cp "$RUNNER_TEMP/trusted-runtime/build-coder-context.py" agents/runtime/build-coder-context.py', workflow)
 
-    def test_repair_publication_is_fresh_and_separate(self):
+    def test_repair_publication_is_fresh_separate_and_server_materialized(self):
         workflow = WORKFLOW.read_text(encoding='utf-8')
         repair_start = workflow.index('  repair:')
         publish_start = workflow.index('  publish-repair:')
@@ -36,10 +36,15 @@ class RepairRuntimeSourceTests(unittest.TestCase):
         self.assertIn('--scope-base "$TRUSTED_MAIN_SHA"', publish)
         self.assertIn('Trusted main moved before repair publication', publish)
         self.assertIn('Trusted main moved before atomic repair publication', publish)
+        self.assertIn('repos/${GITHUB_REPOSITORY}/git/blobs', publish)
+        self.assertIn('repos/${GITHUB_REPOSITORY}/git/trees', publish)
+        self.assertIn('repos/${GITHUB_REPOSITORY}/git/commits', publish)
+        self.assertIn('test "$TREE_SHA" = "$LOCAL_TREE_SHA"', publish)
         self.assertIn('updateRefs(input:{repositoryId:$repositoryId,refUpdates:[', publish)
         self.assertIn('beforeOid:$mainBefore,afterOid:$mainBefore', publish)
         self.assertIn('beforeOid:$branchBefore,afterOid:$branchAfter', publish)
         self.assertIn('gh api graphql', publish)
+        self.assertNotIn('git commit -m', publish)
         self.assertNotIn('git push --atomic', publish)
         self.assertNotIn('--force-with-lease=', publish)
         self.assertNotIn('git add -A', workflow)
