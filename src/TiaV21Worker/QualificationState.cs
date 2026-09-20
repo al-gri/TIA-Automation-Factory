@@ -62,7 +62,9 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             string statePath = GetStateFilePath(qualificationOutputRoot, QualificationIdentity);
             Directory.CreateDirectory(Path.GetDirectoryName(statePath));
-            File.WriteAllText(statePath, Serialize(this), new UTF8Encoding(false));
+            string tempPath = statePath + ".tmp";
+            File.WriteAllText(tempPath, Serialize(this), new UTF8Encoding(false));
+            File.Move(tempPath, statePath, overwrite: true);
         }
 
         public static string Serialize(QualificationState state)
@@ -87,6 +89,9 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             var result = new QualificationState();
             var lines = json.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            bool hasSchemaVersion = false;
+            bool hasStateKind = false;
+
             foreach (var line in lines)
             {
                 var trimmed = line.Trim();
@@ -99,18 +104,43 @@ namespace TiaAutomationFactory.TiaV21Worker
                 else if (trimmed.StartsWith("\"qualifiedArchiveSha256\":"))
                     result.QualifiedArchiveSha256 = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"stateKind\":"))
-                    Enum.TryParse(ExtractValue(trimmed), out result.StateKind);
+                {
+                    var value = ExtractValue(trimmed);
+                    if (!Enum.TryParse(value, out result.StateKind))
+                        throw new InvalidDataException("Invalid stateKind value: " + value);
+                    hasStateKind = true;
+                }
                 else if (trimmed.StartsWith("\"verificationRunId\":"))
                     result.VerificationRunId = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"completedAt\":"))
-                    DateTimeOffset.TryParse(ExtractValue(trimmed), out result.CompletedAt);
+                {
+                    var value = ExtractValue(trimmed);
+                    if (!DateTimeOffset.TryParse(value, out result.CompletedAt))
+                        throw new InvalidDataException("Invalid completedAt value: " + value);
+                }
                 else if (trimmed.StartsWith("\"nativeReopenVerified\":"))
-                    result.NativeReopenVerified = ExtractValue(trimmed).Contains("true");
+                {
+                    var value = ExtractValue(trimmed);
+                    if (value != "true" && value != "false")
+                        throw new InvalidDataException("Invalid nativeReopenVerified value: " + value);
+                    result.NativeReopenVerified = value == "true";
+                }
                 else if (trimmed.StartsWith("\"failureReason\":"))
                     result.FailureReason = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"schemaVersion\":"))
+                {
                     result.SchemaVersion = ExtractValue(trimmed);
+                    hasSchemaVersion = true;
+                }
             }
+
+            if (!hasSchemaVersion)
+                throw new InvalidDataException("Missing required schemaVersion field");
+            if (!result.SchemaVersion.Equals("1.0", StringComparison.Ordinal))
+                throw new InvalidDataException("Unsupported schemaVersion: " + result.SchemaVersion);
+            if (!hasStateKind)
+                throw new InvalidDataException("Missing required stateKind field");
+
             return result;
         }
 
@@ -229,42 +259,42 @@ namespace TiaAutomationFactory.TiaV21Worker
             return check;
         }
 
-        public static void MarkStaged(QualificationState state, string sourceArchiveSha256, string tiaBuildIdentity, string qualificationOutputRoot)
+        public static void MarkStaged(QualificationState state, string sourceArchiveSha256, string tiaBuildIdentity, string qualificationOutputRoot, string verificationRunId, DateTimeOffset completedAt)
         {
             state.StateKind = QualificationStateKind.Staged;
             state.SourceArchiveSha256 = sourceArchiveSha256;
             state.TiaBuildIdentity = tiaBuildIdentity;
             state.QualifiedArchiveSha256 = null;
-            state.VerificationRunId = Guid.NewGuid().ToString("N");
-            state.CompletedAt = DateTimeOffset.MinValue;
+            state.VerificationRunId = verificationRunId;
+            state.CompletedAt = completedAt;
             state.NativeReopenVerified = false;
             state.FailureReason = null;
             state.Save(qualificationOutputRoot);
         }
 
-        public static void MarkCompletedSuccess(QualificationState state, string qualifiedArchiveSha256, string qualificationOutputRoot)
+        public static void MarkCompletedSuccess(QualificationState state, string qualifiedArchiveSha256, string qualificationOutputRoot, DateTimeOffset completedAt)
         {
             state.StateKind = QualificationStateKind.CompletedSuccess;
             state.QualifiedArchiveSha256 = qualifiedArchiveSha256;
-            state.CompletedAt = DateTimeOffset.UtcNow;
+            state.CompletedAt = completedAt;
             state.NativeReopenVerified = true;
             state.FailureReason = null;
             state.Save(qualificationOutputRoot);
         }
 
-        public static void MarkCompletedFailure(QualificationState state, string failureReason, string qualificationOutputRoot)
+        public static void MarkCompletedFailure(QualificationState state, string failureReason, string qualificationOutputRoot, DateTimeOffset completedAt)
         {
             state.StateKind = QualificationStateKind.CompletedFailure;
-            state.CompletedAt = DateTimeOffset.UtcNow;
+            state.CompletedAt = completedAt;
             state.NativeReopenVerified = false;
             state.FailureReason = failureReason;
             state.Save(qualificationOutputRoot);
         }
 
-        public static void MarkCorrupt(QualificationState state, string qualificationOutputRoot)
+        public static void MarkCorrupt(QualificationState state, string qualificationOutputRoot, DateTimeOffset completedAt)
         {
             state.StateKind = QualificationStateKind.Corrupt;
-            state.CompletedAt = DateTimeOffset.UtcNow;
+            state.CompletedAt = completedAt;
             state.NativeReopenVerified = false;
             state.FailureReason = "State marked corrupt due to inconsistency.";
             state.Save(qualificationOutputRoot);

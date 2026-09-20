@@ -404,28 +404,38 @@ namespace TiaAutomationFactory.TiaV21Worker
                 Success = false
             };
 
-            if (File.Exists(qualifiedArchivePath))
-            {
-                string existingArchiveSha256 = ComputeSha256(qualifiedArchivePath);
-                string existingManifestPath = Path.ChangeExtension(qualifiedArchivePath, ".manifest.json");
-                if (File.Exists(existingManifestPath))
-                {
-                    var existingManifest = QualificationJson.Deserialize(File.ReadAllText(existingManifestPath));
-                    if (existingManifest.QualificationIdentity == qualificationIdentity &&
-                        existingManifest.SourceArchiveSha256 == sourceSha256 &&
-                        existingManifest.TiaBuildIdentity == tiaBuildIdentity &&
-                        existingManifest.QualifiedArchiveSha256 == existingArchiveSha256)
-                    {
-                        manifest.Success = true;
-                        manifest.QualifiedArchiveSha256 = existingArchiveSha256;
-                        manifest.NativeReopenSuccess = true;
-                        manifest.NativeReopenDetails = "Already qualified; existing archive matches identity and hash.";
-                        return manifest;
-                    }
-                }
+            var state = QualificationStateManager.LoadState(qualificationOutputRoot, qualificationIdentity);
 
-                manifest.Failure = "Qualification identity conflict: archive exists with different hash or manifest mismatch.";
-                manifest.FailureDetails = "Existing qualified archive at " + qualifiedArchivePath + " has SHA256 " + existingArchiveSha256 + " but current qualification requires identity " + qualificationIdentity + ".";
+            if (QualificationStateManager.DetectFalseSuccess(state, qualificationOutputRoot))
+            {
+                QualificationStateManager.MarkCorrupt(state, qualificationOutputRoot, DateTimeOffset.UtcNow);
+                manifest.Failure = "phase:corrupt-state type:InvalidOperationException hresult:0x80131509 tags:corrupt-state";
+                manifest.FailureDetails = "Detected false success in existing qualification state; marked corrupt.";
+                return manifest;
+            }
+
+            var reuseCheck = QualificationStateManager.CheckReuse(state, sourceSha256, tiaBuildIdentity, qualificationOutputRoot);
+            if (reuseCheck.CanReuse)
+            {
+                manifest.Success = true;
+                manifest.QualifiedArchiveSha256 = state.QualifiedArchiveSha256;
+                manifest.NativeReopenSuccess = true;
+                manifest.NativeReopenDetails = "Reused existing qualified archive; original verification run: " + reuseCheck.OriginalVerificationRunId + ", completed at: " + reuseCheck.OriginalCompletedAt.ToString("o");
+                manifest.IsReuse = true;
+                manifest.ReuseVerificationRunId = reuseCheck.OriginalVerificationRunId;
+                manifest.ReuseOriginalCompletedAt = reuseCheck.OriginalCompletedAt;
+                return manifest;
+            }
+
+            string verificationRunId = Guid.NewGuid().ToString("N");
+            DateTimeOffset stagedAt = DateTimeOffset.UtcNow;
+            QualificationStateManager.MarkStaged(state, sourceSha256, tiaBuildIdentity, qualificationOutputRoot, verificationRunId, stagedAt);
+
+            if (!QualificationStateManager.IsValidStagedState(state, sourceSha256, tiaBuildIdentity))
+            {
+                QualificationStateManager.MarkCorrupt(state, qualificationOutputRoot, DateTimeOffset.UtcNow);
+                manifest.Failure = "phase:corrupt-state type:InvalidOperationException hresult:0x80131509 tags:corrupt-state";
+                manifest.FailureDetails = "Staged state validation failed after marking staged.";
                 return manifest;
             }
 
@@ -437,11 +447,13 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 if (whitelistResult.BootstrapRequired)
                 {
+                    QualificationStateManager.MarkCompletedFailure(state, "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005", qualificationOutputRoot, DateTimeOffset.UtcNow);
                     manifest.Success = false;
                     manifest.Failure = "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005";
                     manifest.FailureDetails = whitelistResult.Message;
                     return manifest;
                 }
+                QualificationStateManager.MarkCompletedFailure(state, "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509", qualificationOutputRoot, DateTimeOffset.UtcNow);
                 manifest.Success = false;
                 manifest.Failure = "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
                 manifest.FailureDetails = whitelistResult.Message ?? "Whitelist synchronization failed.";
@@ -475,6 +487,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                     {
                         manifest.Failure = FormatFailure(QualificationPhase.RetrieveWithUpgrade, new InvalidOperationException("RetrieveWithUpgrade returned null"));
                         manifest.FailureDetails = "Source: " + sourceBasename + ", SHA256: " + sourceSha256;
+                        QualificationStateManager.MarkCompletedFailure(state, manifest.Failure, qualificationOutputRoot, DateTimeOffset.UtcNow);
                         return manifest;
                     }
 
@@ -519,6 +532,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.FailureDetails = retrieveWithUpgradeException.ToString();
                 if (upgradeCloseException != null)
                     manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
+                QualificationStateManager.MarkCompletedFailure(state, manifest.Failure, qualificationOutputRoot, DateTimeOffset.UtcNow);
                 return manifest;
             }
 
@@ -528,6 +542,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.FailureDetails = saveException.ToString();
                 if (upgradeCloseException != null)
                     manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
+                QualificationStateManager.MarkCompletedFailure(state, manifest.Failure, qualificationOutputRoot, DateTimeOffset.UtcNow);
                 return manifest;
             }
 
@@ -537,6 +552,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.FailureDetails = archiveException.ToString();
                 if (upgradeCloseException != null)
                     manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
+                QualificationStateManager.MarkCompletedFailure(state, manifest.Failure, qualificationOutputRoot, DateTimeOffset.UtcNow);
                 return manifest;
             }
 
@@ -544,6 +560,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 manifest.Failure = FormatFailure(QualificationPhase.UpgradeClose, upgradeCloseException);
                 manifest.FailureDetails = upgradeCloseException.ToString();
+                QualificationStateManager.MarkCompletedFailure(state, manifest.Failure, qualificationOutputRoot, DateTimeOffset.UtcNow);
                 return manifest;
             }
 
@@ -558,11 +575,13 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 if (whitelistResult2.BootstrapRequired)
                 {
+                    QualificationStateManager.MarkCompletedFailure(state, "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005", qualificationOutputRoot, DateTimeOffset.UtcNow);
                     manifest.Success = false;
                     manifest.Failure = "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005";
                     manifest.FailureDetails = whitelistResult2.Message;
                     return manifest;
                 }
+                QualificationStateManager.MarkCompletedFailure(state, "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509", qualificationOutputRoot, DateTimeOffset.UtcNow);
                 manifest.Success = false;
                 manifest.Failure = "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
                 manifest.FailureDetails = whitelistResult2.Message ?? "Whitelist synchronization failed.";
@@ -623,6 +642,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.FailureDetails = verifyOperationException.ToString();
                 if (verifyCloseException != null)
                     manifest.FailureDetails += Environment.NewLine + "Close failure: " + verifyCloseException;
+                QualificationStateManager.MarkCompletedFailure(state, manifest.Failure, qualificationOutputRoot, DateTimeOffset.UtcNow);
                 return manifest;
             }
 
@@ -630,6 +650,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 manifest.Failure = FormatFailure(QualificationPhase.NativeClose, verifyCloseException);
                 manifest.FailureDetails = verifyCloseException.ToString();
+                QualificationStateManager.MarkCompletedFailure(state, manifest.Failure, qualificationOutputRoot, DateTimeOffset.UtcNow);
                 return manifest;
             }
 
@@ -639,15 +660,230 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (!nativeReopenSuccess)
             {
                 manifest.Failure = FormatFailure(QualificationPhase.NativeRetrieve, new InvalidOperationException(nativeReopenDetails));
+                QualificationStateManager.MarkCompletedFailure(state, manifest.Failure, qualificationOutputRoot, DateTimeOffset.UtcNow);
                 return manifest;
             }
 
+            DateTimeOffset completedAt = DateTimeOffset.UtcNow;
+            QualificationStateManager.MarkCompletedSuccess(state, qualifiedArchiveSha256, qualificationOutputRoot, completedAt);
+
             manifest.Success = true;
+            manifest.VerificationRunId = verificationRunId;
+            manifest.CompletedAt = completedAt;
 
             string manifestPath = Path.ChangeExtension(qualifiedArchivePath, ".manifest.json");
             File.WriteAllText(manifestPath, QualificationJson.Serialize(manifest), new UTF8Encoding(false));
 
+            if (verifiedLibrary != null)
+            {
+                try
+                {
+                    manifest.ValveProfile = ValveProfileProbe.Probe(
+                        verifiedLibrary,
+                        qualificationIdentity,
+                        sourceSha256,
+                        tiaBuildIdentity,
+                        qualificationIdentity,
+                        "OrderNumber:6ES7 516-3AP03-0AB0/V4.0");
+                    manifest.ReferenceValidation = RunReferenceValidation(verifiedLibrary, manifest.ValveProfile, workRoot, qualificationIdentity);
+                }
+                catch (Exception ex)
+                {
+                    manifest.ReferenceValidation = new ReferenceValidationResult
+                    {
+                        Success = false,
+                        Failure = "phase:reference-validation type:" + ex.GetType().Name + " hresult:0x" + ex.HResult.ToString("X8"),
+                        FailureDetails = ex.ToString()
+                    };
+                }
+            }
+
+            File.WriteAllText(manifestPath, QualificationJson.Serialize(manifest), new UTF8Encoding(false));
+
             return manifest;
+        }
+
+        private static ReferenceValidationResult RunReferenceValidation(UserGlobalLibrary qualifiedLibrary, ValveProfileContract valveProfile, string workRoot, string qualificationIdentity)
+        {
+            var result = new ReferenceValidationResult
+            {
+                Diagnostics = new List<DiagnosticRecord>()
+            };
+
+            string runName = "RefValidate_" + qualificationIdentity;
+            string projectsPath = Path.GetFullPath(Path.Combine(workRoot, "projects"));
+            Directory.CreateDirectory(projectsPath);
+            DirectoryInfo projectsDirectory = new DirectoryInfo(projectsPath);
+
+            using (TiaPortal portal = new TiaPortal(TiaPortalMode.WithUserInterface))
+            using (ExclusiveAccess exclusiveAccess = portal.ExclusiveAccess("TIA Automation Factory reference validation"))
+            {
+                Project project = null;
+                try
+                {
+                    project = portal.Projects.Create(projectsDirectory, runName);
+                    result.ProjectPath = project.Path.FullName;
+
+                    Device station = project.Devices.CreateWithItem(valveProfile.CpuTypeIdentifier, "PLC_1", "S7_1500_Station_1");
+                    PlcSoftware plcSoftware = GetPlcSoftware(station);
+                    if (plcSoftware == null)
+                        throw new InvalidOperationException("No PlcSoftware target was found in the generated S7-1500 station.");
+
+                    var libraryTypes = qualifiedLibrary.Groups.SelectMany(g => GetAllTypes(g)).ToList();
+                    var valveType = libraryTypes.FirstOrDefault(t => t is GlobalLibraryUserType ut && string.Equals(ut.Name, "fbValve_Solenoid", StringComparison.OrdinalIgnoreCase)) as GlobalLibraryUserType;
+                    if (valveType == null)
+                        throw new InvalidOperationException("fbValve_Solenoid not found in qualified library for reference validation.");
+
+                    var dependencyTypes = new List<GlobalLibraryUserType>();
+                    foreach (var dep in valveProfile.Dependencies)
+                    {
+                        var depType = libraryTypes.FirstOrDefault(t => t is GlobalLibraryUserType ut &&
+                            string.Equals(ut.Name, dep.Name, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(ut.TypeName, dep.TypeName, StringComparison.OrdinalIgnoreCase)) as GlobalLibraryUserType;
+                        if (depType != null)
+                            dependencyTypes.Add(depType);
+                    }
+
+                    foreach (var depType in dependencyTypes)
+                    {
+                        var copyResult = project.GlobalLibraries.CopyFromLibrary(depType);
+                        if (copyResult == null || copyResult.Count == 0)
+                            throw new InvalidOperationException("Failed to copy dependency type: " + depType.Name);
+                    }
+
+                    var valveCopyResult = project.GlobalLibraries.CopyFromLibrary(valveType);
+                    if (valveCopyResult == null || valveCopyResult.Count == 0)
+                        throw new InvalidOperationException("Failed to copy valve type: " + valveType.Name);
+
+                    if (valveProfile.InstanceData.RequiresInstanceDb)
+                    {
+                        var plcBlockGroup = plcSoftware.BlockGroup;
+                        var fbInstance = plcBlockGroup.Blocks.CreateInstance("FB", "fbValve_Solenoid_Instance", valveProfile.InstanceData.InstanceDbName);
+                    }
+
+                    var callBlock = plcSoftware.BlockGroup.Blocks.Create("FB", "CallValve", "SCL");
+                    var callInterface = callBlock.GetService<PlcBlockUserInterface>();
+                    var callBody = callBlock.GetService<PlcBlockBody>();
+                    if (callInterface != null && callBody != null)
+                    {
+                        string callCode = GenerateValveCall(valveProfile);
+                        callBody.Text = callCode;
+                    }
+
+                    ICompilable compilable = plcSoftware.GetService<ICompilable>();
+                    if (compilable == null)
+                        throw new InvalidOperationException("The PLC software does not expose the ICompilable service.");
+
+                    CompilerResult compilerResult = compilable.Compile();
+                    result.State = compilerResult.State.ToString();
+                    result.WarningCount = compilerResult.WarningCount;
+                    result.ErrorCount = compilerResult.ErrorCount;
+                    AddMessages(compilerResult.Messages, result.Diagnostics);
+                    result.Success = compilerResult.ErrorCount == 0;
+
+                    if (result.Success)
+                    {
+                        project.Save();
+                        project.Close();
+                        project = null;
+
+                        using (TiaPortal portal2 = new TiaPortal(TiaPortalMode.WithUserInterface))
+                        using (ExclusiveAccess exclusiveAccess2 = portal2.ExclusiveAccess("TIA Automation Factory reference validation reopen"))
+                        {
+                            Project reopenedProject = portal2.Projects.Open(new FileInfo(Path.Combine(projectsDirectory.FullName, runName + ".ap21")));
+                            if (reopenedProject != null)
+                            {
+                                result.SaveReopenVerified = true;
+                                reopenedProject.Close();
+                            }
+                        }
+                    }
+
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    result.Success = false;
+                    result.Failure = "phase:reference-validation type:" + ex.GetType().Name + " hresult:0x" + ex.HResult.ToString("X8");
+                    result.FailureDetails = ex.ToString();
+                    return result;
+                }
+                finally
+                {
+                    if (project != null)
+                    {
+                        try { project.Close(); } catch { }
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<GlobalLibraryType> GetAllTypes(GlobalLibraryGroup group)
+        {
+            foreach (var type in group.Types)
+                yield return type;
+            foreach (var subGroup in group.Groups)
+            {
+                foreach (var type in GetAllTypes(subGroup))
+                    yield return type;
+            }
+        }
+
+        private static string GenerateValveCall(ValveProfileContract valveProfile)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("FUNCTION_BLOCK \"CallValve\"");
+            sb.AppendLine("VAR");
+            sb.AppendLine("    valveInstance : \"fbValve_Solenoid\";");
+            sb.AppendLine("END_VAR");
+            sb.AppendLine("BEGIN");
+            sb.AppendLine("    valveInstance();");
+            sb.AppendLine("END_FUNCTION_BLOCK");
+            return sb.ToString();
+        }
+
+        private static PlcSoftware GetPlcSoftware(HardwareObject hardwareObject)
+        {
+            var queue = new Queue<HardwareObject>();
+            queue.Enqueue(hardwareObject);
+
+            while (queue.Count > 0)
+            {
+                foreach (DeviceItem deviceItem in queue.Dequeue().Items)
+                {
+                    if (!deviceItem.IsPlugged)
+                        continue;
+
+                    SoftwareContainer softwareContainer = deviceItem.GetService<SoftwareContainer>();
+                    if (deviceItem.Classification.HasFlag(DeviceItemClassifications.CPU)
+                        && softwareContainer != null
+                        && softwareContainer.Software is PlcSoftware)
+                    {
+                        return (PlcSoftware)softwareContainer.Software;
+                    }
+
+                    queue.Enqueue(deviceItem);
+                }
+            }
+
+            return null;
+        }
+
+        private static void AddMessages(CompilerResultMessageComposition messages, IList<DiagnosticRecord> target)
+        {
+            foreach (CompilerResultMessage message in messages)
+            {
+                target.Add(new DiagnosticRecord
+                {
+                    Path = Convert.ToString(message.Path),
+                    State = message.State.ToString(),
+                    Description = message.Description,
+                    WarningCount = message.WarningCount,
+                    ErrorCount = message.ErrorCount
+                });
+
+                AddMessages(message.Messages, target);
+            }
         }
 
         private static string FormatFailure(QualificationPhase phase, Exception exception)
@@ -865,6 +1101,8 @@ namespace TiaAutomationFactory.TiaV21Worker
         public DateTimeOffset ReuseOriginalCompletedAt { get; set; }
         public ValveProfileContract ValveProfile { get; set; }
         public ReferenceValidationResult ReferenceValidation { get; set; }
+        public string VerificationRunId { get; set; }
+        public DateTimeOffset CompletedAt { get; set; }
 
         public static QualificationResult FromException(Exception exception, string sourceArchivePath)
         {
@@ -940,6 +1178,8 @@ namespace TiaAutomationFactory.TiaV21Worker
             AppendProperty(builder, "isReuse", result.IsReuse ? "true" : "false", false, true);
             AppendProperty(builder, "reuseVerificationRunId", result.ReuseVerificationRunId, true, true);
             AppendProperty(builder, "reuseOriginalCompletedAt", result.ReuseOriginalCompletedAt == DateTimeOffset.MinValue ? "null" : "\"" + result.ReuseOriginalCompletedAt.ToString("o") + "\"", false, true);
+            AppendProperty(builder, "verificationRunId", result.VerificationRunId, true, true);
+            AppendProperty(builder, "completedAt", result.CompletedAt == DateTimeOffset.MinValue ? "null" : "\"" + result.CompletedAt.ToString("o") + "\"", false, true);
             AppendProperty(builder, "failure", result.Failure, true, true);
             AppendProperty(builder, "failureDetails", result.FailureDetails, true, true);
             if (result.ValveProfile != null)
@@ -1028,6 +1268,14 @@ namespace TiaAutomationFactory.TiaV21Worker
                     var val = ExtractValue(trimmed);
                     if (val != "null")
                         DateTimeOffset.TryParse(val, out result.ReuseOriginalCompletedAt);
+                }
+                else if (trimmed.StartsWith("\"verificationRunId\":"))
+                    result.VerificationRunId = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"completedAt\":"))
+                {
+                    var val = ExtractValue(trimmed);
+                    if (val != "null")
+                        DateTimeOffset.TryParse(val, out result.CompletedAt);
                 }
                 else if (trimmed.StartsWith("\"failure\":"))
                     result.Failure = ExtractValue(trimmed);

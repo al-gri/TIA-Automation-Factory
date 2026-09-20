@@ -61,7 +61,22 @@ namespace TiaAutomationFactory.TiaV21Worker
                 builder.Append(contract.TiaBuildIdentity).Append('|');
                 builder.Append(contract.QualificationIdentity).Append('|');
                 builder.Append(contract.CpuTypeIdentifier).Append('|');
-                builder.Append(contract.ValveBlock?.GetIdentityString() ?? "").Append('|');
+
+                if (contract.ValveBlock != null)
+                {
+                    builder.Append(contract.ValveBlock.Name).Append('|');
+                    builder.Append(contract.ValveBlock.TypeName).Append('|');
+                    builder.Append(contract.ValveBlock.Version).Append('|');
+                    builder.Append(contract.ValveBlock.Namespace).Append('|');
+                    foreach (var param in contract.ValveBlock.Parameters.OrderBy(p => p.Name))
+                    {
+                        builder.Append(param.Name).Append('|');
+                        builder.Append(param.Direction).Append('|');
+                        builder.Append(param.PlcType).Append('|');
+                        builder.Append(param.Description ?? string.Empty).Append(';');
+                    }
+                }
+                builder.Append('|');
 
                 foreach (var dep in contract.Dependencies.OrderBy(d => d.GetIdentityString()))
                 {
@@ -228,7 +243,11 @@ namespace TiaAutomationFactory.TiaV21Worker
                     else if (trimmed.StartsWith("\"name\":"))
                         currentParam.Name = ExtractValue(trimmed);
                     else if (trimmed.StartsWith("\"direction\":"))
-                        currentParam.Direction = ExtractValue(trimmed);
+                    {
+                        var dir = ExtractValue(trimmed);
+                        ValidateDirection(dir);
+                        currentParam.Direction = dir;
+                    }
                     else if (trimmed.StartsWith("\"plcType\":"))
                         currentParam.PlcType = ExtractValue(trimmed);
                     else if (trimmed.StartsWith("\"description\":"))
@@ -237,6 +256,12 @@ namespace TiaAutomationFactory.TiaV21Worker
                     {
                         if (result.ValveBlock.Parameters == null)
                             result.ValveBlock.Parameters = new List<ValveParameter>();
+                        if (string.IsNullOrEmpty(currentParam.Name))
+                            throw new InvalidDataException("Parameter name is required");
+                        if (string.IsNullOrEmpty(currentParam.Direction))
+                            throw new InvalidDataException("Parameter direction is required");
+                        if (string.IsNullOrEmpty(currentParam.PlcType))
+                            throw new InvalidDataException("Parameter PLC type is required");
                         result.ValveBlock.Parameters.Add(currentParam);
                     }
                 }
@@ -258,6 +283,14 @@ namespace TiaAutomationFactory.TiaV21Worker
                         currentDep.Namespace = ExtractValue(trimmed);
                     else if (trimmed.Contains("}"))
                     {
+                        if (string.IsNullOrEmpty(currentDep.Name))
+                            throw new InvalidDataException("Dependency name is required");
+                        if (string.IsNullOrEmpty(currentDep.TypeName))
+                            throw new InvalidDataException("Dependency typeName is required");
+                        if (string.IsNullOrEmpty(currentDep.Version))
+                            throw new InvalidDataException("Dependency version is required");
+                        if (string.IsNullOrEmpty(currentDep.Namespace))
+                            throw new InvalidDataException("Dependency namespace is required");
                         result.Dependencies.Add(currentDep);
                     }
                 }
@@ -289,7 +322,35 @@ namespace TiaAutomationFactory.TiaV21Worker
                 }
             }
 
+            if (result.SchemaVersion != "1.0")
+                throw new InvalidDataException("Unsupported schemaVersion: " + result.SchemaVersion);
+            if (result.ValveBlock == null)
+                throw new InvalidDataException("Missing required valveBlock");
+            if (string.IsNullOrEmpty(result.ValveBlock.Name))
+                throw new InvalidDataException("ValveBlock name is required");
+            if (string.IsNullOrEmpty(result.ValveBlock.TypeName))
+                throw new InvalidDataException("ValveBlock typeName is required");
+            if (string.IsNullOrEmpty(result.ValveBlock.Version))
+                throw new InvalidDataException("ValveBlock version is required");
+            if (string.IsNullOrEmpty(result.ValveBlock.Namespace))
+                throw new InvalidDataException("ValveBlock namespace is required");
+            if (result.ValveBlock.Parameters == null || result.ValveBlock.Parameters.Count == 0)
+                throw new InvalidDataException("ValveBlock must have at least one parameter");
+            if (result.Dependencies == null)
+                throw new InvalidDataException("Missing required dependencies list");
+            if (result.InstanceData == null)
+                throw new InvalidDataException("Missing required instanceData");
+            if (result.TargetPrerequisites == null)
+                throw new InvalidDataException("Missing required targetPrerequisites");
+
             return result;
+        }
+
+        private static void ValidateDirection(string direction)
+        {
+            var validDirections = new[] { "In", "Out", "InOut", "Static", "Temp", "Constant" };
+            if (!validDirections.Contains(direction))
+                throw new InvalidDataException("Invalid parameter direction: " + direction);
         }
 
         private static string ExtractValue(string line)
