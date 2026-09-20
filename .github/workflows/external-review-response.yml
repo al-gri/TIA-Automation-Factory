@@ -124,10 +124,22 @@ jobs:
           BASE_SHA=$(jq -r .baseSha "$RUNNER_TEMP/pending-review-state.json")
           CANDIDATE_SHA=$(jq -r .headRefOid "$RUNNER_TEMP/pr.json")
           REVIEWER_SLOT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["reviewerSlot"])' "$RUNNER_TEMP/external-review-response.json")
-          git fetch --no-tags origin "$BASE_SHA" "$CANDIDATE_SHA"
+          git fetch --no-tags origin main "$BASE_SHA" "$CANDIDATE_SHA"
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          test "$LIVE_MAIN_SHA" = "$BASE_SHA" || {
+            echo "Trusted main moved after review package publication: expected $BASE_SHA got $LIVE_MAIN_SHA"
+            exit 1
+          }
+
+          mkdir -p "$RUNNER_TEMP/trusted-review-authority"
+          for path in agents/runtime/reviewer-policy.py agents/runtime/external-review.py agents/runtime/review-authority.py; do
+            git show "$BASE_SHA:$path" > "$RUNNER_TEMP/trusted-review-authority/$(basename "$path")"
+          done
+          chmod +x "$RUNNER_TEMP/trusted-review-authority/"*.py
+
           git log --format='%ae' "$BASE_SHA..$CANDIDATE_SHA" > "$RUNNER_TEMP/candidate-author-emails.txt"
           test -s "$RUNNER_TEMP/candidate-author-emails.txt"
-          python3 agents/runtime/reviewer-policy.py validate-slot \
+          python3 "$RUNNER_TEMP/trusted-review-authority/reviewer-policy.py" validate-slot \
             --emails-file "$RUNNER_TEMP/candidate-author-emails.txt" \
             --reviewer-slot "$REVIEWER_SLOT"
 
@@ -142,7 +154,7 @@ jobs:
           REVIEW_ROUND: ${{ steps.state.outputs.review_round }}
         run: |
           set -euo pipefail
-          python3 agents/runtime/external-review.py validate-response \
+          python3 "$RUNNER_TEMP/trusted-review-authority/external-review.py" validate-response \
             --input "$RUNNER_TEMP/external-review-response.json" \
             --request-id "$REQUEST_ID" \
             --reviewer-slot "$REVIEWER_SLOT" \
@@ -166,21 +178,20 @@ jobs:
           REVIEWER_SLOT: ${{ steps.state.outputs.reviewer_slot }}
         run: |
           set -euo pipefail
-          CURRENT_MAIN_SHA=$(git rev-parse HEAD)
           case "$TASK_PATH" in tasks/*.json) ;; *) echo "Invalid bound task path"; exit 1 ;; esac
           git show "$BASE_SHA:$TASK_PATH" > "$RUNNER_TEMP/bound-task.json"
-          python3 agents/runtime/review-authority.py validate \
+          python3 "$RUNNER_TEMP/trusted-review-authority/review-authority.py" validate \
             --state "$RUNNER_TEMP/pending-review-state.json" \
-            --current-base-sha "$CURRENT_MAIN_SHA" \
+            --current-base-sha "$BASE_SHA" \
             --task-path "$TASK_PATH" \
             --task-file "$RUNNER_TEMP/bound-task.json"
-          test "$(python3 agents/runtime/review-authority.py task-sha --task "$RUNNER_TEMP/bound-task.json")" = "$TASK_SHA256"
+          test "$(python3 "$RUNNER_TEMP/trusted-review-authority/review-authority.py" task-sha --task "$RUNNER_TEMP/bound-task.json")" = "$TASK_SHA256"
           test "$(jq -r .id "$RUNNER_TEMP/bound-task.json")" = "$TASK_ID"
           TASK_RISK=$(jq -r '.review.riskClass' "$RUNNER_TEMP/bound-task.json")
           TASK_REVIEW_TYPE=$(jq -r '.review.reviewType' "$RUNNER_TEMP/bound-task.json")
           test "$TASK_RISK" = "$RISK_CLASS"
           test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"
-          python3 agents/runtime/reviewer-policy.py authorize-slot \
+          python3 "$RUNNER_TEMP/trusted-review-authority/reviewer-policy.py" authorize-slot \
             --task-file "$RUNNER_TEMP/bound-task.json" \
             --reviewer-slot "$REVIEWER_SLOT"
           MAX_REPAIRS=$(jq -r '.maxRepairAttempts // 0' "$RUNNER_TEMP/bound-task.json")
@@ -207,6 +218,16 @@ jobs:
           RISK_CLASS: ${{ steps.state.outputs.risk_class }}
         run: |
           set -euo pipefail
+          git fetch --no-tags origin main "$BASE_SHA"
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          python3 "$RUNNER_TEMP/trusted-review-authority/review-authority.py" verify-continuation \
+            --bound-base-sha "$BASE_SHA" \
+            --live-main-sha "$LIVE_MAIN_SHA" \
+            --task-path "$TASK_PATH" \
+            --task-sha256 "$TASK_SHA256" \
+            --task-file "$RUNNER_TEMP/bound-task.json" \
+            --task-id "$TASK_ID"
+
           STATUS=$(jq -r .reviewStatus "$RUNNER_TEMP/normalized-review.json")
           case "$STATUS" in
             APPROVE) NEW_STATE=APPROVED_EXTERNAL_REVIEW ;;
@@ -249,22 +270,33 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           CANDIDATE_SHA: ${{ steps.state.outputs.candidate_sha }}
           BRANCH: ${{ steps.state.outputs.branch }}
-          TASK_PATH: ${{ steps.task.outputs.task_path }}
+          BASE_SHA: ${{ steps.state.outputs.base_sha }}
+          TASK_PATH: ${{ steps.state.outputs.task_path }}
+          TASK_SHA256: ${{ steps.state.outputs.task_sha256 }}
+          TASK_ID: ${{ steps.state.outputs.task_id }}
           REVIEW_ROUND: ${{ steps.state.outputs.review_round }}
         run: |
           set -euo pipefail
+          git fetch --no-tags origin main "$BASE_SHA"
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          python3 "$RUNNER_TEMP/trusted-review-authority/review-authority.py" verify-continuation \
+            --bound-base-sha "$BASE_SHA" --live-main-sha "$LIVE_MAIN_SHA" \
+            --task-path "$TASK_PATH" --task-sha256 "$TASK_SHA256" \
+            --task-file "$RUNNER_TEMP/bound-task.json" --task-id "$TASK_ID"
           ATTEMPT=$((REVIEW_ROUND - 1))
           jq -n \
             --argjson pr "$PR_NUMBER" \
             --arg candidate_sha "$CANDIDATE_SHA" \
             --arg branch "$BRANCH" \
+            --arg base_sha "$BASE_SHA" \
             --arg task_path "$TASK_PATH" \
+            --arg task_sha256 "$TASK_SHA256" \
             --argjson attempt "$ATTEMPT" \
-            '{event_type:"candidate-validation",client_payload:{pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,attempt:$attempt}}' \
+            '{event_type:"candidate-validation",client_payload:{pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,base_sha:$base_sha,task_path:$task_path,task_sha256:$task_sha256,attempt:$attempt}}' \
             > "$RUNNER_TEMP/approved-dispatch.json"
           cat "$RUNNER_TEMP/approved-dispatch.json"
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/approved-dispatch.json"
-          gh pr comment "$PR_NUMBER" --body "External review is **APPROVED**. Dispatched trusted Candidate Validation for candidate \`${CANDIDATE_SHA}\` at repair attempt ${ATTEMPT}."
+          gh pr comment "$PR_NUMBER" --body "External review is **APPROVED**. Dispatched Linux-only Candidate Validation for candidate \`${CANDIDATE_SHA}\` bound to base \`${BASE_SHA}\`."
 
       - name: Record approved HIGH candidate for delegated merge decision
         if: steps.state.outputs.risk_class == 'HIGH' && steps.publish.outputs.state == 'APPROVED_EXTERNAL_REVIEW'
@@ -273,9 +305,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.issue.number }}
           CANDIDATE_SHA: ${{ steps.state.outputs.candidate_sha }}
+          BASE_SHA: ${{ steps.state.outputs.base_sha }}
+          TASK_PATH: ${{ steps.state.outputs.task_path }}
+          TASK_SHA256: ${{ steps.state.outputs.task_sha256 }}
+          TASK_ID: ${{ steps.state.outputs.task_id }}
         run: |
           set -euo pipefail
-          gh pr comment "$PR_NUMBER" --body "HIGH-risk external review is **APPROVED** for exact candidate \`${CANDIDATE_SHA}\`. No pre-merge Windows/TIA execution is dispatched. Connected ChatGPT may make the delegated technical merge decision after verifying all applicable exact-SHA gates, including reviewer eligibility for the current candidate authorship."
+          git fetch --no-tags origin main "$BASE_SHA"
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          python3 "$RUNNER_TEMP/trusted-review-authority/review-authority.py" verify-continuation \
+            --bound-base-sha "$BASE_SHA" --live-main-sha "$LIVE_MAIN_SHA" \
+            --task-path "$TASK_PATH" --task-sha256 "$TASK_SHA256" \
+            --task-file "$RUNNER_TEMP/bound-task.json" --task-id "$TASK_ID"
+          gh pr comment "$PR_NUMBER" --body "HIGH-risk external review is **APPROVED** for exact candidate \`${CANDIDATE_SHA}\` and bound base \`${BASE_SHA}\`. No pre-merge Windows/TIA execution is dispatched. Connected ChatGPT may make the delegated technical merge decision only after re-verifying the current exact-SHA gates."
 
       - name: Dispatch bounded repair after changes required
         if: steps.publish.outputs.state == 'REVIEW_CHANGES_REQUIRED'
@@ -285,7 +327,10 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           CANDIDATE_SHA: ${{ steps.state.outputs.candidate_sha }}
           BRANCH: ${{ steps.state.outputs.branch }}
-          TASK_PATH: ${{ steps.task.outputs.task_path }}
+          BASE_SHA: ${{ steps.state.outputs.base_sha }}
+          TASK_PATH: ${{ steps.state.outputs.task_path }}
+          TASK_SHA256: ${{ steps.state.outputs.task_sha256 }}
+          TASK_ID: ${{ steps.state.outputs.task_id }}
           REVIEW_TYPE: ${{ steps.state.outputs.review_type }}
           RISK_CLASS: ${{ steps.state.outputs.risk_class }}
           REVIEWER_SLOT: ${{ steps.state.outputs.reviewer_slot }}
@@ -293,6 +338,13 @@ jobs:
           MAX_REPAIRS: ${{ steps.task.outputs.max_repairs }}
         run: |
           set -euo pipefail
+          git fetch --no-tags origin main "$BASE_SHA"
+          LIVE_MAIN_SHA=$(git rev-parse origin/main)
+          python3 "$RUNNER_TEMP/trusted-review-authority/review-authority.py" verify-continuation \
+            --bound-base-sha "$BASE_SHA" --live-main-sha "$LIVE_MAIN_SHA" \
+            --task-path "$TASK_PATH" --task-sha256 "$TASK_SHA256" \
+            --task-file "$RUNNER_TEMP/bound-task.json" --task-id "$TASK_ID"
+
           REPAIR_ATTEMPT="$REVIEW_ROUND"
           if [ "$REPAIR_ATTEMPT" -gt "$MAX_REPAIRS" ]; then
             echo "External review requested repair $REPAIR_ATTEMPT but maxRepairAttempts=$MAX_REPAIRS"
@@ -311,13 +363,15 @@ jobs:
             --argjson pr "$PR_NUMBER" \
             --arg candidate_sha "$CANDIDATE_SHA" \
             --arg branch "$BRANCH" \
+            --arg base_sha "$BASE_SHA" \
             --arg task_path "$TASK_PATH" \
+            --arg task_sha256 "$TASK_SHA256" \
             --arg review_type "$REVIEW_TYPE" \
             --arg risk_class "$RISK_CLASS" \
             --arg reviewer_slot "$REVIEWER_SLOT" \
             --argjson attempt "$REPAIR_ATTEMPT" \
-            '{event_type:"candidate-repair",client_payload:{review_source:"external-review",pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,task_path:$task_path,validation_run_id:0,attempt:$attempt,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot}}' \
+            '{event_type:"candidate-repair",client_payload:{review_source:"external-review",pr_number:$pr,candidate_sha:$candidate_sha,branch:$branch,base_sha:$base_sha,task_path:$task_path,task_sha256:$task_sha256,validation_run_id:0,attempt:$attempt,review_type:$review_type,risk_class:$risk_class,reviewer_slot:$reviewer_slot}}' \
             > "$RUNNER_TEMP/repair-dispatch.json"
           cat "$RUNNER_TEMP/repair-dispatch.json"
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input "$RUNNER_TEMP/repair-dispatch.json"
-          gh pr comment "$PR_NUMBER" --body "External review requires changes. Dispatched bounded repair attempt **${REPAIR_ATTEMPT}/${MAX_REPAIRS}** on the same candidate PR for risk class \`${RISK_CLASS}\`."
+          gh pr comment "$PR_NUMBER" --body "External review requires changes. Dispatched bounded repair attempt **${REPAIR_ATTEMPT}/${MAX_REPAIRS}** for candidate \`${CANDIDATE_SHA}\` bound to base \`${BASE_SHA}\`."
