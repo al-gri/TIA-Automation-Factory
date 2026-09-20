@@ -235,9 +235,9 @@ class ExternalReviewToolTests(unittest.TestCase):
     def test_external_review_response_rechecks_authorship_independence(self):
         workflow = (ROOT / ".github" / "workflows" / "external-review-response.yml").read_text(encoding="utf-8")
         self.assertIn("fetch-depth: 0", workflow)
-        self.assertIn("reviewer-policy.py validate-slot", workflow)
+        self.assertIn('trusted-review-authority/reviewer-policy.py" validate-slot', workflow)
         self.assertIn("candidate-author-emails.txt", workflow)
-        self.assertIn("reviewer eligibility for the current candidate authorship", workflow)
+        self.assertIn('git log --format=\'%ae\' "$BASE_SHA..$CANDIDATE_SHA"', workflow)
 
     def test_response_authorizes_current_task_before_publishing_state(self):
         workflow = (ROOT / ".github" / "workflows" / "external-review-response.yml").read_text(encoding="utf-8")
@@ -251,7 +251,8 @@ class ExternalReviewToolTests(unittest.TestCase):
         authorization_block = workflow[authorize_index:publish_index]
         self.assertIn('test "$TASK_RISK" = "$RISK_CLASS"', authorization_block)
         self.assertIn('test "$TASK_REVIEW_TYPE" = "$REVIEW_TYPE"', authorization_block)
-        self.assertIn("reviewer-policy.py authorize-slot", authorization_block)
+        self.assertIn('trusted-review-authority/reviewer-policy.py" authorize-slot', authorization_block)
+        self.assertIn("review-authority.py", authorization_block)
 
     def test_olq_task_authorizes_both_authorship_based_slots_without_dual_requirement(self):
         task = json.loads((ROOT / "tasks" / "OLQ-001.json").read_text(encoding="utf-8"))
