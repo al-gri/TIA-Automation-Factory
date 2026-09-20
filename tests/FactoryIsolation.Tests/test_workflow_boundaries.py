@@ -59,7 +59,7 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
         self.assertIn("build-coder-context.py", text)
         self.assertIn("trusted-runtime", text)
 
-    def test_repair_is_bound_to_reviewed_base_task_hash_at_start_publish_and_push(self):
+    def test_repair_is_bound_to_reviewed_base_task_hash_at_start_publish_and_cas(self):
         text = self.read("agent-repair.yml")
         self.assertIn("BOUND_BASE_SHA: ${{ github.event.client_payload.base_sha }}", text)
         self.assertIn("TASK_SHA256: ${{ github.event.client_payload.task_sha256 }}", text)
@@ -68,35 +68,40 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(text.count("git fetch --no-tags origin main"), 3)
         self.assertIn("Trusted main moved after external review", text)
         self.assertIn("Trusted main moved before repair publication", text)
-        self.assertIn("Trusted main moved at final repair publication boundary", text)
+        self.assertIn("Trusted main moved before atomic repair publication", text)
         self.assertIn("review-authority.py", text)
 
-    def test_repair_push_uses_server_enforced_atomic_leases_at_final_boundary(self):
+    def test_repair_publication_uses_github_update_refs_atomic_cas(self):
         text = self.read("agent-repair.yml")
         block = self.step_block(
             text,
-            "Commit and push repair from clean publisher",
+            "Commit and publish repair with atomic GitHub ref CAS",
             "Record repair and dispatch fresh exact-SHA review",
         )
         commit_index = block.index('git commit -m')
-        auth_index = block.index('gh auth setup-git')
-        fetch_index = block.index('git fetch --no-tags origin main', auth_index)
+        fetch_index = block.index('git fetch --no-tags origin main', commit_index)
         branch_check_index = block.index('git ls-remote origin "refs/heads/$BRANCH"', fetch_index)
-        push_index = block.index('git push --atomic', branch_check_index)
-        self.assertLess(commit_index, auth_index)
-        self.assertLess(auth_index, fetch_index)
+        mutation_index = block.index("MUTATION='mutation", branch_check_index)
+        api_index = block.index('gh api graphql', mutation_index)
+        self.assertLess(commit_index, fetch_index)
         self.assertLess(fetch_index, branch_check_index)
-        self.assertLess(branch_check_index, push_index)
-        self.assertIn('--force-with-lease="refs/heads/main:$TRUSTED_MAIN_SHA"', block)
-        self.assertIn('--force-with-lease="refs/heads/$BRANCH:$CANDIDATE_SHA"', block)
-        self.assertIn('"$TRUSTED_MAIN_SHA:refs/heads/main"', block)
-        self.assertIn('"HEAD:refs/heads/$BRANCH"', block)
+        self.assertLess(branch_check_index, mutation_index)
+        self.assertLess(mutation_index, api_index)
+        self.assertIn('updateRefs(input:{repositoryId:$repositoryId,refUpdates:[', block)
+        self.assertIn('{name:"refs/heads/main",beforeOid:$mainBefore,afterOid:$mainBefore,force:false}', block)
+        self.assertIn('{name:$branchName,beforeOid:$branchBefore,afterOid:$branchAfter,force:false}', block)
+        self.assertIn('-f mainBefore="$TRUSTED_MAIN_SHA"', block)
+        self.assertIn('-f branchBefore="$CANDIDATE_SHA"', block)
+        self.assertIn('-f branchAfter="$NEW_SHA"', block)
+        self.assertIn("jq -e '.data.updateRefs'", block)
+        self.assertNotIn('git push --atomic', block)
+        self.assertNotIn('--force-with-lease=', block)
 
     def test_review_request_reconstructs_authority_only_in_clean_publisher(self):
         text = self.read("external-review-request.yml")
         self.assertIn("  build-review-package:", text)
         self.assertIn("  publish-review-package:", text)
-        build = text[text.index("  build-review-package:"):text.index("  publish-review-package:")]
+        build = text[text.index("  build-review-package:"):text.index("publish-review-package:")]
         self.assertNotIn("pull-requests: write", build)
         self.assertNotIn("gh pr comment", build)
         self.assertNotIn("review-request.md", build)
