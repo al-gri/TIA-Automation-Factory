@@ -149,7 +149,7 @@ class ReviewAuthorityTests(unittest.TestCase):
             )
             self.assertIn("stale continuation task/policy hash", completed.stderr)
 
-    def test_atomic_repair_push_rejects_main_move_after_early_check(self):
+    def test_atomic_ref_transaction_rejects_main_move_after_client_observation(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             remote = root / "remote.git"
@@ -181,37 +181,46 @@ class ReviewAuthorityTests(unittest.TestCase):
             (publisher / "candidate.txt").write_text("candidate repaired\n", encoding="utf-8")
             self.git(publisher, "add", "candidate.txt")
             self.git(publisher, "commit", "-m", "repair prepared")
+            repair_sha = self.git(publisher, "rev-parse", "HEAD").stdout.strip()
 
-            # Simulate main advancing after an earlier local freshness check but
-            # before the privileged publication network action.
+            # Transfer the repair object to the bare repository without changing
+            # the candidate branch. Production GraphQL already has the commit
+            # object because the publisher checkout/upload path created it in the
+            # same GitHub repository object database before updateRefs is called.
+            self.git(publisher, "push", "origin", "HEAD:refs/heads/repair-object")
+
+            # Client has already observed main == base. A concurrent writer moves
+            # main before the authoritative multi-ref transaction is committed.
             self.git(root, "clone", "--branch", "main", remote, racer)
             self.configure_identity(racer)
             (racer / "authority.txt").write_text("moved\n", encoding="utf-8")
             self.git(racer, "add", "authority.txt")
             self.git(racer, "commit", "-m", "move main")
             self.git(racer, "push", "origin", "main")
+            raced_main = self.git(remote, "rev-parse", "refs/heads/main").stdout.strip()
+            self.assertNotEqual(base_sha, raced_main)
 
-            failed = self.git(
-                publisher,
-                "push",
-                "--atomic",
-                f"--force-with-lease=refs/heads/main:{base_sha}",
-                f"--force-with-lease=refs/heads/agent/task:{candidate_sha}",
-                "origin",
-                f"{base_sha}:refs/heads/main",
-                "HEAD:refs/heads/agent/task",
-                expect=1,
+            transaction = (
+                "start\n"
+                f"verify refs/heads/main {base_sha}\n"
+                f"update refs/heads/agent/task {repair_sha} {candidate_sha}\n"
+                "prepare\n"
+                "commit\n"
             )
-            self.assertTrue(
-                "stale info" in failed.stderr.lower()
-                or "rejected" in failed.stderr.lower()
-                or "atomic push failed" in failed.stderr.lower(),
-                failed.stderr,
+            completed = subprocess.run(
+                ["git", "update-ref", "--stdin"],
+                cwd=remote,
+                input=transaction,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
+            self.assertNotEqual(0, completed.returncode, completed.stderr)
+
             remote_candidate = self.git(remote, "rev-parse", "refs/heads/agent/task").stdout.strip()
             remote_main = self.git(remote, "rev-parse", "refs/heads/main").stdout.strip()
             self.assertEqual(candidate_sha, remote_candidate)
-            self.assertNotEqual(base_sha, remote_main)
+            self.assertEqual(raced_main, remote_main)
 
 
 if __name__ == "__main__":
