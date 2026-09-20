@@ -677,7 +677,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 string messageDataFingerprint = null;
                 string detailDataAggregateFingerprint = null;
 
-                if (exception.MessageData != null && !string.IsNullOrEmpty(exception.MessageData.Text))
+                if (!string.IsNullOrEmpty(exception.MessageData.Text))
                 {
                     string messageText = exception.MessageData.Text;
                     messageDataFingerprint = ComputeSha256Truncated(messageText, 16);
