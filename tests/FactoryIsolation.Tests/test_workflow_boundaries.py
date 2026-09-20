@@ -40,6 +40,18 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
         self.assertIn("build-coder-context.py", text)
         self.assertIn("trusted-runtime", text)
 
+    def test_repair_is_bound_to_reviewed_base_task_hash_at_start_publish_and_push(self):
+        text = self.read("agent-repair.yml")
+        self.assertIn("BOUND_BASE_SHA: ${{ github.event.client_payload.base_sha }}", text)
+        self.assertIn("TASK_SHA256: ${{ github.event.client_payload.task_sha256 }}", text)
+        self.assertIn('TRUSTED_MAIN_SHA="$BOUND_BASE_SHA"', text)
+        self.assertGreaterEqual(text.count("verify-continuation"), 2)
+        self.assertGreaterEqual(text.count("git fetch --no-tags origin main"), 3)
+        self.assertIn("Trusted main moved after external review", text)
+        self.assertIn("Trusted main moved before repair publication", text)
+        self.assertIn("Trusted main moved immediately before repair push", text)
+        self.assertIn("review-authority.py", text)
+
     def test_review_request_reconstructs_authority_only_in_clean_publisher(self):
         text = self.read("external-review-request.yml")
         self.assertIn("  build-review-package:", text)
@@ -65,7 +77,21 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
         self.assertIn("escaped external-review-state marker", publish)
         self.assertIn('test "$(jq -r .headRefOid "$RUNNER_TEMP/pr.json")" = "$CANDIDATE_SHA"', publish)
 
-    def test_candidate_validation_is_linux_only_and_read_only(self):
+    def test_response_propagates_bound_authority_to_every_continuation(self):
+        text = self.read("external-review-response.yml")
+        self.assertIn("taskSha256", text)
+        self.assertIn("baseSha", text)
+        self.assertIn("trusted-review-authority", text)
+        self.assertIn("verify-continuation", text)
+        self.assertGreaterEqual(text.count("git fetch --no-tags origin main"), 4)
+        self.assertIn('--arg base_sha "$BASE_SHA"', text)
+        self.assertIn('--arg task_sha256 "$TASK_SHA256"', text)
+        self.assertIn('base_sha:$base_sha', text)
+        self.assertIn('task_sha256:$task_sha256', text)
+        self.assertIn('event_type:"candidate-validation"', text)
+        self.assertIn('event_type:"candidate-repair"', text)
+
+    def test_candidate_validation_is_linux_only_read_only_and_bound(self):
         text = self.read("candidate-validation.yml")
         self.assertNotIn("self-hosted", text)
         self.assertNotIn("TiaV21Worker", text)
@@ -74,6 +100,10 @@ class FactoryIsolationWorkflowTests(unittest.TestCase):
         self.assertNotIn("gh pr comment", text)
         self.assertIn("Candidate Validation is Linux-only", text)
         self.assertIn("validate-current", text)
+        self.assertIn("BOUND_BASE_SHA: ${{ github.event.client_payload.base_sha }}", text)
+        self.assertIn("TASK_SHA256: ${{ github.event.client_payload.task_sha256 }}", text)
+        self.assertIn("verify-continuation", text)
+        self.assertIn("Trusted main moved after external review", text)
 
 
 if __name__ == "__main__":
