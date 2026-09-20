@@ -3,7 +3,7 @@
   "title": "Start deterministic Valve generator foundations without inventing Siemens contract facts",
   "goal": "Begin real GEN-VALVE-001 product development in parallel with OLQ-VALVE-PROFILE-001 by implementing only generator capabilities that are required by issue #62 and do not depend on the still-unqualified fbValve_Solenoid interface. Build deterministic output identity/manifest, safe output containment, centralized Siemens engineering-name and symbol validation/allocation, and stable input diagnostics now; defer exact Valve call parameters, dependency names, versions and instance/data ownership until #61 produces the verified V21 contract.",
   "scope": [
-    "Work only in Domain, Compiler/IR, SiemensBackend, GeneratorCli, focused tests and examples listed in candidatePolicy.allowedPaths. Do not modify TiaV21Worker, workflows, agents, tasks, runner configuration, vendor payloads, or IndustrialMDE.",
+    "Work only in Domain, PlcCompiler/IR, SiemensBackend, GeneratorCli, focused tests and examples listed in candidatePolicy.allowedPaths. Do not modify TiaV21Worker, workflows, agents, tasks, runner configuration, vendor payloads, or IndustrialMDE.",
     "Add deterministic multi-artifact output manifest plumbing suitable for the upcoming Valve slice. The manifest must contain generator identity, deterministic input identity, an explicit externally supplied profile/contract identity token, emitted artifact relative paths and SHA-256 hashes. Do not fabricate a Valve profile identity or Siemens library metadata.",
     "Enforce output-root containment for every generated artifact and manifest before write. Reject absolute/escaping paths and traversal rather than normalizing them outside the requested root.",
     "Introduce the smallest centralized Siemens engineering-name/symbol policy needed for first-device generation: reject null/empty required names, invalid names that cannot be emitted safely, and case-insensitive duplicate allocated symbols. Do not silently rename user input unless an existing documented deterministic naming rule already requires it.",
@@ -13,7 +13,7 @@
   ],
   "acceptance": {
     "requirements": [
-      "Candidate changes are limited exactly to candidatePolicy.allowedPaths and Siemens.Engineering remains absent from Domain/Compiler core.",
+      "Candidate changes are limited exactly to candidatePolicy.allowedPaths and Siemens.Engineering remains absent from Domain/PlcCompiler core.",
       "Same semantic input plus same explicit profile identity produces byte-identical generated artifacts and manifest across repeated Linux runs.",
       "The deterministic manifest contains generator identity, input identity, explicit profile identity and SHA-256 for every emitted artifact; it contains no timestamps or environment-specific absolute paths unless explicitly excluded from deterministic identity and justified.",
       "Every output path is proven contained beneath the requested output root before write. Absolute paths, traversal and containment escapes fail with a stable diagnostic and do not write outside the root.",
@@ -36,7 +36,7 @@
   "candidatePolicy": {
     "allowedPaths": [
       "src/Domain/**",
-      "src/Compiler/**",
+      "src/PlcCompiler/**",
       "src/SiemensBackend/**",
       "src/GeneratorCli/**",
       "tests/SiemensBackend.Tests/**",
