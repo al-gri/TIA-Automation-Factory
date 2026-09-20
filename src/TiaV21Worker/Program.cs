@@ -394,6 +394,10 @@ namespace TiaAutomationFactory.TiaV21Worker
             string qualifiedArchiveName = qualificationIdentity + ".zal21";
             string qualifiedArchivePath = Path.Combine(qualificationOutputRoot, qualifiedArchiveName);
 
+            const string cpuTypeIdentifier = "OrderNumber:6ES7 516-3AP03-0AB0/V4.0";
+            const string valveLibraryObject = "fbValve_Solenoid";
+            string profileRecipeIdentity = QualificationStateManager.DeriveProfileRecipeIdentity(cpuTypeIdentifier, valveLibraryObject);
+
             var manifest = new QualificationResult
             {
                 SourceArchiveBasename = sourceBasename,
@@ -414,7 +418,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 return manifest;
             }
 
-            var reuseCheck = QualificationStateManager.CheckReuse(state, sourceSha256, tiaBuildIdentity, qualificationOutputRoot);
+            var reuseCheck = QualificationStateManager.CheckReuse(state, sourceSha256, tiaBuildIdentity, qualificationOutputRoot, profileRecipeIdentity);
             if (reuseCheck.CanReuse)
             {
                 manifest.Success = true;
@@ -424,12 +428,14 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.IsReuse = true;
                 manifest.ReuseVerificationRunId = reuseCheck.OriginalVerificationRunId;
                 manifest.ReuseOriginalCompletedAt = reuseCheck.OriginalCompletedAt;
+                manifest.ValveProfile = reuseCheck.ValveProfile;
+                manifest.ReferenceValidation = reuseCheck.ReferenceValidation;
                 return manifest;
             }
 
             string verificationRunId = Guid.NewGuid().ToString("N");
             DateTimeOffset stagedAt = DateTimeOffset.UtcNow;
-            QualificationStateManager.MarkStaged(state, sourceSha256, tiaBuildIdentity, qualificationOutputRoot, verificationRunId, stagedAt);
+            QualificationStateManager.MarkStaged(state, sourceSha256, tiaBuildIdentity, qualificationOutputRoot, verificationRunId, stagedAt, profileRecipeIdentity);
 
             if (!QualificationStateManager.IsValidStagedState(state, sourceSha256, tiaBuildIdentity))
             {

@@ -46,7 +46,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             var dependencies = DiscoverDependencyClosure(qualifiedLibrary, valveBlock);
             var instanceData = DetermineInstanceDataRequirements(qualifiedLibrary, valveBlock);
-            var targetPrerequisites = DetermineTargetPrerequisites(qualifiedLibrary, cpuTypeIdentifier);
+            var targetPrerequisites = DetermineTargetPrerequisites(cpuTypeIdentifier);
 
             return ValveProfileContract.Create(
                 profileIdentity,
@@ -197,10 +197,10 @@ namespace TiaAutomationFactory.TiaV21Worker
             var sectionName = section.Name.ToLowerInvariant();
             if (sectionName.Contains("inout") || sectionName.Contains("in_out"))
                 return "InOut";
-            if (sectionName.Contains("in") && !sectionName.Contains("out"))
-                return "In";
-            if (sectionName.Contains("out"))
+            if (sectionName.Contains("out") && !sectionName.Contains("in"))
                 return "Out";
+            if (sectionName.Contains("in"))
+                return "In";
             if (sectionName.Contains("static"))
                 return "Static";
             if (sectionName.Contains("temp"))
@@ -288,30 +288,47 @@ namespace TiaAutomationFactory.TiaV21Worker
                 {
                     if (instance is PlcBlockUserType nestedBlock)
                     {
-                        var typeProp = nestedBlock.GetType().GetProperty("Type") ?? nestedBlock.GetType().GetProperty("UserType") ?? nestedBlock.GetType().GetProperty("BlockType");
-                        if (typeProp != null)
+                        var typeIdentifier = GetTypeIdentifierFromBlock(nestedBlock);
+                        if (!string.IsNullOrEmpty(typeIdentifier))
                         {
-                            var usedType = typeProp.GetValue(nestedBlock);
-                            if (usedType != null)
-                            {
-                                var idProp = usedType.GetType().GetProperty("TypeIdentifier") ?? usedType.GetType().GetProperty("Identifier");
-                                if (idProp != null)
-                                {
-                                    var id = idProp.GetValue(usedType)?.ToString();
-                                    if (!string.IsNullOrEmpty(id))
-                                        result.Add(id);
-                                }
-                            }
+                            result.Add(typeIdentifier);
                         }
                         result.AddRange(GetUsedTypesFromBlock(nestedBlock));
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                throw new InvalidOperationException("Failed to extract used types from block: " + plcBlock.Name);
+                throw new InvalidOperationException("Failed to extract used types from block: " + plcBlock.Name, ex);
             }
             return result;
+        }
+
+        private static string GetTypeIdentifierFromBlock(PlcBlockUserType plcBlock)
+        {
+            try
+            {
+                var typeProp = plcBlock.GetType().GetProperty("Type") 
+                    ?? plcBlock.GetType().GetProperty("UserType") 
+                    ?? plcBlock.GetType().GetProperty("BlockType");
+                if (typeProp != null)
+                {
+                    var usedType = typeProp.GetValue(plcBlock);
+                    if (usedType != null)
+                    {
+                        var idProp = usedType.GetType().GetProperty("TypeIdentifier") 
+                            ?? usedType.GetType().GetProperty("Identifier");
+                        if (idProp != null)
+                        {
+                            var id = idProp.GetValue(usedType)?.ToString();
+                            if (!string.IsNullOrEmpty(id))
+                                return id;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
         }
 
         private static GlobalLibraryUserType FindUserType(UserGlobalLibrary library, string name)
@@ -398,103 +415,38 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             var composition = valveType.GetComposition();
             bool requiresInstanceDb = false;
-            string instanceDbName = null;
-            string dataBlockAccessMode = null;
-            string multiInstancePath = null;
 
             foreach (var instance in composition.Instances)
             {
                 if (instance is PlcBlockUserType plcBlock)
                 {
                     requiresInstanceDb = true;
-                    instanceDbName = "DB_" + plcBlock.Name;
-                    dataBlockAccessMode = "Standard";
-                    multiInstancePath = plcBlock.Name + "_Instance";
                     break;
                 }
             }
 
             if (!requiresInstanceDb)
-                throw new InvalidOperationException("Could not determine instance data requirements for valve block.");
+                throw new InvalidOperationException("Valve block does not require instance DB; cannot determine instance data requirements.");
 
             return new InstanceDataRequirements
             {
-                RequiresInstanceDb = requiresInstanceDb,
-                InstanceDbName = instanceDbName,
-                DataBlockAccessMode = dataBlockAccessMode,
-                MultiInstancePath = multiInstancePath
+                RequiresInstanceDb = true,
+                InstanceDbName = null,
+                DataBlockAccessMode = null,
+                MultiInstancePath = null
             };
         }
 
-        private static TargetPrerequisites DetermineTargetPrerequisites(UserGlobalLibrary library, string cpuTypeIdentifier)
+        private static TargetPrerequisites DetermineTargetPrerequisites(string cpuTypeIdentifier)
         {
-            bool requiredSystemMemory = false;
-            bool requiredClockMemory = false;
-            string expectedSystemMemoryAddress = null;
-            string expectedClockMemoryAddress = null;
-
-            foreach (var group in library.Groups)
-            {
-                CheckGroupForPrerequisites(group, ref requiredSystemMemory, ref requiredClockMemory, ref expectedSystemMemoryAddress, ref expectedClockMemoryAddress);
-            }
-
             return new TargetPrerequisites
             {
                 CpuTypeIdentifier = cpuTypeIdentifier,
-                RequiredSystemMemory = requiredSystemMemory,
-                RequiredClockMemory = requiredClockMemory,
-                ExpectedSystemMemoryAddress = expectedSystemMemoryAddress,
-                ExpectedClockMemoryAddress = expectedClockMemoryAddress
+                RequiredSystemMemory = false,
+                RequiredClockMemory = false,
+                ExpectedSystemMemoryAddress = null,
+                ExpectedClockMemoryAddress = null
             };
-        }
-
-        private static void CheckGroupForPrerequisites(GlobalLibraryGroup group, ref bool requiredSystemMemory, ref bool requiredClockMemory, ref string expectedSystemMemoryAddress, ref string expectedClockMemoryAddress)
-        {
-            foreach (var type in group.Types)
-            {
-                if (type is GlobalLibraryUserType userType)
-                {
-                    try
-                    {
-                        var composition = userType.GetComposition();
-                        foreach (var instance in composition.Instances)
-                        {
-                            if (instance is PlcBlockUserType plcBlock)
-                            {
-                                var interfaceComposition = plcBlock.Interface;
-                                if (interfaceComposition != null)
-                                {
-                                    foreach (var section in interfaceComposition.Sections)
-                                    {
-                                        foreach (var tag in section.Tags)
-                                        {
-                                            var tagName = tag.Name.ToLowerInvariant();
-                                            if (tagName.Contains("system") && tagName.Contains("memory"))
-                                            {
-                                                requiredSystemMemory = true;
-                                                if (string.IsNullOrEmpty(expectedSystemMemoryAddress))
-                                                    expectedSystemMemoryAddress = "%MB" + tag.Offset?.ToString() ?? "100";
-                                            }
-                                            if (tagName.Contains("clock") && tagName.Contains("memory"))
-                                            {
-                                                requiredClockMemory = true;
-                                                if (string.IsNullOrEmpty(expectedClockMemoryAddress))
-                                                    expectedClockMemoryAddress = "%MB" + tag.Offset?.ToString() ?? "101";
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch { }
-                }
-            }
-
-            foreach (var subGroup in group.Groups)
-            {
-                CheckGroupForPrerequisites(subGroup, ref requiredSystemMemory, ref requiredClockMemory, ref expectedSystemMemoryAddress, ref expectedClockMemoryAddress);
-            }
         }
     }
 }

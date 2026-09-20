@@ -7,6 +7,15 @@ using System.Text;
 
 namespace TiaAutomationFactory.TiaV21Worker
 {
+    internal sealed class DiagnosticRecord
+    {
+        public string Path { get; set; }
+        public string State { get; set; }
+        public string Description { get; set; }
+        public int WarningCount { get; set; }
+        public int ErrorCount { get; set; }
+    }
+
     internal enum QualificationStateKind
     {
         None,
@@ -28,6 +37,9 @@ namespace TiaAutomationFactory.TiaV21Worker
         public bool NativeReopenVerified { get; set; }
         public string FailureReason { get; set; }
         public string SchemaVersion { get; set; } = "1.0";
+        public string ProfileRecipeIdentity { get; set; }
+        public ValveProfileContract ValveProfile { get; set; }
+        public ReferenceValidationResult ReferenceValidation { get; set; }
 
         public static string GetStateFilePath(string qualificationOutputRoot, string qualificationIdentity)
         {
@@ -80,8 +92,57 @@ namespace TiaAutomationFactory.TiaV21Worker
             AppendProperty(builder, "completedAt", state.CompletedAt.ToString("o"), false, true);
             AppendProperty(builder, "nativeReopenVerified", state.NativeReopenVerified ? "true" : "false", false, true);
             AppendProperty(builder, "failureReason", state.FailureReason, true, true);
-            AppendProperty(builder, "schemaVersion", state.SchemaVersion, true, false);
+            AppendProperty(builder, "schemaVersion", state.SchemaVersion, true, true);
+            AppendProperty(builder, "profileRecipeIdentity", state.ProfileRecipeIdentity, true, true);
+            if (state.ValveProfile != null)
+            {
+                AppendProperty(builder, "valveProfile", state.ValveProfile.Serialize().Replace("\n", "\n  "), false, true);
+            }
+            else
+            {
+                AppendProperty(builder, "valveProfile", "null", false, true);
+            }
+            if (state.ReferenceValidation != null)
+            {
+                builder.Append("  \"referenceValidation\": ");
+                builder.AppendLine(SerializeReferenceValidation(state.ReferenceValidation));
+            }
+            else
+            {
+                AppendProperty(builder, "referenceValidation", "null", false, false);
+            }
             builder.AppendLine("}");
+            return builder.ToString();
+        }
+
+        private static string SerializeReferenceValidation(ReferenceValidationResult result)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine("{");
+            AppendProperty(builder, "success", result.Success ? "true" : "false", false, true, 4);
+            AppendProperty(builder, "errorCount", result.ErrorCount.ToString(), false, true, 4);
+            AppendProperty(builder, "warningCount", result.WarningCount.ToString(), false, true, 4);
+            AppendProperty(builder, "projectPath", result.ProjectPath, true, true, 4);
+            AppendProperty(builder, "state", result.State, true, true, 4);
+            AppendProperty(builder, "saveReopenVerified", result.SaveReopenVerified ? "true" : "false", false, true, 4);
+            AppendProperty(builder, "failure", result.Failure, true, true, 4);
+            AppendProperty(builder, "failureDetails", result.FailureDetails, true, true, 4);
+            builder.AppendLine("    \"diagnostics\": [");
+            for (int i = 0; i < result.Diagnostics.Count; i++)
+            {
+                var item = result.Diagnostics[i];
+                builder.AppendLine("      {");
+                AppendProperty(builder, "path", item.Path, true, true, 8);
+                AppendProperty(builder, "state", item.State, true, true, 8);
+                AppendProperty(builder, "description", item.Description, true, true, 8);
+                AppendProperty(builder, "warnings", item.WarningCount.ToString(), false, true, 8);
+                AppendProperty(builder, "errors", item.ErrorCount.ToString(), false, i == result.Diagnostics.Count - 1 ? false : true, 8);
+                builder.Append("      }");
+                if (i < result.Diagnostics.Count - 1) builder.Append(",");
+                builder.AppendLine();
+            }
+            builder.AppendLine("    ]");
+            builder.Append("  }");
             return builder.ToString();
         }
 
@@ -91,6 +152,11 @@ namespace TiaAutomationFactory.TiaV21Worker
             var lines = json.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             bool hasSchemaVersion = false;
             bool hasStateKind = false;
+            bool inValveProfile = false;
+            bool inReferenceValidation = false;
+            var valveProfileJson = new StringBuilder();
+            var refValJson = new StringBuilder();
+            int braceDepth = 0;
 
             foreach (var line in lines)
             {
@@ -132,6 +198,72 @@ namespace TiaAutomationFactory.TiaV21Worker
                     result.SchemaVersion = ExtractValue(trimmed);
                     hasSchemaVersion = true;
                 }
+                else if (trimmed.StartsWith("\"profileRecipeIdentity\":"))
+                    result.ProfileRecipeIdentity = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"valveProfile\":"))
+                {
+                    inValveProfile = true;
+                    braceDepth = 0;
+                    valveProfileJson.Clear();
+                }
+                else if (trimmed.StartsWith("\"referenceValidation\":"))
+                {
+                    inReferenceValidation = true;
+                    braceDepth = 0;
+                    refValJson.Clear();
+                }
+
+                if (inValveProfile)
+                {
+                    for (int i = 0; i < line.Length; i++)
+                    {
+                        if (line[i] == '{') braceDepth++;
+                        if (line[i] == '}') braceDepth--;
+                    }
+                    valveProfileJson.AppendLine(line);
+                    if (braceDepth == 0 && valveProfileJson.Length > 0)
+                    {
+                        inValveProfile = false;
+                        var vpJson = valveProfileJson.ToString().Trim();
+                        if (!vpJson.Equals("null", StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                result.ValveProfile = ValveProfileContract.Deserialize(vpJson);
+                            }
+                            catch (Exception ex)
+                            {
+                                throw new InvalidDataException("Failed to deserialize valveProfile: " + ex.Message);
+                            }
+                        }
+                    }
+                }
+
+                if (inReferenceValidation)
+                {
+                    for (int i = 0; i < line.Length; i++)
+                    {
+                        if (line[i] == '{') braceDepth++;
+                        if (line[i] == '}') braceDepth--;
+                    }
+                    refValJson.AppendLine(line);
+                    if (braceDepth == 0 && refValJson.Length > 0)
+                    {
+                        inReferenceValidation = false;
+                        var rvJson = refValJson.ToString().Trim();
+                        if (!rvJson.Equals("null", StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                result.ReferenceValidation = DeserializeReferenceValidation(rvJson);
+                            }
+                            catch (Exception ex)
+                            {
+                                throw new InvalidDataException("Failed to deserialize referenceValidation: " + ex.Message);
+                            }
+                        }
+                    }
+                }
             }
 
             if (!hasSchemaVersion)
@@ -140,6 +272,60 @@ namespace TiaAutomationFactory.TiaV21Worker
                 throw new InvalidDataException("Unsupported schemaVersion: " + result.SchemaVersion);
             if (!hasStateKind)
                 throw new InvalidDataException("Missing required stateKind field");
+
+            return result;
+        }
+
+        private static ReferenceValidationResult DeserializeReferenceValidation(string json)
+        {
+            var result = new ReferenceValidationResult();
+            var lines = json.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            bool inDiagnostics = false;
+            var currentDiag = new DiagnosticRecord();
+
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith("\"success\":"))
+                    result.Success = trimmed.Contains("true");
+                else if (trimmed.StartsWith("\"errorCount\":"))
+                    result.ErrorCount = int.Parse(ExtractValue(trimmed));
+                else if (trimmed.StartsWith("\"warningCount\":"))
+                    result.WarningCount = int.Parse(ExtractValue(trimmed));
+                else if (trimmed.StartsWith("\"projectPath\":"))
+                    result.ProjectPath = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"state\":"))
+                    result.State = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"saveReopenVerified\":"))
+                    result.SaveReopenVerified = trimmed.Contains("true");
+                else if (trimmed.StartsWith("\"failure\":"))
+                    result.Failure = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"failureDetails\":"))
+                    result.FailureDetails = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"diagnostics\":"))
+                    inDiagnostics = true;
+                else if (inDiagnostics)
+                {
+                    if (trimmed == "{")
+                    {
+                        currentDiag = new DiagnosticRecord();
+                    }
+                    else if (trimmed.StartsWith("\"path\":"))
+                        currentDiag.Path = ExtractValue(trimmed);
+                    else if (trimmed.StartsWith("\"state\":"))
+                        currentDiag.State = ExtractValue(trimmed);
+                    else if (trimmed.StartsWith("\"description\":"))
+                        currentDiag.Description = ExtractValue(trimmed);
+                    else if (trimmed.StartsWith("\"warnings\":"))
+                        currentDiag.WarningCount = int.Parse(ExtractValue(trimmed));
+                    else if (trimmed.StartsWith("\"errors\":"))
+                        currentDiag.ErrorCount = int.Parse(ExtractValue(trimmed));
+                    else if (trimmed.Contains("}"))
+                    {
+                        result.Diagnostics.Add(currentDiag);
+                    }
+                }
+            }
 
             return result;
         }
@@ -204,7 +390,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             return QualificationState.LoadOrCreate(qualificationOutputRoot, qualificationIdentity);
         }
 
-        public static QualificationReuseCheck CheckReuse(QualificationState state, string sourceArchiveSha256, string tiaBuildIdentity, string qualificationOutputRoot)
+        public static QualificationReuseCheck CheckReuse(QualificationState state, string sourceArchiveSha256, string tiaBuildIdentity, string qualificationOutputRoot, string profileRecipeIdentity)
         {
             var check = new QualificationReuseCheck();
 
@@ -226,6 +412,13 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 check.CanReuse = false;
                 check.Reason = "TIA build identity mismatch.";
+                return check;
+            }
+
+            if (state.ProfileRecipeIdentity != profileRecipeIdentity)
+            {
+                check.CanReuse = false;
+                check.Reason = "Profile recipe identity mismatch.";
                 return check;
             }
 
@@ -256,10 +449,12 @@ namespace TiaAutomationFactory.TiaV21Worker
             check.Reason = "Valid completed-success reuse.";
             check.OriginalVerificationRunId = state.VerificationRunId;
             check.OriginalCompletedAt = state.CompletedAt;
+            check.ValveProfile = state.ValveProfile;
+            check.ReferenceValidation = state.ReferenceValidation;
             return check;
         }
 
-        public static void MarkStaged(QualificationState state, string sourceArchiveSha256, string tiaBuildIdentity, string qualificationOutputRoot, string verificationRunId, DateTimeOffset completedAt)
+        public static void MarkStaged(QualificationState state, string sourceArchiveSha256, string tiaBuildIdentity, string qualificationOutputRoot, string verificationRunId, DateTimeOffset completedAt, string profileRecipeIdentity)
         {
             state.StateKind = QualificationStateKind.Staged;
             state.SourceArchiveSha256 = sourceArchiveSha256;
@@ -269,16 +464,21 @@ namespace TiaAutomationFactory.TiaV21Worker
             state.CompletedAt = completedAt;
             state.NativeReopenVerified = false;
             state.FailureReason = null;
+            state.ProfileRecipeIdentity = profileRecipeIdentity;
+            state.ValveProfile = null;
+            state.ReferenceValidation = null;
             state.Save(qualificationOutputRoot);
         }
 
-        public static void MarkCompletedSuccess(QualificationState state, string qualifiedArchiveSha256, string qualificationOutputRoot, DateTimeOffset completedAt)
+        public static void MarkCompletedSuccess(QualificationState state, string qualifiedArchiveSha256, string qualificationOutputRoot, DateTimeOffset completedAt, ValveProfileContract valveProfile, ReferenceValidationResult referenceValidation)
         {
             state.StateKind = QualificationStateKind.CompletedSuccess;
             state.QualifiedArchiveSha256 = qualifiedArchiveSha256;
             state.CompletedAt = completedAt;
             state.NativeReopenVerified = true;
             state.FailureReason = null;
+            state.ValveProfile = valveProfile;
+            state.ReferenceValidation = referenceValidation;
             state.Save(qualificationOutputRoot);
         }
 
@@ -332,6 +532,16 @@ namespace TiaAutomationFactory.TiaV21Worker
                 return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
             }
         }
+
+        public static string DeriveProfileRecipeIdentity(string cpuTypeIdentifier, string valveLibraryObject)
+        {
+            string combined = cpuTypeIdentifier + "|" + valveLibraryObject;
+            using (var sha256 = SHA256.Create())
+            {
+                byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(combined));
+                return "pr-" + BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant().Substring(0, 32);
+            }
+        }
     }
 
     internal sealed class QualificationReuseCheck
@@ -340,5 +550,20 @@ namespace TiaAutomationFactory.TiaV21Worker
         public string Reason { get; set; }
         public string OriginalVerificationRunId { get; set; }
         public DateTimeOffset OriginalCompletedAt { get; set; }
+        public ValveProfileContract ValveProfile { get; set; }
+        public ReferenceValidationResult ReferenceValidation { get; set; }
+    }
+
+    internal sealed class ReferenceValidationResult
+    {
+        public bool Success { get; set; }
+        public int ErrorCount { get; set; }
+        public int WarningCount { get; set; }
+        public string ProjectPath { get; set; }
+        public string State { get; set; }
+        public List<DiagnosticRecord> Diagnostics { get; set; } = new List<DiagnosticRecord>();
+        public bool SaveReopenVerified { get; set; }
+        public string Failure { get; set; }
+        public string FailureDetails { get; set; }
     }
 }
