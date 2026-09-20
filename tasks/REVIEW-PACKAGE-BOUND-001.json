@@ -1,0 +1,51 @@
+{
+  "id": "REVIEW-PACKAGE-BOUND-001",
+  "title": "Bound large connected external-review packages without blocking repair",
+  "goal": "Fix issue #49 only where it now blocks OLQ-VALVE-PROFILE-001: when an exact candidate diff is too large for the embedded review-comment package, allow the connected primary chatgpt reviewer to receive a bounded GitHub-grounded package/state and review the immutable candidate directly from GitHub, while preserving all exact-SHA/task/authorship checks and keeping chatgpt-secondary fail-closed unless its package remains self-contained.",
+  "scope": [
+    "Primary maintainer may modify only .github/workflows/external-review-request.yml, docs/EXTERNAL_REVIEW_PROTOCOL.md, plus the smallest deterministic ExternalReviewProtocol regression test needed for this behavior.",
+    "The normative protocol update must define one narrow non-self-contained exception only for reviewerSlot=chatgpt when the exact full diff exceeds the existing embedded-diff bound: the package must retain immutable request/base/task/candidate/review identity, changed files, deterministic evidence, full-diff byte count and SHA-256, and must require the connected reviewer to inspect the exact immutable GitHub candidate before verdict.",
+    "The normative protocol must continue to require chatgpt-secondary and any other package-dependent isolated reviewer to fail closed unless sufficient self-contained source evidence fits the bounded package; this task does not generalize the connected-review exception to those reviewer slots.",
+    "Do not modify external-review-response binding, repair-budget semantics, reviewer independence, task authorization, candidate publication, TIA workflows, product/generator code, provider policy, secrets, vendor payload handling, or IndustrialMDE.",
+    "Preserve the current <=32000-byte embedded-diff path unchanged when the candidate fits.",
+    "For reviewerSlot=chatgpt only, when the exact candidate diff exceeds the embedded-diff bound, publish a bounded WAITING_FOR_EXTERNAL_REVIEW package/state that still binds request ID, trusted base SHA, trusted task path/hash/id, candidate SHA, review type/round/risk class, changed-file list and deterministic Linux evidence, and explicitly requires the connected reviewer to inspect the immutable exact candidate from GitHub before responding.",
+    "The large-diff fallback must not claim that omitted source text was reviewed and must record diff byte count plus a stable SHA-256 of the full exact diff.",
+    "For chatgpt-secondary or any reviewer slot that depends on a self-contained package, retain fail-closed behavior when the package cannot include sufficient bounded source evidence.",
+    "Do not raise GitHub comment-size ceilings as the primary workaround and do not recursively embed full historical review comments."
+  ],
+  "acceptance": {
+    "requirements": [
+      "docs/EXTERNAL_REVIEW_PROTOCOL.md formally documents the narrow connected-primary large-diff exception and its preconditions, including reviewerSlot=chatgpt only, exact full diff exceeding the existing bound, immutable request/base/task/candidate/review identity, full-diff byte count and SHA-256, and mandatory inspection of the exact GitHub candidate before verdict.",
+      "The protocol continues to require chatgpt-secondary and other package-dependent isolated reviewers to fail closed when sufficient self-contained source evidence cannot fit the bounded package.",
+      "A regression reproducing PR #77 scale (>32000-byte exact diff) reaches WAITING_FOR_EXTERNAL_REVIEW for reviewerSlot=chatgpt instead of failing before state publication.",
+      "The fallback package contains exact immutable identity, trusted task hash, changed files, full-diff byte count and SHA-256, deterministic Linux evidence, and an explicit instruction to inspect exact GitHub objects before verdict.",
+      "Normal <=32000-byte package behavior is unchanged.",
+      "chatgpt-secondary remains fail-closed for an oversized package unless sufficient self-contained source evidence fits the existing bounds.",
+      "Response schema/state validation and CHANGES_REQUIRED -> bounded repair dispatch remain unchanged.",
+      "No candidate code executes on Windows/TIA and no product/TiaV21Worker behavior changes."
+    ],
+    "tia": []
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "ARCHITECTURE_REVIEW",
+    "reviewerSlots": ["chatgpt-secondary"]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "tests/ExternalReviewProtocol.Tests/test_large_connected_review_package.py"
+    ],
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 1,
+  "issue": 49
+}
