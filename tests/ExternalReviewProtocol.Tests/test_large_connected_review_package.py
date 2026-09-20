@@ -29,7 +29,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
 
     def test_pr77_scale_reaches_connected_waiting_path_for_primary(self):
         self.assertEqual("connected", self._route(38311, "chatgpt"))
-        self.assertIn('state\':\'WAITING_FOR_EXTERNAL_REVIEW\'', self.workflow)
+        self.assertIn("'state':'WAITING_FOR_EXTERNAL_REVIEW'", self.workflow)
         self.assertIn("Connected primary large-diff review", self.workflow)
         self.assertIn("inspect the exact immutable candidate in GitHub", self.workflow)
 
