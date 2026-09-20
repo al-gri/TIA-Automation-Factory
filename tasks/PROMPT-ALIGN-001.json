@@ -1,0 +1,63 @@
+{
+  "id": "PROMPT-ALIGN-001",
+  "title": "Align active prompts and reviewer contracts with accepted audit",
+  "goal": "Make the active coding, repair, reviewer and primary-orchestration instructions match the accepted repository audit before normal autonomous implementation resumes.",
+  "scope": [
+    "Protected governance-only task. Do not change product/domain/compiler/generator/TIA worker behavior, workflows, provider runtime, runner configuration, secrets, vendor payloads, or IndustrialMDE.",
+    "Align agents/prompts/coder.md with bounded task authority, positive task scope, explicit blocker classes, no Git publication, no direct Windows/TIA access, and READY_FOR_REVIEW|BLOCKED finish semantics.",
+    "Align agents/prompts/repair.md with additive same-task repair, one bounded review/repair attempt, positive allowedPaths, conditional TiaV21Worker opt-in, opencode.json protection, and fail-closed blocker classification.",
+    "Retire agents/prompts/reviewer-requirements.md and agents/prompts/reviewer-tia.md as non-authoritative compatibility redirects; canonical review instructions remain reviews/templates/code-review.md and reviews/templates/plc-review.md with one shared reviews/schemas/external-review-response.schema.json contract.",
+    "Move the useful requirement-by-requirement lens into canonical CODE_REVIEW and provenance/TIA evidence rules into canonical PLC_REVIEW.",
+    "Add accepted primary-orchestrator priorities to the existing normative AGENTS.md contract rather than creating an unused orchestrator prompt.",
+    "Update docs/AGENT_AUTONOMY.md where it still describes obsolete Gemini provider and dual-review behavior.",
+    "Add deterministic prompt-alignment regressions under the existing ExternalReviewProtocol test discovery path."
+  ],
+  "acceptance": {
+    "requirements": [
+      "agents/prompts/coder.md names the four blocker classes CANDIDATE_DEFECT, INFRASTRUCTURE_DEFECT, MISSING_EVIDENCE and EXTERNAL_TIA_BLOCKER and ends work as READY_FOR_REVIEW or BLOCKED.",
+      "agents/prompts/repair.md no longer categorically forbids src/TiaV21Worker/**; worker edits require both trusted candidatePolicy.allowTiaV21WorkerChanges=true and positive allowedPaths coverage, while opencode.json remains protected.",
+      "Legacy reviewer prompt files are explicitly RETIRED and direct readers to canonical CODE_REVIEW/PLC_REVIEW templates plus the shared response schema; no active workflow/runtime references them.",
+      "reviews/templates/code-review.md requires criterion-by-criterion acceptance evaluation and forbids treating unexecuted checks as PASS.",
+      "reviews/templates/plc-review.md is provenance-first, distinguishes qualification/reuse/reference-compile evidence, and forbids PASS for unexecuted or unbound TIA checks.",
+      "AGENTS.md contains the accepted primary orchestration priorities: time-to-first-usable-device, bounded tasks, one independent reviewer by default, merged-main TIA, product implementation delegated to coding agents by default, and no optional infrastructure/doc work ahead of the active product route without a concrete blocker.",
+      "docs/AGENT_AUTONOMY.md reflects OpenRouter-first/DeepSeek fallback, contained candidate/publisher separation, conditional worker scope and canonical reviewer templates instead of obsolete Gemini/dual-review instructions.",
+      "Deterministic Linux prompt-alignment tests are green and existing ExternalReviewProtocol/FactoryIsolation/SiemensBackend/generator regressions remain green."
+    ],
+    "tia": [
+      "No Windows/TIA execution is required for this governance-only task."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "ARCHITECTURE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "AGENTS.md",
+      "agents/prompts/coder.md",
+      "agents/prompts/repair.md",
+      "agents/prompts/reviewer-requirements.md",
+      "agents/prompts/reviewer-tia.md",
+      "reviews/templates/code-review.md",
+      "reviews/templates/plc-review.md",
+      "docs/AGENT_AUTONOMY.md",
+      "tests/ExternalReviewProtocol.Tests/test_prompt_alignment.py",
+      "tasks/PROMPT-ALIGN-001.json"
+    ],
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 67
+}
