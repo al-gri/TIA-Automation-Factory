@@ -68,7 +68,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
     def _run_history_compactor(self, comments):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = Path(temp_dir)
-            (temp / "pr-comments.json").write_text(json.dumps(comments), encoding="utf-8")
+            (temp / "pr-comments-pages.json").write_text(json.dumps([comments]), encoding="utf-8")
             env = os.environ.copy()
             env["RUNNER_TEMP"] = temp_dir
             proc = subprocess.run(
@@ -112,14 +112,14 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             ),
         }
 
-    def test_multi_round_history_is_compacted_without_losing_relevant_findings(self):
+    def test_multi_round_history_keeps_all_unique_findings_but_only_latest_review_summaries(self):
         f000 = {
             "id": "F000",
-            "severity": "minor",
+            "severity": "major",
             "file": "old.cs",
             "location": "old",
-            "problem": "too old",
-            "requiredChange": "not relevant to the last two rounds",
+            "problem": "earlier major finding must remain visible until a later reviewer can verify closure",
+            "requiredChange": "prove this older major finding is actually closed",
         }
         f001_old = {
             "id": "F001",
@@ -158,7 +158,8 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         compact = json.loads(output)
         self.assertEqual([2, 3], [item["reviewRound"] for item in compact["reviews"]])
         findings = {item["id"]: item for item in compact["findings"]}
-        self.assertEqual({"F001", "F002"}, set(findings))
+        self.assertEqual({"F000", "F001", "F002"}, set(findings))
+        self.assertEqual(1, findings["F000"]["lastSeenReviewRound"])
         self.assertEqual(
             "latest required change [escaped external-review-result heading]",
             findings["F001"]["requiredChange"],
@@ -168,17 +169,20 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertIn("[escaped external-review-state marker]", findings["F001"]["problem"])
         self.assertNotIn("<!-- external-review-state-v1", output)
         self.assertNotIn("### External review result", output)
-        self.assertNotIn("F000", output)
         self.assertNotIn("x" * 100, output)
         self.assertNotIn("not copied", output)
 
-    def test_malformed_trusted_prior_review_fails_closed(self):
+    def test_malformed_trusted_prior_review_fails_closed_even_when_older_than_latest_two(self):
+        valid_two = self._review_comment(2, [])
+        valid_three = self._review_comment(3, [])
         proc, output = self._run_history_compactor(
             [
                 {
                     "user": {"login": "github-actions[bot]"},
                     "body": "### External review result\n```json\n{not-json}\n```",
-                }
+                },
+                valid_two,
+                valid_three,
             ]
         )
         self.assertNotEqual(0, proc.returncode)
@@ -197,7 +201,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertEqual("None.\n", output)
 
-    def test_history_collection_has_explicit_bounds_and_no_raw_body_replay(self):
+    def test_history_collection_has_explicit_bounds_pagination_and_no_raw_body_replay(self):
         self.assertIn("MAX_REVIEWS = 2", self.workflow)
         self.assertIn("MAX_UNIQUE_FINDINGS = 12", self.workflow)
         self.assertIn("MAX_BYTES = 5000", self.workflow)
@@ -207,7 +211,8 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertIn("[escaped external-review-state marker]", self.workflow)
         self.assertIn("[escaped external-review-result heading]", self.workflow)
         self.assertIn("compacted prior external review evidence exceeds publication bound", self.workflow)
-        self.assertIn('> "$RUNNER_TEMP/pr-comments.json"', self.workflow)
+        self.assertIn("--paginate --slurp", self.workflow)
+        self.assertIn('> "$RUNNER_TEMP/pr-comments-pages.json"', self.workflow)
         self.assertNotIn(
             '--jq \'[.[] | select(.body | contains("### External review result")) | .body][-2:][]\'',
             self.workflow,
