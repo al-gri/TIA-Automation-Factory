@@ -10,6 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "external-review-request.yml"
 PROTOCOL_PATH = ROOT / "docs" / "EXTERNAL_REVIEW_PROTOCOL.md"
+TEMPLATE_PATH = ROOT / "reviews" / "templates" / "code-review.md"
+REVIEW_TOOL_PATH = ROOT / "agents" / "runtime" / "external-review.py"
+ALLOWLIST_TASK_PATH = ROOT / "tasks" / "TIA-AUTH-V21-ALLOWLIST-001.json"
 
 
 class LargeConnectedReviewPackageTests(unittest.TestCase):
@@ -82,6 +85,72 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             output = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
             return proc, output
 
+    def _render_connected_package(self, previous_findings):
+        task = json.loads(ALLOWLIST_TASK_PATH.read_text(encoding="utf-8"))
+        connected_notice = (
+            "CONNECTED PRIMARY LARGE-DIFF FALLBACK: this package is intentionally not self-contained source evidence. "
+            "The exact full diff is 38311 bytes with SHA-256 " + "a" * 64 + ". "
+            "Reviewer slot chatgpt MUST inspect PR #87 at exact candidate SHA " + "d" * 40 + " directly in GitHub before verdict, "
+            "and must not claim omitted source text was reviewed from this package alone.\n\n"
+        )
+        context = {
+            "REVIEW_REQUEST_ID": "ER-87-budget-regression",
+            "REVIEWER_SLOT": "chatgpt",
+            "TASK_ID": task["id"],
+            "CANDIDATE_SHA": "d" * 40,
+            "PR_REFERENCE": "#87",
+            "REVIEW_ROUND": 3,
+            "RISK_CLASS": "HIGH",
+            "TASK_SPECIFICATION": json.dumps(task, indent=2, ensure_ascii=False),
+            "ACCEPTANCE_CRITERIA": json.dumps(task["acceptance"], indent=2, ensure_ascii=False),
+            "IMPLEMENTATION_SUMMARY": connected_notice + (
+                "Changed files:\n"
+                "scripts/windows/Configure-TiaV21WorkerWhitelist.ps1\n"
+                "src/TiaV21Worker/WhitelistManager.cs\n"
+                "tests/SiemensBackend.Tests/TiaV21AllowListContractTests.cs\n"
+            ),
+            "CANDIDATE_DIFF": (
+                "[full exact candidate diff omitted at trusted publication boundary]\n"
+                "Connected reviewer slot: chatgpt\n"
+                "Candidate SHA: " + "d" * 40 + "\n"
+                "Full diff bytes: 38311\n"
+                "Full diff SHA256: " + "a" * 64 + "\n"
+                "Review requirement: inspect the immutable exact candidate in GitHub before verdict. "
+                "Do not treat this bounded package as complete source evidence.\n"
+            ),
+            # Exercise the actual publication bounds used by the clean publisher rather than
+            # a tiny happy-path context. This proves compacted history still leaves enough
+            # room for the connected-primary package to cross the final 54 KB boundary.
+            "RELEVANT_SOURCE_CONTEXT": connected_notice + ("S" * 16000),
+            "LINUX_EVIDENCE": "L" * 12000,
+            "GENERATED_ARTIFACT_EVIDENCE": "No GeneratorCli task artifact is declared for this task.\n",
+            "TIA_EVIDENCE_OR_NOT_AVAILABLE": "Trusted TIA evidence is not included in this pre-merge package.",
+            "PREVIOUS_FINDINGS_OR_NONE": previous_findings,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            context_path = temp / "context.json"
+            output_path = temp / "review.md"
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(REVIEW_TOOL_PATH),
+                    "build-package",
+                    "--template",
+                    str(TEMPLATE_PATH),
+                    "--context",
+                    str(context_path),
+                    "--output",
+                    str(output_path),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            rendered = output_path.read_bytes() if output_path.exists() else b""
+            return proc, rendered
+
     @staticmethod
     def _review_comment(round_number, findings, status="CHANGES_REQUIRED", wrapper=""):
         payload = {
@@ -110,6 +179,17 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 + "\n```\n"
                 + wrapper
             ),
+        }
+
+    @staticmethod
+    def _finding(finding_id, severity="major", suffix=""):
+        return {
+            "id": finding_id,
+            "severity": severity,
+            "file": "tests/SiemensBackend.Tests/TiaV21AllowListContractTests.cs",
+            "location": "source/bootstrap regression",
+            "problem": "production contract regression evidence is incomplete " + suffix,
+            "requiredChange": "make deterministic evidence inspect the actual production/bootstrap source " + suffix,
         }
 
     def test_multi_round_history_keeps_all_unique_findings_but_only_latest_review_summaries(self):
@@ -171,6 +251,22 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertNotIn("### External review result", output)
         self.assertNotIn("x" * 100, output)
         self.assertNotIn("not copied", output)
+
+    def test_compacted_history_fits_final_connected_package_bound_at_publication_limits(self):
+        comments = [
+            self._review_comment(1, [self._finding("F001", suffix="round-one")], wrapper="x" * 8000),
+            self._review_comment(2, [self._finding("F001", suffix="round-two")], wrapper="y" * 8000),
+        ]
+        compact_proc, previous_findings = self._run_history_compactor(comments)
+        self.assertEqual(0, compact_proc.returncode, compact_proc.stderr)
+
+        render_proc, rendered = self._render_connected_package(previous_findings)
+        self.assertEqual(0, render_proc.returncode, render_proc.stderr)
+        self.assertLessEqual(
+            len(rendered),
+            54000,
+            f"Connected review package must fit final publication bound, got {len(rendered)} bytes",
+        )
 
     def test_malformed_trusted_prior_review_fails_closed_even_when_older_than_latest_two(self):
         valid_two = self._review_comment(2, [])
