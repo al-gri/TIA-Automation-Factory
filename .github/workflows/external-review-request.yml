@@ -359,8 +359,8 @@ jobs:
           PR_NUMBER: ${{ needs.build-review-package.outputs.pr_number }}
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" \
-            > "$RUNNER_TEMP/pr-comments.json"
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" \
+            > "$RUNNER_TEMP/pr-comments-pages.json"
           # review-history-compactor-v1
           python3 - <<'PY'
           import json
@@ -373,9 +373,10 @@ jobs:
           MAX_BYTES = 5000
 
           temp = Path(os.environ['RUNNER_TEMP'])
-          comments = json.loads((temp / 'pr-comments.json').read_text(encoding='utf-8'))
-          if not isinstance(comments, list):
-              raise SystemExit('GitHub issue comments payload is not an array')
+          pages = json.loads((temp / 'pr-comments-pages.json').read_text(encoding='utf-8'))
+          if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+              raise SystemExit('GitHub paginated issue comments payload is not an array of arrays')
+          comments = [item for page in pages for item in page]
 
           review_comments = [
               item for item in comments
@@ -383,7 +384,7 @@ jobs:
               and isinstance(item.get('user'), dict)
               and item['user'].get('login') == 'github-actions[bot]'
               and '### External review result' in str(item.get('body', ''))
-          ][-MAX_REVIEWS:]
+          ]
 
           if not review_comments:
               (temp / 'previous-findings.txt').write_text('None.\n', encoding='utf-8')
@@ -400,7 +401,7 @@ jobs:
               'findings',
           )
           required_finding = ('id', 'severity', 'problem', 'requiredChange')
-          review_summaries = []
+          review_payloads = []
           findings_by_id = {}
 
           for comment in review_comments:
@@ -419,20 +420,7 @@ jobs:
                   raise SystemExit('prior external review result missing required fields: ' + ','.join(missing))
               if not isinstance(payload['findings'], list):
                   raise SystemExit('prior external review findings is not an array')
-
-              summary = {
-                  'reviewRequestId': payload['reviewRequestId'],
-                  'reviewerSlot': payload['reviewerSlot'],
-                  'taskId': payload['taskId'],
-                  'candidateSha': payload['candidateSha'],
-                  'reviewType': payload['reviewType'],
-                  'reviewRound': payload['reviewRound'],
-                  'reviewStatus': payload['reviewStatus'],
-              }
-              if payload['reviewStatus'] == 'BLOCKED' and not payload['findings']:
-                  summary['summary'] = payload.get('summary', '')
-                  summary['recommendation'] = payload.get('recommendation', '')
-              review_summaries.append(summary)
+              review_payloads.append(payload)
 
               for finding in payload['findings']:
                   if not isinstance(finding, dict):
@@ -453,6 +441,22 @@ jobs:
                       'lastSeenReviewRequestId': payload['reviewRequestId'],
                   }
                   findings_by_id[finding['id']] = item
+
+          review_summaries = []
+          for payload in review_payloads[-MAX_REVIEWS:]:
+              summary = {
+                  'reviewRequestId': payload['reviewRequestId'],
+                  'reviewerSlot': payload['reviewerSlot'],
+                  'taskId': payload['taskId'],
+                  'candidateSha': payload['candidateSha'],
+                  'reviewType': payload['reviewType'],
+                  'reviewRound': payload['reviewRound'],
+                  'reviewStatus': payload['reviewStatus'],
+              }
+              if payload['reviewStatus'] == 'BLOCKED' and not payload['findings']:
+                  summary['summary'] = payload.get('summary', '')
+                  summary['recommendation'] = payload.get('recommendation', '')
+              review_summaries.append(summary)
 
           if len(findings_by_id) > MAX_UNIQUE_FINDINGS:
               raise SystemExit(
