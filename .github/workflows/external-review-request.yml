@@ -380,6 +380,8 @@ jobs:
           review_comments = [
               item for item in comments
               if isinstance(item, dict)
+              and isinstance(item.get('user'), dict)
+              and item['user'].get('login') == 'github-actions[bot]'
               and '### External review result' in str(item.get('body', ''))
           ][-MAX_REVIEWS:]
 
@@ -463,6 +465,13 @@ jobs:
               'findings': list(findings_by_id.values()),
           }
           text = json.dumps(compact, indent=2, ensure_ascii=False) + '\n'
+          text = text.replace(
+              '<!-- external-review-state-v1',
+              '[escaped external-review-state marker]',
+          ).replace(
+              '### External review result',
+              '[escaped external-review-result heading]',
+          )
           size = len(text.encode('utf-8'))
           if size > MAX_BYTES:
               raise SystemExit(
