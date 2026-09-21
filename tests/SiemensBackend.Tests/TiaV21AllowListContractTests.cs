@@ -1,142 +1,145 @@
 using System;
+using System.Globalization;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TiaAutomationFactory.SiemensBackend.Tests;
 
 public sealed class TiaV21AllowListContractTests
 {
-    [Fact]
-    public void AllowListRegistryPath_IsVersionIndependentAndCorrect()
-    {
-        const string expectedPath = @"SOFTWARE\Siemens\Automation\Openness\AllowList\TiaV21Worker.exe\Entry";
-        const string actualPath = TiaV21AllowListContract.EntryKeyPath;
+    private const string ExpectedEntryKeyPath =
+        @"SOFTWARE\Siemens\Automation\Openness\AllowList\TiaV21Worker.exe\Entry";
 
-        Assert.Equal(expectedPath, actualPath);
-        Assert.DoesNotContain("Whitelist", actualPath);
-        Assert.DoesNotContain("Entries", actualPath);
-        Assert.DoesNotMatch(@".*\\d+\.\\d+\\.*", actualPath);
-    }
+    private const string ExpectedBasePath =
+        @"SOFTWARE\Siemens\Automation\Openness\AllowList";
 
-    [Fact]
-    public void AllowListValueNames_AreExactlyPathDateModifiedFileHash()
-    {
-        Assert.Equal("Path", TiaV21AllowListContract.ValueNamePath);
-        Assert.Equal("DateModified", TiaV21AllowListContract.ValueNameDateModified);
-        Assert.Equal("FileHash", TiaV21AllowListContract.ValueNameFileHash);
-    }
+    // Legacy layout was Openness\Whitelist\<version>\Entries\TiaV21Worker.exe\Entry.
+    // These markers deliberately target the legacy registry-path segments, never the bare
+    // word "Whitelist", which is a legitimate part of production type/method names
+    // (WhitelistManager, SynchronizeWhitelist, WhitelistSyncResult).
+    private const string LegacyBasePathMarker = @"Openness\Whitelist";
+    private const string LegacyWhitelistSegment = "Whitelist\\";
+    private const string LegacyEntriesSegment = "\\Entries\\";
 
     [Fact]
-    public void DateModifiedFormat_IsUtcWithMilliseconds()
+    public void WhitelistManager_TargetsVersionIndependentV21AllowListEntry()
     {
-        const string expectedFormat = "yyyy/MM/dd HH:mm:ss.fff";
-        var testDate = new DateTime(2026, 9, 21, 14, 30, 45, 123, DateTimeKind.Utc);
-        string formatted = testDate.ToString(expectedFormat, System.Globalization.CultureInfo.InvariantCulture);
+        string source = ReadRepoFile("src/TiaV21Worker/WhitelistManager.cs");
 
-        Assert.Equal("2026/09/21 14:30:45.123", formatted);
-        Assert.Equal(expectedFormat, TiaV21AllowListContract.DateModifiedFormat);
+        Assert.Contains(ExpectedEntryKeyPath, source);
+        Assert.Contains(ExpectedBasePath, source);
+        Assert.DoesNotContain(LegacyBasePathMarker, source);
+        Assert.DoesNotContain(LegacyWhitelistSegment, source);
+        Assert.DoesNotContain(LegacyEntriesSegment, source);
+        Assert.DoesNotContain("GetWhitelistVersion", source);
+        Assert.DoesNotContain("WhitelistBasePath", source);
     }
 
     [Fact]
-    public void FileHash_IsBase64EncodedSha256()
+    public void WhitelistManager_WritesExactAllowListValueContract()
     {
-        string testContent = "test content for hash";
-        byte[] contentBytes = Encoding.UTF8.GetBytes(testContent);
+        string source = ReadRepoFile("src/TiaV21Worker/WhitelistManager.cs");
 
-        using (var sha256 = SHA256.Create())
-        {
-            byte[] hash = sha256.ComputeHash(contentBytes);
-            string base64Hash = Convert.ToBase64String(hash);
-
-            Assert.False(string.IsNullOrEmpty(base64Hash));
-            Assert.True(IsValidBase64(base64Hash));
-
-            byte[] decoded = Convert.FromBase64String(base64Hash);
-            Assert.Equal(32, decoded.Length);
-        }
+        Assert.Contains("entryKey.SetValue(\"Path\", executablePath, RegistryValueKind.String);", source);
+        Assert.Contains("entryKey.SetValue(\"DateModified\", dateModified, RegistryValueKind.String);", source);
+        Assert.Contains("entryKey.SetValue(\"FileHash\", fileHash, RegistryValueKind.String);", source);
+        Assert.Contains("File.GetLastWriteTimeUtc(filePath)", source);
+        Assert.Contains("sha256.ComputeHash(stream)", source);
+        Assert.Contains("Convert.ToBase64String(hash)", source);
     }
 
     [Fact]
-    public void ExecutablePath_IsAbsoluteAndResolved()
+    public void WhitelistManager_DateModifiedFormat_MatchesRequiredUtcMillisecondFormat()
     {
-        // On Linux, Path.GetFullPath resolves relative to current directory
-        string testPath = "TiaV21Worker.exe";
-        string fullPath = Path.GetFullPath(testPath);
+        string source = ReadRepoFile("src/TiaV21Worker/WhitelistManager.cs");
 
-        Assert.True(Path.IsPathRooted(fullPath));
-        Assert.EndsWith("TiaV21Worker.exe", fullPath);
+        Match match = Regex.Match(
+            source,
+            @"ToString\(""(?<format>[^""]+)"",\s*CultureInfo\.InvariantCulture\)");
+
+        Assert.True(match.Success, "WhitelistManager must format DateModified with CultureInfo.InvariantCulture.");
+
+        string format = match.Groups["format"].Value;
+        var sample = new DateTime(2026, 9, 21, 14, 30, 45, 123, DateTimeKind.Utc);
+
+        Assert.Equal("2026/09/21 14:30:45.123", sample.ToString(format, CultureInfo.InvariantCulture));
     }
 
     [Fact]
-    public void FileHashComputation_MatchesExpectedAlgorithm()
+    public void WhitelistManager_OpensRegistry64LocalMachineWithMinimumRights()
     {
-        // Verify the exact hash computation used by WhitelistManager
-        string testFile = Path.GetTempFileName();
-        try
-        {
-            File.WriteAllText(testFile, "test content");
-            
-            using (var sha256 = SHA256.Create())
-            using (var stream = File.OpenRead(testFile))
-            {
-                byte[] hash = sha256.ComputeHash(stream);
-                string base64Hash = Convert.ToBase64String(hash);
-                
-                Assert.False(string.IsNullOrEmpty(base64Hash));
-                Assert.Equal(44, base64Hash.Length); // 32 bytes = 44 base64 chars
-            }
-        }
-        finally
-        {
-            if (File.Exists(testFile))
-                File.Delete(testFile);
-        }
+        string source = ReadRepoFile("src/TiaV21Worker/WhitelistManager.cs");
+
+        Assert.Contains("RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)", source);
+        Assert.Contains("RegistryRights.SetValue | RegistryRights.QueryValues", source);
     }
 
     [Fact]
-    public void SidNormalizationContract_Logic_IsTestableAtSourceLevel()
+    public void WhitelistManager_FailsClosedBeforeOpennessWhenEntryIsUnavailable()
     {
-        // This test verifies the SID normalization contract logic exists and is correct
-        // The actual Windows API calls are tested on Windows; here we verify the contract shape
-        
-        // The contract: TryNormalizeSid returns SID.Value for translatable identities,
-        // and IdentityReference.Value for non-translatable ones.
-        // This is a source-level contract test - the logic is in Configure-TiaV21WorkerWhitelist.ps1
-        // and TiaV21AllowListContract.NormalizeIdentityReference
-        
-        // Verify the contract method exists by calling it with a mock (but since we can't
-        // instantiate Windows types on Linux, we just verify the method signature at compile time)
-        // The method is tested by the fact this test compiles and the contract class is present
-        Assert.True(true); // Contract verified by compilation and presence of NormalizeIdentityReference method
+        string source = ReadRepoFile("src/TiaV21Worker/WhitelistManager.cs");
+
+        Assert.Contains("if (entryKey == null)", source);
+        Assert.Contains("catch (UnauthorizedAccessException)", source);
+
+        int failClosedPaths = Regex.Matches(source, "CreateBootstrapRequired\\(\\)").Count;
+        Assert.True(
+            failClosedPaths >= 3,
+            $"Expected fail-closed bootstrap-required paths for null/unauthorized/unexpected failures, found {failClosedPaths}.");
     }
 
-    private static bool IsValidBase64(string base64)
+    [Fact]
+    public void BootstrapScript_TargetsExactV21AllowListEntryAndDropsLegacyLayout()
     {
-        Span<byte> buffer = new byte[base64.Length];
-        return Convert.TryFromBase64String(base64, buffer, out _);
+        string script = ReadRepoFile("scripts/windows/Configure-TiaV21WorkerWhitelist.ps1");
+
+        Assert.Contains(@"HKLM:\SOFTWARE\Siemens\Automation\Openness\AllowList\TiaV21Worker.exe\Entry", script);
+        Assert.DoesNotContain(LegacyBasePathMarker, script);
+        Assert.DoesNotContain(LegacyWhitelistSegment, script);
+        Assert.DoesNotContain(LegacyEntriesSegment, script);
+        Assert.DoesNotContain("Get-WhitelistVersion", script);
     }
-}
 
-internal static class TiaV21AllowListContract
-{
-    internal const string EntryKeyPath = @"SOFTWARE\Siemens\Automation\Openness\AllowList\TiaV21Worker.exe\Entry";
-    internal const string ValueNamePath = "Path";
-    internal const string ValueNameDateModified = "DateModified";
-    internal const string ValueNameFileHash = "FileHash";
-    internal const string DateModifiedFormat = "yyyy/MM/dd HH:mm:ss.fff";
-
-    internal static string NormalizeIdentityReference(System.Security.Principal.IdentityReference identityRef)
+    [Fact]
+    public void BootstrapScript_RequiresElevationAndGrantsOnlyNarrowExactRule()
     {
-        try
-        {
-            var sid = identityRef.Translate(typeof(System.Security.Principal.SecurityIdentifier));
-            return sid.Value;
-        }
-        catch
-        {
-            return identityRef.Value;
-        }
+        string script = ReadRepoFile("scripts/windows/Configure-TiaV21WorkerWhitelist.ps1");
+
+        Assert.Contains("#requires -RunAsAdministrator", script);
+        Assert.Contains(
+            "[System.Security.AccessControl.RegistryRights]::SetValue -bor [System.Security.AccessControl.RegistryRights]::QueryValues",
+            script);
+        Assert.Contains("$_.AccessControlType -eq \"Allow\"", script);
+        Assert.Contains("$_.RegistryRights -eq $requiredRights", script);
+        Assert.Contains("$_.InheritanceFlags -eq \"None\"", script);
+        Assert.Contains("$_.PropagationFlags -eq \"None\"", script);
+        Assert.Contains("$acl.AddAccessRule($rule)", script);
+        Assert.Contains("Set-Acl -Path $KeyPath -AclObject $acl", script);
+    }
+
+    [Fact]
+    public void BootstrapScript_NormalizesExistingRuleIdentityToSidBeforeComparison()
+    {
+        string script = ReadRepoFile("scripts/windows/Configure-TiaV21WorkerWhitelist.ps1");
+
+        Assert.Contains("function TryNormalizeSid", script);
+        Assert.Contains("$IdentityRef.Translate([System.Security.Principal.SecurityIdentifier])", script);
+        Assert.Contains("return $sid.Value", script);
+        Assert.Contains("return $IdentityRef.Value", script);
+        Assert.Contains("(TryNormalizeSid($_.IdentityReference) -eq $UserSid.Value)", script);
+    }
+
+    private static string ReadRepoFile(string relativePath, [CallerFilePath] string testFilePath = "")
+    {
+        // testFilePath is bound at compile time to tests/SiemensBackend.Tests/TiaV21AllowListContractTests.cs.
+        // Walking up three directories yields the repository root on both Linux and Windows.
+        string repoRoot = Path.GetFullPath(Path.Combine(testFilePath, "..", "..", ".."));
+        string fullPath = Path.Combine(repoRoot, relativePath);
+
+        Assert.True(File.Exists(fullPath), $"Expected repository file '{relativePath}' at '{fullPath}'.");
+
+        return File.ReadAllText(fullPath);
     }
 }
