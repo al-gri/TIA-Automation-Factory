@@ -360,18 +360,115 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" \
-            --jq '[.[] | select(.body | contains("### External review result")) | .body][-2:][]' \
-            > "$RUNNER_TEMP/previous-findings.txt" || true
-          test -s "$RUNNER_TEMP/previous-findings.txt" || echo 'None.' > "$RUNNER_TEMP/previous-findings.txt"
+            > "$RUNNER_TEMP/pr-comments.json"
+          # review-history-compactor-v1
           python3 - <<'PY'
+          import json
           import os
+          import re
           from pathlib import Path
-          p=Path(os.environ['RUNNER_TEMP'])/'previous-findings.txt'
-          data=p.read_bytes()
-          if len(data) > 12000:
-              data=data[:12000] + b'\n[truncated prior-review evidence]\n'
-          text=data.decode('utf-8', errors='replace').replace('<!-- external-review-state-v1','[escaped external-review-state marker]')
-          p.write_text(text, encoding='utf-8')
+
+          MAX_REVIEWS = 2
+          MAX_UNIQUE_FINDINGS = 12
+          MAX_BYTES = 5000
+
+          temp = Path(os.environ['RUNNER_TEMP'])
+          comments = json.loads((temp / 'pr-comments.json').read_text(encoding='utf-8'))
+          if not isinstance(comments, list):
+              raise SystemExit('GitHub issue comments payload is not an array')
+
+          review_comments = [
+              item for item in comments
+              if isinstance(item, dict)
+              and '### External review result' in str(item.get('body', ''))
+          ][-MAX_REVIEWS:]
+
+          if not review_comments:
+              (temp / 'previous-findings.txt').write_text('None.\n', encoding='utf-8')
+              raise SystemExit(0)
+
+          required_top = (
+              'reviewRequestId',
+              'reviewerSlot',
+              'taskId',
+              'candidateSha',
+              'reviewType',
+              'reviewRound',
+              'reviewStatus',
+              'findings',
+          )
+          required_finding = ('id', 'severity', 'problem', 'requiredChange')
+          review_summaries = []
+          findings_by_id = {}
+
+          for comment in review_comments:
+              body = str(comment.get('body', ''))
+              match = re.search(r'```json\s*(\{.*?\})\s*```', body, flags=re.DOTALL)
+              if match is None:
+                  raise SystemExit('prior external review result is missing fenced JSON')
+
+              try:
+                  payload = json.loads(match.group(1))
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(f'prior external review JSON is invalid: {exc}') from exc
+
+              missing = [key for key in required_top if key not in payload]
+              if missing:
+                  raise SystemExit('prior external review result missing required fields: ' + ','.join(missing))
+              if not isinstance(payload['findings'], list):
+                  raise SystemExit('prior external review findings is not an array')
+
+              summary = {
+                  'reviewRequestId': payload['reviewRequestId'],
+                  'reviewerSlot': payload['reviewerSlot'],
+                  'taskId': payload['taskId'],
+                  'candidateSha': payload['candidateSha'],
+                  'reviewType': payload['reviewType'],
+                  'reviewRound': payload['reviewRound'],
+                  'reviewStatus': payload['reviewStatus'],
+              }
+              if payload['reviewStatus'] == 'BLOCKED' and not payload['findings']:
+                  summary['summary'] = payload.get('summary', '')
+                  summary['recommendation'] = payload.get('recommendation', '')
+              review_summaries.append(summary)
+
+              for finding in payload['findings']:
+                  if not isinstance(finding, dict):
+                      raise SystemExit('prior external review finding is not an object')
+                  missing_finding = [key for key in required_finding if key not in finding]
+                  if missing_finding:
+                      raise SystemExit(
+                          'prior external review finding missing required fields: ' + ','.join(missing_finding)
+                      )
+                  item = {
+                      'id': finding['id'],
+                      'severity': finding['severity'],
+                      'file': finding.get('file'),
+                      'location': finding.get('location'),
+                      'problem': finding['problem'],
+                      'requiredChange': finding['requiredChange'],
+                      'lastSeenReviewRound': payload['reviewRound'],
+                      'lastSeenReviewRequestId': payload['reviewRequestId'],
+                  }
+                  findings_by_id[finding['id']] = item
+
+          if len(findings_by_id) > MAX_UNIQUE_FINDINGS:
+              raise SystemExit(
+                  f'prior external review evidence has too many unique findings: '
+                  f'{len(findings_by_id)} > {MAX_UNIQUE_FINDINGS}'
+              )
+
+          compact = {
+              'reviews': review_summaries,
+              'findings': list(findings_by_id.values()),
+          }
+          text = json.dumps(compact, indent=2, ensure_ascii=False) + '\n'
+          size = len(text.encode('utf-8'))
+          if size > MAX_BYTES:
+              raise SystemExit(
+                  f'compacted prior external review evidence exceeds publication bound: {size} > {MAX_BYTES}'
+              )
+          (temp / 'previous-findings.txt').write_text(text, encoding='utf-8')
           PY
 
       - name: Build self-contained package in clean publisher
