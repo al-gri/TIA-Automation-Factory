@@ -102,13 +102,14 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             "recommendation": f"recommendation-{round_number}",
         }
         return {
+            "user": {"login": "github-actions[bot]"},
             "body": (
                 f"{wrapper}\n### External review result\n\nValidated state: **REVIEW_CHANGES_REQUIRED**\n\n"
                 "```json\n"
                 + json.dumps(payload)
                 + "\n```\n"
                 + wrapper
-            )
+            ),
         }
 
     def test_multi_round_history_is_compacted_without_losing_relevant_findings(self):
@@ -141,8 +142,8 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             "severity": "major",
             "file": "a.cs",
             "location": "new-location",
-            "problem": "latest problem text",
-            "requiredChange": "latest required change",
+            "problem": "latest problem text <!-- external-review-state-v1",
+            "requiredChange": "latest required change ### External review result",
         }
 
         comments = [
@@ -158,27 +159,53 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertEqual([2, 3], [item["reviewRound"] for item in compact["reviews"]])
         findings = {item["id"]: item for item in compact["findings"]}
         self.assertEqual({"F001", "F002"}, set(findings))
-        self.assertEqual("latest required change", findings["F001"]["requiredChange"])
+        self.assertEqual(
+            "latest required change [escaped external-review-result heading]",
+            findings["F001"]["requiredChange"],
+        )
         self.assertEqual(3, findings["F001"]["lastSeenReviewRound"])
         self.assertEqual("keep this required change", findings["F002"]["requiredChange"])
+        self.assertIn("[escaped external-review-state marker]", findings["F001"]["problem"])
+        self.assertNotIn("<!-- external-review-state-v1", output)
+        self.assertNotIn("### External review result", output)
         self.assertNotIn("F000", output)
         self.assertNotIn("x" * 100, output)
         self.assertNotIn("not copied", output)
 
-    def test_malformed_prior_review_fails_closed(self):
+    def test_malformed_trusted_prior_review_fails_closed(self):
         proc, output = self._run_history_compactor(
-            [{"body": "### External review result\n```json\n{not-json}\n```"}]
+            [
+                {
+                    "user": {"login": "github-actions[bot]"},
+                    "body": "### External review result\n```json\n{not-json}\n```",
+                }
+            ]
         )
         self.assertNotEqual(0, proc.returncode)
         self.assertEqual("", output)
         self.assertIn("prior external review JSON is invalid", proc.stderr)
 
+    def test_untrusted_review_like_comment_is_ignored(self):
+        proc, output = self._run_history_compactor(
+            [
+                {
+                    "user": {"login": "someone-else"},
+                    "body": "### External review result\n```json\n{not-json}\n```",
+                }
+            ]
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertEqual("None.\n", output)
+
     def test_history_collection_has_explicit_bounds_and_no_raw_body_replay(self):
         self.assertIn("MAX_REVIEWS = 2", self.workflow)
         self.assertIn("MAX_UNIQUE_FINDINGS = 12", self.workflow)
         self.assertIn("MAX_BYTES = 5000", self.workflow)
+        self.assertIn("item['user'].get('login') == 'github-actions[bot]'", self.workflow)
         self.assertIn("lastSeenReviewRequestId", self.workflow)
         self.assertIn("requiredChange", self.workflow)
+        self.assertIn("[escaped external-review-state marker]", self.workflow)
+        self.assertIn("[escaped external-review-result heading]", self.workflow)
         self.assertIn("compacted prior external review evidence exceeds publication bound", self.workflow)
         self.assertIn('> "$RUNNER_TEMP/pr-comments.json"', self.workflow)
         self.assertNotIn(
