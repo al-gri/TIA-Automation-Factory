@@ -50,6 +50,23 @@ Short chronological record of infrastructure work. Current policy is defined by 
 - Operational checkpoint `main@4b27064e19395a350bb0e2879eb959640cc0775d` passed CI #317 / run `35459383614`.
 - Next mechanical action is task-mode Autonomous Agent dispatch for `tasks/OLQ-DIAG-002.json`; candidate Windows/TIA execution remains prohibited.
 
+## 2026-09-20/21 — review transport, trusted product tasks and exhausted OLQ candidate
+
+### DONE
+- Added bounded connected-primary large-diff review fallback in PR #79 without weakening exact-SHA review or isolated-secondary fail-closed behavior.
+- Merged trusted task authority for TIA V21 version-independent AllowList correction (`TIA-AUTH-V21-ALLOWLIST-001`) and generator foundation (`GEN-VALVE-FOUNDATION-001`).
+- Confirmed initial `Autonomous Agent` execution remains `workflow_dispatch`-only; connected GitHub can drive review/repair continuation but cannot originate a fresh task run.
+- PR #81 `OLQ-VALVE-PROFILE-001` consumed repair attempts 1/2 and 2/2. Final exact head `8101d1e197cf33eaf96874acb4a9933fb5256656` still had MAJOR compile/lifecycle/test defects and was validated BLOCKED. It was closed unmerged as historical evidence.
+- Fresh coding-agent context was audited: it receives trusted task + baseline repository files, but not prior issue comments/review findings. `docs/PROJECT_STATE.md` was also found materially stale while being injected into every coding context.
+- Issue #61 now records a non-authoritative replacement plan: qualification transaction/native-V21-open gate first, Valve contract/reference gate only after real native V21 open.
+- Issue #63 now records the future trusted-main import/compile/save/reopen truth-gate shape without inventing Valve/TIA facts.
+
+### CURRENT PRODUCT QUEUE
+- #80: launch coding-agent for the trusted V21 AllowList task, independently review, merge and prove repeated non-interactive trusted-main admission.
+- #61: no candidate-changing continuation until explicit human authorization after exhausted repair budget; then prefer the two-stage replacement decomposition.
+- #62: launch contract-independent generator-foundation task in parallel; preserve the tiny current pipeline and forbid unqualified Valve facts.
+- #63: start only after reviewed #61 contract/profile and #62 generated manifest/artifacts exist.
+
 ## Logging rule
 
 Keep this file concise and factual. Raw workflow events belong in issue #25; reusable lessons belong in `docs/DEVELOPMENT_METHODOLOGY.md`; milestone interpretation belongs in `docs/METHODOLOGY_JOURNAL.md`.

@@ -149,3 +149,20 @@ After TIA-AUTH was fixed, repeated trusted qualification reached the same Siemen
 
 ### Methodology effect
 Created issue #56 and trusted task `OLQ-DIAG-002` as a diagnostic-only gate before any migration behavior change.
+
+## 2026-09-20/21 — Repair exhaustion is also a task-decomposition signal
+
+### Evidence
+`OLQ-VALVE-PROFILE-001` combined qualification transaction/reuse repair, V19->V21 migration truth, Valve contract/dependency discovery and a reference compile/save/reopen proof. PR #81 went through two bounded repairs and still ended with MAJOR defects at exact SHA `8101d1e197cf33eaf96874acb4a9933fb5256656`, including cross-file compile drift, missing required tests and incorrect qualification/reference lifecycle. The trusted repair budget was exhausted and the PR was closed unmerged.
+
+A follow-up audit of the fresh coding-agent context showed that a new initial Autonomous Agent run receives the trusted task and baseline repository files, but not prior issue comments/review findings. It also showed that `docs/PROJECT_STATE.md`, one of the baseline context files, had become materially stale relative to live GitHub.
+
+### Lessons
+- Bounded repair exhaustion should trigger a decomposition review, not an automatic fresh rerun of the same large task.
+- A fresh agent cannot be assumed to learn from prior review history unless those findings are deliberately represented in trusted task/context inputs.
+- Large tasks that couple an uncertain external/vendor prerequisite with downstream feature semantics amplify repair drift. Split at the evidence boundary: first establish the prerequisite/transaction truth, then implement semantics that depend on it.
+- Operational snapshot files included in every coding context must be maintained as real inputs, not treated as harmless documentation debt.
+- Closing an exhausted candidate while preserving its exact-SHA evidence reduces accidental-merge risk without weakening the human decision gate for further candidate-changing work.
+
+### Methodology effect
+For #61, replacement planning now separates qualification transaction/native-V21-open evidence from Valve contract/reference work. No new candidate is authorized until the explicit repair-budget decision is made. `PROJECT_STATE`/handoff/log are refreshed as coding-context inputs, and future replacement tasks should be smaller and self-contained enough that a fresh agent does not depend on hidden review history.
