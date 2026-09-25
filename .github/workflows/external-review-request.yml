@@ -366,6 +366,7 @@ jobs:
             > "$RUNNER_TEMP/pr-comments-pages.json"
           # review-history-compactor-v2
           python3 - <<'PY'
+          import copy
           import json
           import os
           import re
@@ -376,6 +377,7 @@ jobs:
           MAX_REVIEWS = 2
           MAX_UNIQUE_FINDINGS = 12
           MAX_BYTES = 5000
+          TRUNCATION_MARKER = ' [truncated]'
 
           temp = Path(os.environ['RUNNER_TEMP'])
           current_task_id = os.environ['TASK_ID']
@@ -493,14 +495,79 @@ jobs:
               'reviews': review_summaries,
               'findings': [findings_by_lineage_id[key] for key in sorted(findings_by_lineage_id)],
           }
-          text = json.dumps(compact, indent=2, ensure_ascii=False) + '\n'
-          text = text.replace(
-              '<!-- external-review-state-v1',
-              '[escaped external-review-state marker]',
-          ).replace(
-              '### External review result',
-              '[escaped external-review-result heading]',
-          )
+
+          def escape_markers(text):
+              return text.replace(
+                  '<!-- external-review-state-v1',
+                  '[escaped external-review-state marker]',
+              ).replace(
+                  '### External review result',
+                  '[escaped external-review-result heading]',
+              )
+
+          def render(value):
+              return escape_markers(
+                  json.dumps(value, ensure_ascii=False, separators=(',', ':')) + '\n'
+              )
+
+          def truncate_utf8(value, max_bytes):
+              data = value.encode('utf-8')
+              if len(data) <= max_bytes:
+                  return value
+              if max_bytes <= 0:
+                  return ''
+              marker = TRUNCATION_MARKER.encode('utf-8')
+              if max_bytes <= len(marker):
+                  return marker[:max_bytes].decode('utf-8', errors='ignore')
+              prefix = data[:max_bytes - len(marker)]
+              return prefix.decode('utf-8', errors='ignore') + TRUNCATION_MARKER
+
+          def with_text_limit(value, max_bytes):
+              bounded = copy.deepcopy(value)
+              for review in bounded['reviews']:
+                  for key in ('summary', 'recommendation'):
+                      if key in review:
+                          review[key] = truncate_utf8(review[key], max_bytes)
+              for finding in bounded['findings']:
+                  finding['problem'] = truncate_utf8(finding['problem'], max_bytes)
+                  finding['requiredChange'] = truncate_utf8(finding['requiredChange'], max_bytes)
+              return bounded
+
+          text = render(compact)
+          if len(text.encode('utf-8')) > MAX_BYTES:
+              compressible = []
+              for review in compact['reviews']:
+                  for key in ('summary', 'recommendation'):
+                      if key in review:
+                          compressible.append(review[key])
+              for finding in compact['findings']:
+                  compressible.extend([finding['problem'], finding['requiredChange']])
+
+              if not compressible:
+                  raise SystemExit(
+                      f'compacted prior external review evidence exceeds publication bound: '
+                      f'{len(text.encode("utf-8"))} > {MAX_BYTES}'
+                  )
+
+              low = 0
+              high = max(len(value.encode('utf-8')) for value in compressible)
+              bounded_text = None
+              while low <= high:
+                  midpoint = (low + high) // 2
+                  candidate_text = render(with_text_limit(compact, midpoint))
+                  if len(candidate_text.encode('utf-8')) <= MAX_BYTES:
+                      bounded_text = candidate_text
+                      low = midpoint + 1
+                  else:
+                      high = midpoint - 1
+
+              if bounded_text is None:
+                  raise SystemExit(
+                      f'compacted prior external review evidence exceeds publication bound after text truncation: '
+                      f'{len(text.encode("utf-8"))} > {MAX_BYTES}'
+                  )
+              text = bounded_text
+
           size = len(text.encode('utf-8'))
           if size > MAX_BYTES:
               raise SystemExit(
