@@ -1,0 +1,161 @@
+{
+  "id": "OLQ-V21-QUALIFICATION-TXN-002",
+  "title": "Replace blocked V21 qualification transaction with reuse-aware trusted evidence",
+  "goal": "Replace BLOCKED PR #90 with an ordered two-step Stage A authority: first make the trusted qualification harness explicitly reuse-aware without claiming a fresh native reopen, then produce a fresh coding-agent product candidate with strict state serialization, non-destructive staged recovery, net48 compatibility evidence, and complete deterministic state/retry/provenance coverage. This task remains qualification-only and must not implement or infer any Valve/Stage-B contract facts.",
+  "baselineEvidence": {
+    "ownerAuthorization": "Issue #82 comment 5836516743 records the explicit owner authorization for this separate protected task-authority PR and its two independently reviewed stages.",
+    "trustedMainShaAtTaskDraft": "07297853b1d244e96d8faf75d50e0927e33bf58b",
+    "sourceArchiveSha256": "ed8fe3f52e90399475b321e40f7ce842d86e414324f06f1b078f44fcb666eed3",
+    "tiaBuildIdentity": "Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)",
+    "qualificationIdentity": "olq-c6c75a368b16bbf34a367cb843ba5e55",
+    "trustedFailure": "phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:5fd3443943908efc",
+    "supersededAuthority": "tasks/OLQ-V21-QUALIFICATION-TXN-001.json produced PR #90, which is BLOCKED and exhausted its 2/2 repair budget. It is historical evidence only.",
+    "supersededCandidate": "PR #90 remains open and unmerged at e02bf242b6257dcf8816b4d6e88f35e03f1aa61b. Exact-SHA review #5320501025 and external-review request ER-90-e02bf242b625-PLC_REVIEW-3-chatgpt-36165225202 are BLOCKED. Do not update, merge, cherry-pick, or treat that candidate branch as implementation authority.",
+    "blockedFindings": [
+      "The mandatory QualificationStateTests.cs was absent.",
+      "The strict deserializer rejected the serializer's own JSON object envelope and could not round-trip state.",
+      "Implicit net10 usings masked missing net48 imports/buildability defects.",
+      "Reuse set nativeReopenSuccess=true despite performing no fresh current-version Retrieve because the trusted run-2 harness was not reuse-aware.",
+      "Invalid-state recovery and delete-then-move publication could destroy valid completed evidence or strand recovery."
+    ]
+  },
+  "contextFiles": [
+    ".github/workflows/tia-v21-library-qualification.yml",
+    "src/TiaV21Worker/Program.cs",
+    "tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj",
+    "tasks/OLQ-V21-QUALIFICATION-TXN-001.json",
+    "tasks/OLQ-VALVE-PROFILE-001.json"
+  ],
+  "executionPlan": {
+    "ordering": "The protected trusted-harness refinement must be independently reviewed, merged, and green on trusted main before the fresh product candidate starts. The task-authority PR itself implements neither stage.",
+    "stages": [
+      {
+        "id": "trusted-harness-refinement",
+        "title": "Make trusted second-run evidence explicitly reuse-aware",
+        "author": "primary-chatgpt",
+        "requiredIndependentReviewer": "chatgpt-secondary",
+        "riskClass": "HIGH",
+        "reviewType": "CODE_REVIEW",
+        "allowedPaths": [
+          ".github/workflows/tia-v21-library-qualification.yml",
+          "tests/ExternalReviewProtocol.Tests/test_tia_v21_library_qualification.py"
+        ],
+        "requirements": [
+          "Change only the two exact allowed paths; do not modify any other workflow, agent, task, runner configuration, product source, vendor payload, or IndustrialMDE.",
+          "Keep the workflow trusted-main-only. It must not check out or execute unmerged candidate code on Windows/TIA.",
+          "A successful first run must be a fresh qualification: exit 0, success=true, isReuse=false, nativeReopenSuccess=true, matching source/build/qualification/archive identities, and non-empty originalProvenanceRunId plus exact UTC originalCompletedAtUtc.",
+          "A successful second run must be explicit reuse: exit 0, success=true, isReuse=true, nativeReopenSuccess=false, no fresh migration/reopen claim, matching source/build/qualification/archive identities, and the same immutable originalProvenanceRunId/originalCompletedAtUtc as run 1.",
+          "The second-run gate must fail closed when reuse/provenance fields are missing, null, malformed, non-UTC, changed, or inconsistent with run 1.",
+          "Public evidence may expose only bounded sanitized identities, hashes, reuse state, and immutable provenance; no absolute paths, usernames, vendor payload contents, or arbitrary Siemens exception text.",
+          "Add the smallest deterministic Python regression that validates the trusted workflow source contract above, including rejection of the old run2.nativeReopenSuccess=true-only gate."
+        ],
+        "completionGate": [
+          "Exact-SHA CI is green.",
+          "Fresh isolated chatgpt-secondary exact-SHA review is APPROVE.",
+          "Primary performs delegated merge only after both gates pass.",
+          "Post-merge CI on trusted main is green before Stage 2 begins."
+        ]
+      },
+      {
+        "id": "fresh-product-candidate",
+        "title": "Implement the qualification transaction on a new agent branch",
+        "author": "coding-agent",
+        "requiredIndependentReviewer": "chatgpt",
+        "riskClass": "HIGH",
+        "reviewType": "PLC_REVIEW",
+        "dependsOn": [
+          "trusted-harness-refinement is independently approved and merged",
+          "trusted main contains the reuse-aware harness and green post-merge CI"
+        ],
+        "allowedPaths": [
+          "src/TiaV21Worker/Program.cs",
+          "src/TiaV21Worker/QualificationState.cs",
+          "tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj",
+          "tests/SiemensBackend.Tests/QualificationStateTests.cs"
+        ],
+        "requirements": [
+          "Start a fresh agent branch from the then-current trusted main; do not repair, update, merge, or cherry-pick PR #90.",
+          "Preserve exactly GlobalLibraries.RetrieveWithUpgrade(source .zal19, target directory, OpenMode.ReadWrite) -> Save -> compressed .zal21 Archive -> close -> current-version GlobalLibraries.Retrieve verification.",
+          "On a fresh successful invocation, publish isReuse=false, nativeReopenSuccess=true, and non-empty originalProvenanceRunId/originalCompletedAtUtc only after archive hashing and actual current-version Retrieve verification succeed.",
+          "On a reuse invocation, perform no fresh migration or current-version Retrieve, publish isReuse=true and nativeReopenSuccess=false, and preserve the exact originalProvenanceRunId/originalCompletedAtUtc from the first verified success.",
+          "Reuse requires an exact match of schema version, qualification identity, source archive SHA-256, TIA build identity, qualification recipe identity, native archive SHA-256, completed-success state, and immutable verification provenance.",
+          "Serializer and deserializer must strictly round-trip every state the implementation itself emits, including in-progress and completed-success records. JSON object delimiters are structural, not fields.",
+          "Strict parsing rejects malformed JSON, unknown or duplicate fields, invalid enum/schema values, invalid or non-UTC timestamps, and null/missing values where the specific state requires a value; state-specific optional fields must remain round-trippable.",
+          "Do not depend on implicit usings or APIs unavailable to .NET Framework 4.8. Add deterministic net48 compile evidence for the Siemens-independent qualification-state helper while preserving normal net10 test execution.",
+          "Use attempt-local staging and non-destructive publication. A failed/interrupted attempt must not delete or rewrite any valid completed-success record, archive, manifest, or immutable provenance, including a valid record for another identity.",
+          "Do not use delete-then-move replacement for completed evidence. Unverified/corrupt/incomplete artifacts may be quarantined or retired only through a deterministic decision that first proves they are not a valid completed-success identity.",
+          "Recovery from interrupted temporary publication must never promote an unvalidated temp record and must permit a truthful retry without falsely reusing an archive.",
+          "Keep arbitrary exception text, absolute paths, usernames, and vendor payload content out of public diagnostics.",
+          "QualificationStateTests.cs is mandatory and must directly exercise the helper rather than merely linking it into the test assembly."
+        ],
+        "completionGate": [
+          "dotnet test tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release --framework net10.0 is green.",
+          "dotnet build tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj --configuration Release --framework net48 is green for the Siemens-independent helper/tests surface.",
+          "Motor generator regression remains green and produces UDT_Motor.scl.",
+          "Exact-SHA Linux CI is green.",
+          "Primary chatgpt performs independent exact-SHA PLC review and returns APPROVE.",
+          "No candidate Windows/TIA execution occurs before trusted merge."
+        ]
+      }
+    ]
+  },
+  "scope": [
+    "This task is Stage A qualification transaction/reuse/provenance only. Do not implement ValveProfileProbe, ValveProfileContract, Valve call/reference generation, dependency discovery, target CPU materialization, DB ownership, memory addressing, or any other Stage-B behavior.",
+    "Do not guess Siemens migration APIs, Valve interfaces, dependencies, versions, ownership, DB, memory, target, or reference-project facts.",
+    "Vendor archives/projects stay private and outside GitHub. No vendor payload path or content becomes public evidence.",
+    "No runner installation/configuration, secret, AllowList bootstrap, workflow other than the exact Stage-1 workflow, or IndustrialMDE change is authorized.",
+    "PR #90 remains unchanged and unmerged. This task creates a replacement route, not repair 3/2.",
+    "Windows/TIA executes only trusted merged main after the applicable independently reviewed merge."
+  ],
+  "acceptance": {
+    "requirements": [
+      "The two ordered stages remain separate PRs with separate exact-SHA CI and independent review; Stage 2 cannot start before Stage 1 is trusted on main.",
+      "Stage-1 changed paths are exactly its two listed paths; Stage-2 candidate changes are exactly candidatePolicy.allowedPaths.",
+      "The trusted two-run harness distinguishes fresh reopen from reuse and validates immutable original successful verification provenance without requiring or claiming a fresh run-2 reopen.",
+      "The qualify-library CLI remains compatible and the documented RetrieveWithUpgrade -> Save -> Archive -> current-version Retrieve sequence is behaviorally preserved.",
+      "A completed-success record cannot become visible before native archive hashing and actual current-version Retrieve verification succeed.",
+      "Fresh success and reuse have explicit truthful result semantics: fresh isReuse=false/nativeReopenSuccess=true; reuse isReuse=true/nativeReopenSuccess=false with unchanged original provenance.",
+      "Strict state serialization/deserialization round-trips all emitted states and fails closed on malformed, duplicate, unknown, null-invalid, schema-invalid, and timestamp-invalid input.",
+      "Publication/recovery is staged and non-destructive; failed retries and mismatches do not destroy valid completed evidence or immutable provenance.",
+      "Deterministic tests cover at least fresh completed-success, repeated reuse, provenance preservation, incomplete/in-progress state, corrupt/malformed state, stored false-success, archive/source/build/recipe/identity mismatch, invalid schema/timestamp/null/duplicate/unknown fields, interrupted temp publication, retry, and preservation of unrelated valid completed evidence.",
+      "The Siemens-independent helper has explicit net48 compile evidence and normal net10 tests; full TiaV21Worker net48 build is proven only on trusted merged main with installed V21 assemblies.",
+      "Existing SiemensBackend tests and Motor generation stay green.",
+      "No Valve/Stage-B facts or behavior, vendor payloads, runner configuration, unmerged Windows/TIA execution, or IndustrialMDE changes are introduced."
+    ],
+    "tia": [
+      "After Stage 2 is independently approved and merged, TiaV21Worker builds on TIA-V21-PC against installed V21 net48 Openness assemblies with zero compile errors.",
+      "Run trusted qualification with source SHA256 ed8fe3f52e90399475b321e40f7ce842d86e414324f06f1b078f44fcb666eed3 and TIA identity Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1).",
+      "Run 1 either completes the exact migration/archive/current-version Retrieve sequence and records native archive SHA-256 plus immutable successful verification provenance, or finishes BLOCKED/FAIL with a precise supported sanitized external prerequisite.",
+      "When run 1 succeeds, run 2 proves deterministic reuse of the same identity/hash/provenance with isReuse=true and nativeReopenSuccess=false; it must not invoke or claim a fresh migration/current-version Retrieve.",
+      "Stage A success proves only native V21 qualification/reuse. It does not establish a Valve contract/profile or complete issue #61; Stage B requires separate later authority."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "PLC_REVIEW",
+    "reviewerSlots": [
+      "chatgpt",
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "src/TiaV21Worker/Program.cs",
+      "src/TiaV21Worker/QualificationState.cs",
+      "tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj",
+      "tests/SiemensBackend.Tests/QualificationStateTests.cs"
+    ],
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 61
+}
