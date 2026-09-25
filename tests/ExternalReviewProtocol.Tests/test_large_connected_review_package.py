@@ -93,8 +93,9 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 cwd=ROOT,
             )
             output_path = temp / "previous-findings.txt"
-            output = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
-            return proc, output
+            output_exists = output_path.exists()
+            output = output_path.read_text(encoding="utf-8") if output_exists else ""
+            return proc, output, output_exists
 
     def _render_connected_package(self, previous_findings):
         task = json.loads(ALLOWLIST_TASK_PATH.read_text(encoding="utf-8"))
@@ -259,7 +260,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 wrapper="z" * 8000,
             ),
         ]
-        proc, output = self._run_history_compactor(comments)
+        proc, output, _ = self._run_history_compactor(comments)
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertLessEqual(len(output.encode("utf-8")), 5000)
         compact = json.loads(output)
@@ -289,7 +290,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             ),
             self._review_comment(3, [self._finding("F002", severity="minor", suffix="current-later")]),
         ]
-        proc, output = self._run_history_compactor(comments)
+        proc, output, _ = self._run_history_compactor(comments)
         self.assertEqual(0, proc.returncode, proc.stderr)
         compact = json.loads(output)
         findings = {item["lineageFindingId"]: item for item in compact["findings"]}
@@ -307,7 +308,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 reviewer_slot="chatgpt-secondary",
             ),
         ]
-        proc, output = self._run_history_compactor(comments, review_round=3)
+        proc, output, _ = self._run_history_compactor(comments, review_round=3)
         self.assertEqual(0, proc.returncode, proc.stderr)
         compact = json.loads(output)
         findings = {item["lineageFindingId"]: item for item in compact["findings"]}
@@ -320,14 +321,114 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             self._review_comment(1, [self._finding("F001", suffix="round-one")], wrapper="x" * 8000),
             self._review_comment(2, [self._finding("F001", suffix="round-two")], wrapper="y" * 8000),
         ]
-        compact_proc, previous_findings = self._run_history_compactor(comments)
+        compact_proc, previous_findings, _ = self._run_history_compactor(comments)
         self.assertEqual(0, compact_proc.returncode, compact_proc.stderr)
         render_proc, rendered = self._render_connected_package(previous_findings)
         self.assertEqual(0, render_proc.returncode, render_proc.stderr)
         self.assertLessEqual(len(rendered), 54000)
 
+    def test_max_findings_with_long_text_are_bounded_without_dropping_identity(self):
+        findings = [
+            self._finding(f"F{index:03d}", suffix=(" длинная-многоязычная-деталь🙂" * 300))
+            for index in range(1, 13)
+        ]
+        comments = [self._review_comment(1, findings)]
+
+        first_proc, first_output, _ = self._run_history_compactor(comments, review_round=2)
+        second_proc, second_output, _ = self._run_history_compactor(comments, review_round=2)
+
+        self.assertEqual(0, first_proc.returncode, first_proc.stderr)
+        self.assertEqual(0, second_proc.returncode, second_proc.stderr)
+        self.assertEqual(first_output, second_output)
+        self.assertLessEqual(len(first_output.encode("utf-8")), 5000)
+
+        compact = json.loads(first_output)
+        self.assertEqual(12, len(compact["findings"]))
+        self.assertEqual(
+            {f"chatgpt:F{index:03d}" for index in range(1, 13)},
+            {item["lineageFindingId"] for item in compact["findings"]},
+        )
+        for item in compact["findings"]:
+            self.assertEqual("major", item["severity"])
+            self.assertEqual(1, item["lastSeenReviewRound"])
+            self.assertTrue(item["problem"].endswith(" [truncated]"))
+            self.assertTrue(item["requiredChange"].endswith(" [truncated]"))
+
+        render_proc, rendered = self._render_connected_package(first_output)
+        self.assertEqual(0, render_proc.returncode, render_proc.stderr)
+        self.assertLessEqual(len(rendered), 54000)
+
+    def test_near_bound_caps_zero_through_eleven_fail_closed_without_partial_marker(self):
+        marker = " [truncated]"
+        marker_bytes = len(marker.encode("utf-8"))
+
+        for cap in range(marker_bytes):
+            with self.subTest(cap=cap):
+                payload = self._review_payload(
+                    1,
+                    [self._finding("F001", suffix=(" длинная-деталь🙂" * 300))],
+                )
+                finding = payload["findings"][0]
+                finding["file"] = ""
+
+                compact = {
+                    "reviews": [{
+                        "reviewRequestId": payload["reviewRequestId"],
+                        "reviewerSlot": payload["reviewerSlot"],
+                        "taskId": payload["taskId"],
+                        "candidateSha": payload["candidateSha"],
+                        "reviewType": payload["reviewType"],
+                        "reviewRound": payload["reviewRound"],
+                        "reviewStatus": payload["reviewStatus"],
+                    }],
+                    "findings": [{
+                        "id": finding["id"],
+                        "lineageFindingId": payload["reviewerSlot"] + ":" + finding["id"],
+                        "reviewerSlot": payload["reviewerSlot"],
+                        "severity": finding["severity"],
+                        "file": finding.get("file"),
+                        "location": finding.get("location"),
+                        "problem": "",
+                        "requiredChange": "",
+                        "lastSeenReviewRound": payload["reviewRound"],
+                        "lastSeenReviewRequestId": payload["reviewRequestId"],
+                    }],
+                }
+                base_size = len(
+                    (json.dumps(compact, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+                )
+                padding = 5000 - (2 * cap) - base_size
+                self.assertGreaterEqual(padding, 0)
+                finding["file"] = "f" * padding
+
+                proc, output, output_exists = self._run_history_compactor(
+                    [self._review_comment_from_payload(payload)],
+                    review_round=2,
+                )
+                self.assertNotEqual(0, proc.returncode)
+                self.assertEqual("", output)
+                self.assertFalse(output_exists)
+                self.assertIn("identity skeleton with full truncation markers", proc.stderr)
+
+    def test_oversized_identity_skeleton_fails_closed_without_output(self):
+        payload = self._review_payload(
+            1,
+            [self._finding("F001", suffix=(" длинная-деталь🙂" * 30))],
+        )
+        payload["findings"][0]["file"] = "f" * 6000
+
+        proc, output, output_exists = self._run_history_compactor(
+            [self._review_comment_from_payload(payload)],
+            review_round=2,
+        )
+
+        self.assertNotEqual(0, proc.returncode)
+        self.assertEqual("", output)
+        self.assertFalse(output_exists)
+        self.assertIn("identity skeleton with full truncation markers", proc.stderr)
+
     def test_malformed_json_trusted_review_fails_closed_even_when_older_than_latest_two(self):
-        proc, output = self._run_history_compactor([
+        proc, output, _ = self._run_history_compactor([
             {
                 "user": {"login": "github-actions[bot]"},
                 "body": "### External review result\n```json\n{not-json}\n```",
@@ -354,7 +455,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             with self.subTest(name=name):
                 invalid = self._review_payload(1, [self._finding("F001")])
                 mutate(invalid)
-                proc, output = self._run_history_compactor([
+                proc, output, _ = self._run_history_compactor([
                     self._review_comment_from_payload(invalid),
                     self._review_comment(2, []),
                     self._review_comment(3, []),
@@ -364,7 +465,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 self.assertIn("prior external review response contract is invalid", proc.stderr)
 
     def test_non_prior_round_for_current_lineage_fails_closed(self):
-        proc, output = self._run_history_compactor(
+        proc, output, _ = self._run_history_compactor(
             [self._review_comment(4, [])],
             review_round=4,
         )
@@ -373,7 +474,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertIn("non-prior reviewRound", proc.stderr)
 
     def test_untrusted_review_like_comment_is_ignored(self):
-        proc, output = self._run_history_compactor([
+        proc, output, _ = self._run_history_compactor([
             {"user": {"login": "someone-else"}, "body": "### External review result\n```json\n{not-json}\n```"}
         ])
         self.assertEqual(0, proc.returncode, proc.stderr)
@@ -383,6 +484,10 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertIn("MAX_REVIEWS = 2", self.workflow)
         self.assertIn("MAX_UNIQUE_FINDINGS = 12", self.workflow)
         self.assertIn("MAX_BYTES = 5000", self.workflow)
+        self.assertIn("TRUNCATION_MARKER = ' [truncated]'", self.workflow)
+        self.assertIn("marker_bytes = len(TRUNCATION_MARKER.encode('utf-8'))", self.workflow)
+        self.assertIn("low = marker_bytes", self.workflow)
+        self.assertIn("identity skeleton with full truncation markers", self.workflow)
         self.assertIn("item['user'].get('login') == 'github-actions[bot]'", self.workflow)
         self.assertIn("agents/runtime/external-review.py", self.workflow)
         self.assertIn("validate-response", self.workflow)
