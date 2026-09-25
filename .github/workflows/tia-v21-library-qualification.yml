@@ -30,33 +30,16 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            [[ "$EVENT_REF" == "refs/heads/main" ]] || {
-              echo "Qualification dispatch is allowed only from main." >&2
-              exit 1
-            }
+            [[ "$EVENT_REF" == "refs/heads/main" ]] || { echo "Qualification dispatch is allowed only from main." >&2; exit 1; }
             exit 0
           fi
-
           if [[ "$EVENT_NAME" == "issue_comment" ]]; then
-            [[ "$EVENT_REF" == "refs/heads/main" ]] || {
-              echo "Issue-comment qualification trigger is allowed only on the default main ref." >&2
-              exit 1
-            }
-            [[ "$ISSUE_NUMBER" == "19" ]] || {
-              echo "Qualification issue mismatch." >&2
-              exit 1
-            }
-            [[ "$COMMENT_BODY" == "/run-olq-001" ]] || {
-              echo "Comment is not the qualification command." >&2
-              exit 1
-            }
-            [[ "$COMMENT_LOGIN" == "$REPOSITORY_OWNER" ]] || {
-              echo "Qualification command is not authorized for this actor." >&2
-              exit 1
-            }
+            [[ "$EVENT_REF" == "refs/heads/main" ]] || { echo "Issue-comment qualification trigger is allowed only on the default main ref." >&2; exit 1; }
+            [[ "$ISSUE_NUMBER" == "19" ]] || { echo "Qualification issue mismatch." >&2; exit 1; }
+            [[ "$COMMENT_BODY" == "/run-olq-001" ]] || { echo "Comment is not the qualification command." >&2; exit 1; }
+            [[ "$COMMENT_LOGIN" == "$REPOSITORY_OWNER" ]] || { echo "Qualification command is not authorized for this actor." >&2; exit 1; }
             exit 0
           fi
-
           echo "Unsupported qualification trigger." >&2
           exit 1
 
@@ -81,9 +64,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $checkedOut = (git rev-parse HEAD).Trim()
           $main = (git rev-parse origin/main).Trim()
-          if ($checkedOut -ne $main) {
-            throw 'Trusted checkout is not current origin/main.'
-          }
+          if ($checkedOut -ne $main) { throw 'Trusted checkout is not current origin/main.' }
           Write-Host "Trusted main SHA: $checkedOut"
 
       - name: Build TiaV21Worker
@@ -95,338 +76,208 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-
           $publicDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\olq-001'
           $publicEvidencePath = Join-Path $publicDir 'qualification-evidence.json'
-          New-Item -ItemType Directory -Force -Path $publicDir | Out-Null
-
           $rawRoot = Join-Path $env:RUNNER_TEMP ("olq-001-raw-{0}-{1}" -f $env:GITHUB_RUN_ID, $env:GITHUB_RUN_ATTEMPT)
-          New-Item -ItemType Directory -Force -Path $rawRoot | Out-Null
+          New-Item -ItemType Directory -Force -Path $publicDir, $rawRoot | Out-Null
 
-          $trustedMainSha = (git rev-parse HEAD).Trim()
           $evidence = [ordered]@{
-            schema = 'olq-001-public-evidence-v1'
+            schema = 'olq-001-public-evidence-v2'
             status = 'BLOCKED'
-            trustedMainSha = $trustedMainSha
+            trustedMainSha = (git rev-parse HEAD).Trim()
             sourceArchiveBasename = $null
             sourceArchiveSha256 = $null
             tiaBuildIdentity = $null
             qualificationIdentity = $null
             qualifiedArchiveName = $null
             qualifiedArchiveSha256 = $null
-            nativeReopenSuccess = $false
+            run1IsReuse = $null
+            run1NativeReopenSuccess = $null
+            run2IsReuse = $null
+            run2NativeReopenSuccess = $null
+            originalProvenanceRunId = $null
+            originalCompletedAtUtc = $null
             run1ExitCode = $null
             run2ExitCode = $null
             deterministicSecondRun = $false
             failure = $null
           }
 
-          function Write-PublicEvidence {
-            param($Value, $Path)
-            $Value | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Path -Encoding UTF8
+          function Property($Object, [string]$Name) {
+            if ($null -eq $Object) { return $null }
+            return $Object.PSObject.Properties[$Name]
           }
-
-          function Test-FullyQualifiedWindowsPath {
-            param([string]$Path)
-            if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
-            if ($Path -match '^[A-Za-z]:\\') { return $true }
-            if ($Path -match '^\\\\[^\\]+\\[^\\]+') { return $true }
-            return $false
+          function Bool($Object, [string]$Name) {
+            $p = Property $Object $Name
+            if ($null -eq $p -or $p.Value -isnot [bool]) { return $null }
+            return [bool]$p.Value
           }
-
-          function Invoke-BoundedQualification {
-            param(
-              [string]$Phase,
-              [string]$Executable,
-              [string]$SourceArchive,
-              [string]$OutputRoot,
-              [string]$ManifestPath,
-              [string]$WorkPath,
-              [string]$StdoutPath,
-              [string]$StderrPath,
-              [int]$TimeoutMinutes
+          function Bool-Is($Object, [string]$Name, [bool]$Expected) {
+            $p = Property $Object $Name
+            return ($null -ne $p -and $p.Value -is [bool] -and [bool]$p.Value -eq $Expected)
+          }
+          function Text($Object, [string]$Name) {
+            $p = Property $Object $Name
+            if ($null -eq $p -or $p.Value -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$p.Value)) { return $null }
+            return [string]$p.Value
+          }
+          function Safe-PublicText([string]$Value, [int]$MaxLength) {
+            return (-not [string]::IsNullOrWhiteSpace($Value) -and $MaxLength -gt 0 -and $Value.Length -le $MaxLength -and $Value -notmatch '[\r\n`]')
+          }
+          function Lower-Sha256([string]$Value) { return ($null -ne $Value -and $Value -match '^[0-9a-f]{64}$') }
+          function Safe-ArchiveName([string]$Value) {
+            return ((Safe-PublicText $Value 255) -and [string]::Equals([IO.Path]::GetFileName($Value), $Value, [StringComparison]::Ordinal) -and [IO.Path]::GetExtension($Value) -ieq '.zal21')
+          }
+          function Canonical-Utc([string]$Value) {
+            if ([string]::IsNullOrWhiteSpace($Value) -or $Value -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$') { return $false }
+            $parsed = [DateTimeOffset]::MinValue
+            $styles = [System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal
+            return ([DateTimeOffset]::TryParse($Value, [System.Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$parsed) -and $parsed.Offset -eq [TimeSpan]::Zero)
+          }
+          function Safe-Provenance([string]$Value) {
+            return (-not [string]::IsNullOrWhiteSpace($Value) -and $Value -match '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$')
+          }
+          function Truthful-Mode($Manifest, [bool]$RequireReuse) {
+            $isReuse = Bool $Manifest 'isReuse'
+            $reopen = Bool $Manifest 'nativeReopenSuccess'
+            if ($null -eq $isReuse -or $null -eq $reopen) { return $false }
+            if ($RequireReuse) { return ($isReuse -and -not $reopen) }
+            return (($isReuse -and -not $reopen) -or (-not $isReuse -and $reopen))
+          }
+          $identityFields = @('sourceArchiveSha256','tiaBuildIdentity','qualificationIdentity','qualifiedArchiveName','qualifiedArchiveSha256')
+          function Identity-Valid($Manifest) {
+            return (
+              (Lower-Sha256 (Text $Manifest 'sourceArchiveSha256')) -and
+              (Safe-PublicText (Text $Manifest 'tiaBuildIdentity') 256) -and
+              (Safe-Provenance (Text $Manifest 'qualificationIdentity')) -and
+              (Safe-ArchiveName (Text $Manifest 'qualifiedArchiveName')) -and
+              (Lower-Sha256 (Text $Manifest 'qualifiedArchiveSha256'))
             )
-
-            $quote = [char]34
-            $quotedSource = $quote + $SourceArchive + $quote
-            $quotedOutput = $quote + $OutputRoot + $quote
-            $quotedManifest = $quote + $ManifestPath + $quote
-            $quotedWork = $quote + $WorkPath + $quote
-            $arguments = "qualify-library $quotedSource $quotedOutput $quotedManifest $quotedWork"
-
-            $startProcess = @{
-              FilePath = $Executable
-              ArgumentList = $arguments
-              RedirectStandardOutput = $StdoutPath
-              RedirectStandardError = $StderrPath
-              PassThru = $true
-            }
-            $process = Start-Process @startProcess
-
-            $timeoutMilliseconds = [int][TimeSpan]::FromMinutes($TimeoutMinutes).TotalMilliseconds
-            if (-not $process.WaitForExit($timeoutMilliseconds)) {
-              try {
-                if (-not $process.HasExited) {
-                  $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
-                  & $taskkill /PID $process.Id /T /F *> $null
-                }
-              }
-              catch { }
-
-              try {
-                if (-not $process.HasExited) {
-                  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-                }
-              }
-              catch { }
-
-              try { $process.WaitForExit(10000) | Out-Null } catch { }
-
-              return [pscustomobject]@{
-                Phase = $Phase
-                TimedOut = $true
-                ExitCode = $null
-              }
-            }
-
-            $process.WaitForExit()
-            return [pscustomobject]@{
-              Phase = $Phase
-              TimedOut = $false
-              ExitCode = $process.ExitCode
-            }
           }
-
-          $source = $env:TIA_OPEN_LIBRARY_V19_ARCHIVE
-          $qualifiedRoot = $env:TIA_OPEN_LIBRARY_QUALIFIED_ROOT
-          $sourceFull = $null
-          $qualifiedRootFull = $null
-          $blockedReason = $null
-          $probePath = $null
-
-          try {
-            if ([string]::IsNullOrWhiteSpace($source)) {
-              $blockedReason = 'Runner environment variable TIA_OPEN_LIBRARY_V19_ARCHIVE is not configured.'
+          function Identity-Same($Left, $Right) {
+            if (-not (Identity-Valid $Left) -or -not (Identity-Valid $Right)) { return $false }
+            foreach ($name in $identityFields) {
+              if (-not [string]::Equals((Text $Left $name), (Text $Right $name), [System.StringComparison]::Ordinal)) { return $false }
             }
-            elseif ([string]::IsNullOrWhiteSpace($qualifiedRoot)) {
-              $blockedReason = 'Runner environment variable TIA_OPEN_LIBRARY_QUALIFIED_ROOT is not configured.'
-            }
-            elseif (-not (Test-FullyQualifiedWindowsPath $source)) {
-              $blockedReason = 'Configured source archive path is not a fully qualified Windows path.'
-            }
-            elseif (-not (Test-FullyQualifiedWindowsPath $qualifiedRoot)) {
-              $blockedReason = 'Configured qualification output root is not a fully qualified Windows path.'
-            }
-            else {
-              $sourceFull = [System.IO.Path]::GetFullPath($source)
-              $qualifiedRootFull = [System.IO.Path]::GetFullPath($qualifiedRoot).TrimEnd('\')
-              $workspaceRoot = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')
-              $workspacePrefix = $workspaceRoot + '\'
-
-              if ([System.IO.Path]::GetExtension($sourceFull) -ine '.zal19') {
-                $blockedReason = 'Configured source archive does not have the required .zal19 extension.'
-              }
-              elseif (-not [System.IO.File]::Exists($sourceFull)) {
-                $blockedReason = 'Configured source archive is unavailable on the trusted runner.'
-              }
-              elseif ($sourceFull.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-                $blockedReason = 'Vendor source archive must be runner-local and outside the GitHub workspace.'
-              }
-              elseif ($qualifiedRootFull.Equals($workspaceRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
-                      $qualifiedRootFull.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-                $blockedReason = 'Qualified library output root must be outside the GitHub workspace.'
-              }
-              else {
-                $sourceStream = $null
-                try {
-                  $sourceStream = [System.IO.File]::Open(
-                    $sourceFull,
-                    [System.IO.FileMode]::Open,
-                    [System.IO.FileAccess]::Read,
-                    [System.IO.FileShare]::ReadWrite)
-                }
-                finally {
-                  if ($null -ne $sourceStream) { $sourceStream.Dispose() }
-                }
-
-                [System.IO.Directory]::CreateDirectory($qualifiedRootFull) | Out-Null
-                $probePath = [System.IO.Path]::Combine(
-                  $qualifiedRootFull,
-                  ('.olq-write-probe-{0}-{1}.tmp' -f $env:GITHUB_RUN_ID, $env:GITHUB_RUN_ATTEMPT))
-                [System.IO.File]::WriteAllText($probePath, '')
-                [System.IO.File]::Delete($probePath)
-                $probePath = $null
-              }
-            }
+            return $true
           }
-          catch {
-            $blockedReason = 'Runner-local Open Library configuration is invalid or unavailable.'
-          }
-          finally {
-            if ($null -ne $probePath) {
-              try { [System.IO.File]::Delete($probePath) } catch { }
+          function Invoke-Qualification([string]$Phase, [string]$Exe, [string]$Source, [string]$Output, [string]$Manifest, [string]$Work, [int]$TimeoutMinutes) {
+            $q = [char]34
+            $args = "qualify-library $q$Source$q $q$Output$q $q$Manifest$q $q$Work$q"
+            $stdout = Join-Path $rawRoot "$Phase-stdout.txt"
+            $stderr = Join-Path $rawRoot "$Phase-stderr.txt"
+            $p = Start-Process -FilePath $Exe -ArgumentList $args -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+            $milliseconds = [int][TimeSpan]::FromMinutes($TimeoutMinutes).TotalMilliseconds
+            if (-not $p.WaitForExit($milliseconds)) {
+              try { & (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $p.Id /T /F *> $null } catch { }
+              try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch { }
+              return [pscustomobject]@{ TimedOut = $true; ExitCode = $null }
             }
+            $p.WaitForExit()
+            return [pscustomobject]@{ TimedOut = $false; ExitCode = $p.ExitCode }
+          }
+          function Stop-Evidence([string]$Status, [string]$Message) {
+            $evidence.status = $Status
+            $evidence.failure = $Message
+            throw $Message
           }
 
           try {
-            if ($null -ne $blockedReason) {
-              $evidence.status = 'BLOCKED'
-              $evidence.failure = $blockedReason
-            }
-            else {
-              $source = $sourceFull
-              $qualifiedRoot = $qualifiedRootFull
-              $evidence.sourceArchiveBasename = [System.IO.Path]::GetFileName($source)
-              $evidence.sourceArchiveSha256 = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
-
-              $exe = Join-Path $env:GITHUB_WORKSPACE 'src\TiaV21Worker\bin\Release\net48\TiaV21Worker.exe'
-              if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-                throw 'Trusted TiaV21Worker executable was not produced by the build.'
-              }
-
-              $timeoutMinutes = [int]$env:OLQ_INVOCATION_TIMEOUT_MINUTES
-              if ($timeoutMinutes -le 0) {
-                throw 'Qualification invocation timeout is invalid.'
-              }
-
-              $run1Manifest = Join-Path $rawRoot 'run1-manifest.json'
-              $run2Manifest = Join-Path $rawRoot 'run2-manifest.json'
-              $run1Work = Join-Path $rawRoot 'run1-work'
-              $run2Work = Join-Path $rawRoot 'run2-work'
-              $run1Stdout = Join-Path $rawRoot 'run1-stdout.txt'
-              $run1Stderr = Join-Path $rawRoot 'run1-stderr.txt'
-              $run2Stdout = Join-Path $rawRoot 'run2-stdout.txt'
-              $run2Stderr = Join-Path $rawRoot 'run2-stderr.txt'
-
-              $run1Arguments = @{
-                Phase = 'run1'
-                Executable = $exe
-                SourceArchive = $source
-                OutputRoot = $qualifiedRoot
-                ManifestPath = $run1Manifest
-                WorkPath = $run1Work
-                StdoutPath = $run1Stdout
-                StderrPath = $run1Stderr
-                TimeoutMinutes = $timeoutMinutes
-              }
-              $run1Process = Invoke-BoundedQualification @run1Arguments
-
-              if ($run1Process.TimedOut) {
-                $evidence.status = 'BLOCKED'
-                $evidence.failure = "Qualification invocation timed out during run1 after the bounded $timeoutMinutes-minute execution window."
-              }
-              else {
-                $run1Exit = [int]$run1Process.ExitCode
-                $evidence.run1ExitCode = $run1Exit
-
-                if (-not (Test-Path -LiteralPath $run1Manifest -PathType Leaf)) {
-                  $evidence.status = 'FAIL'
-                  $evidence.failure = 'First qualification invocation did not create a manifest.'
-                }
-                else {
-                  $run1 = Get-Content -LiteralPath $run1Manifest -Raw | ConvertFrom-Json
-                  $evidence.sourceArchiveBasename = [System.IO.Path]::GetFileName([string]$run1.sourceArchiveBasename)
-                  $evidence.sourceArchiveSha256 = $run1.sourceArchiveSha256
-                  $evidence.tiaBuildIdentity = $run1.tiaBuildIdentity
-                  $evidence.qualificationIdentity = $run1.qualificationIdentity
-                  $evidence.qualifiedArchiveName = [System.IO.Path]::GetFileName([string]$run1.qualifiedArchiveName)
-                  $evidence.qualifiedArchiveSha256 = $run1.qualifiedArchiveSha256
-                  $evidence.nativeReopenSuccess = [bool]$run1.nativeReopenSuccess
-
-                  if ($run1Exit -ne 0 -or -not [bool]$run1.success) {
-                    $evidence.status = 'FAIL'
-                    if ($run1.failure) {
-                      $evidence.failure = [string]$run1.failure
-                    }
-                    else {
-                      $evidence.failure = 'First qualification invocation failed.'
-                    }
-                  }
-                  else {
-                    $run2Arguments = @{
-                      Phase = 'run2'
-                      Executable = $exe
-                      SourceArchive = $source
-                      OutputRoot = $qualifiedRoot
-                      ManifestPath = $run2Manifest
-                      WorkPath = $run2Work
-                      StdoutPath = $run2Stdout
-                      StderrPath = $run2Stderr
-                      TimeoutMinutes = $timeoutMinutes
-                    }
-                    $run2Process = Invoke-BoundedQualification @run2Arguments
-
-                    if ($run2Process.TimedOut) {
-                      $evidence.status = 'BLOCKED'
-                      $evidence.failure = "Qualification invocation timed out during run2 after the bounded $timeoutMinutes-minute execution window."
-                    }
-                    else {
-                      $run2Exit = [int]$run2Process.ExitCode
-                      $evidence.run2ExitCode = $run2Exit
-
-                      if (-not (Test-Path -LiteralPath $run2Manifest -PathType Leaf)) {
-                        $evidence.status = 'FAIL'
-                        $evidence.failure = 'Second qualification invocation did not create a manifest.'
-                      }
-                      else {
-                        $run2 = Get-Content -LiteralPath $run2Manifest -Raw | ConvertFrom-Json
-                        $same = (
-                          ([bool]$run2.success) -and
-                          ($run2Exit -eq 0) -and
-                          ([bool]$run2.nativeReopenSuccess) -and
-                          ($run1.sourceArchiveSha256 -eq $run2.sourceArchiveSha256) -and
-                          ($run1.tiaBuildIdentity -eq $run2.tiaBuildIdentity) -and
-                          ($run1.qualificationIdentity -eq $run2.qualificationIdentity) -and
-                          ($run1.qualifiedArchiveName -eq $run2.qualifiedArchiveName) -and
-                          ($run1.qualifiedArchiveSha256 -eq $run2.qualifiedArchiveSha256)
-                        )
-
-                        $evidence.deterministicSecondRun = [bool]$same
-                        if ($same) {
-                          $evidence.status = 'PASS'
-                          $evidence.failure = $null
-                        }
-                        else {
-                          $evidence.status = 'FAIL'
-                          if ($run2.failure) {
-                            $evidence.failure = [string]$run2.failure
-                          }
-                          else {
-                            $evidence.failure = 'Second qualification run did not reproduce the first qualification identity and hashes.'
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-          catch {
-            $evidence.status = 'FAIL'
-            $evidence.failure = 'Qualification harness failed before valid public evidence could be completed.'
-          }
-          finally {
+            $source = $env:TIA_OPEN_LIBRARY_V19_ARCHIVE
+            $output = $env:TIA_OPEN_LIBRARY_QUALIFIED_ROOT
+            if ([string]::IsNullOrWhiteSpace($source) -or [string]::IsNullOrWhiteSpace($output)) { Stop-Evidence 'BLOCKED' 'Runner-local Open Library paths are not configured.' }
+            if ($source -notmatch '^[A-Za-z]:\\|^\\\\[^\\]+\\[^\\]+' -or $output -notmatch '^[A-Za-z]:\\|^\\\\[^\\]+\\[^\\]+') { Stop-Evidence 'BLOCKED' 'Runner-local Open Library paths are not fully qualified Windows paths.' }
+            $source = [System.IO.Path]::GetFullPath($source)
+            $output = [System.IO.Path]::GetFullPath($output).TrimEnd('\')
+            $workspace = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\')
+            $workspacePrefix = $workspace + '\'
+            if ([System.IO.Path]::GetExtension($source) -ine '.zal19' -or -not [System.IO.File]::Exists($source)) { Stop-Evidence 'BLOCKED' 'Configured source archive is unavailable or not a .zal19 archive.' }
+            if ($source.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase) -or $output.Equals($workspace, [System.StringComparison]::OrdinalIgnoreCase) -or $output.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) { Stop-Evidence 'BLOCKED' 'Vendor input and qualified output must remain runner-local outside the GitHub workspace.' }
+            $probe = $null
             try {
-              Write-PublicEvidence $evidence $publicEvidencePath
-              "status=$($evidence.status)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+              [System.IO.Directory]::CreateDirectory($output) | Out-Null
+              $probe = Join-Path $output ('.olq-write-probe-{0}-{1}.tmp' -f $env:GITHUB_RUN_ID, $env:GITHUB_RUN_ATTEMPT)
+              [System.IO.File]::WriteAllText($probe, '')
+              [System.IO.File]::Delete($probe)
+              $probe = $null
             }
-            finally {
-              Remove-Item -LiteralPath $rawRoot -Recurse -Force -ErrorAction SilentlyContinue
+            catch { Stop-Evidence 'BLOCKED' 'Configured qualification output root is unavailable or not writable.' }
+            finally { if ($null -ne $probe) { try { [System.IO.File]::Delete($probe) } catch { } } }
+
+            $actualSourceBasename = [System.IO.Path]::GetFileName($source)
+            $actualSourceSha256 = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+            if (-not (Safe-PublicText $actualSourceBasename 255)) { Stop-Evidence 'BLOCKED' 'Configured source archive basename is not safe for bounded public evidence.' }
+            $evidence.sourceArchiveBasename = $actualSourceBasename
+            $evidence.sourceArchiveSha256 = $actualSourceSha256
+            $exe = Join-Path $env:GITHUB_WORKSPACE 'src\TiaV21Worker\bin\Release\net48\TiaV21Worker.exe'
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { Stop-Evidence 'FAIL' 'Trusted TiaV21Worker executable was not produced by the build.' }
+            $timeout = [int]$env:OLQ_INVOCATION_TIMEOUT_MINUTES
+            if ($timeout -le 0) { Stop-Evidence 'FAIL' 'Qualification invocation timeout is invalid.' }
+
+            $m1 = Join-Path $rawRoot 'run1-manifest.json'
+            $m2 = Join-Path $rawRoot 'run2-manifest.json'
+            $r1p = Invoke-Qualification 'run1' $exe $source $output $m1 (Join-Path $rawRoot 'run1-work') $timeout
+            if ($r1p.TimedOut) { Stop-Evidence 'BLOCKED' 'Qualification invocation timed out during run1.' }
+            $evidence.run1ExitCode = [int]$r1p.ExitCode
+            if (-not (Test-Path -LiteralPath $m1 -PathType Leaf)) { Stop-Evidence 'FAIL' 'First qualification invocation did not create a manifest.' }
+            $r1 = Get-Content -LiteralPath $m1 -Raw | ConvertFrom-Json
+            $evidence.run1IsReuse = Bool $r1 'isReuse'
+            $evidence.run1NativeReopenSuccess = Bool $r1 'nativeReopenSuccess'
+            $runId = Text $r1 'originalProvenanceRunId'
+            $completed = Text $r1 'originalCompletedAtUtc'
+
+            if ($r1p.ExitCode -ne 0 -or -not (Bool-Is $r1 'success' $true)) { Stop-Evidence 'FAIL' 'First qualification invocation failed.' }
+            if (-not (Truthful-Mode $r1 $false)) { Stop-Evidence 'FAIL' 'First qualification invocation reported an invalid fresh/reuse evidence mode.' }
+            if (-not (Safe-Provenance $runId) -or -not (Canonical-Utc $completed)) { Stop-Evidence 'FAIL' 'First qualification invocation did not publish valid immutable UTC provenance.' }
+            if (-not (Identity-Valid $r1)) { Stop-Evidence 'FAIL' 'First qualification invocation did not publish bounded valid qualification identities.' }
+            if (-not [string]::Equals($actualSourceSha256, (Text $r1 'sourceArchiveSha256'), [StringComparison]::Ordinal)) { Stop-Evidence 'FAIL' 'First qualification invocation source identity did not match the runner-local archive.' }
+
+            $evidence.tiaBuildIdentity = Text $r1 'tiaBuildIdentity'
+            $evidence.qualificationIdentity = Text $r1 'qualificationIdentity'
+            $evidence.qualifiedArchiveName = Text $r1 'qualifiedArchiveName'
+            $evidence.qualifiedArchiveSha256 = Text $r1 'qualifiedArchiveSha256'
+            $evidence.nativeReopenSuccess = [bool]$evidence.run1NativeReopenSuccess
+            $evidence.originalProvenanceRunId = $runId
+            $evidence.originalCompletedAtUtc = $completed
+
+            $r2p = Invoke-Qualification 'run2' $exe $source $output $m2 (Join-Path $rawRoot 'run2-work') $timeout
+            if ($r2p.TimedOut) { Stop-Evidence 'BLOCKED' 'Qualification invocation timed out during run2.' }
+            $evidence.run2ExitCode = [int]$r2p.ExitCode
+            if (-not (Test-Path -LiteralPath $m2 -PathType Leaf)) { Stop-Evidence 'FAIL' 'Second qualification invocation did not create a manifest.' }
+            $r2 = Get-Content -LiteralPath $m2 -Raw | ConvertFrom-Json
+            $evidence.run2IsReuse = Bool $r2 'isReuse'
+            $evidence.run2NativeReopenSuccess = Bool $r2 'nativeReopenSuccess'
+            $run2Id = Text $r2 'originalProvenanceRunId'
+            $run2Completed = Text $r2 'originalCompletedAtUtc'
+
+            $same = (
+              $r2p.ExitCode -eq 0 -and (Bool-Is $r2 'success' $true) -and
+              (Truthful-Mode $r2 $true) -and (Safe-Provenance $run2Id) -and
+              (Canonical-Utc $run2Completed) -and (Identity-Same $r1 $r2) -and
+              [string]::Equals($runId, $run2Id, [System.StringComparison]::Ordinal) -and
+              [string]::Equals($completed, $run2Completed, [System.StringComparison]::Ordinal)
+            )
+            $evidence.deterministicSecondRun = [bool]$same
+            if (-not $same) { Stop-Evidence 'FAIL' 'Second qualification run was not truthful reuse of the first immutable identity and provenance.' }
+            $evidence.status = 'PASS'
+            $evidence.failure = $null
+          }
+          catch {
+            if ($evidence.status -ne 'PASS' -and [string]::IsNullOrWhiteSpace([string]$evidence.failure)) {
+              $evidence.status = 'FAIL'
+              $evidence.failure = 'Qualification harness failed before valid public evidence could be completed.'
             }
+          }
+          finally {
+            $evidence | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $publicEvidencePath -Encoding UTF8
+            "status=$($evidence.status)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding ascii
+            Remove-Item -LiteralPath $rawRoot -Recurse -Force -ErrorAction SilentlyContinue
           }
 
       - name: Show sanitized evidence
         if: always()
         shell: powershell
-        run: |
-          $path = Join-Path $env:GITHUB_WORKSPACE 'artifacts\olq-001\qualification-evidence.json'
-          if (Test-Path -LiteralPath $path) {
-            Get-Content -LiteralPath $path
-          }
-          else {
-            Write-Host 'Sanitized qualification evidence was not created.'
-          }
+        run: Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'artifacts\olq-001\qualification-evidence.json') -ErrorAction SilentlyContinue
 
       - name: Upload sanitized qualification evidence
         if: always()
@@ -449,34 +300,21 @@ jobs:
               body = `### OLQ-001 trusted qualification\n\nState: **FAIL**\n\nSanitized evidence was not created. Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             } else {
               const e = JSON.parse(fs.readFileSync(evidencePath, 'utf8').replace(/^\uFEFF/, ''));
-              const safe = value => value == null ? 'n/a' : String(value).replace(/[\r\n`]/g, ' ');
+              const safe = value => value == null ? 'n/a' : String(value).replace(/[\r\n`]/g, ' ').slice(0, 512);
               body = [
-                '### OLQ-001 trusted qualification',
-                '',
-                `State: **${safe(e.status)}**`,
-                '',
-                `- trusted main: \`${safe(e.trustedMainSha)}\``,
-                `- source: \`${safe(e.sourceArchiveBasename)}\``,
-                `- source SHA256: \`${safe(e.sourceArchiveSha256)}\``,
-                `- TIA/Openness build: \`${safe(e.tiaBuildIdentity)}\``,
-                `- qualification identity: \`${safe(e.qualificationIdentity)}\``,
-                `- qualified archive: \`${safe(e.qualifiedArchiveName)}\``,
-                `- qualified archive SHA256: \`${safe(e.qualifiedArchiveSha256)}\``,
-                `- native reopen: \`${safe(e.nativeReopenSuccess)}\``,
-                `- deterministic second run: \`${safe(e.deterministicSecondRun)}\``,
-                `- failure: ${safe(e.failure)}`,
-                '',
-                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-                '',
-                'Only sanitized hashes/identities/status are published; vendor payload and raw runner-local diagnostics are not uploaded.'
+                '### OLQ-001 trusted qualification', '', `State: **${safe(e.status)}**`, '',
+                `- trusted main: \`${safe(e.trustedMainSha)}\``, `- source: \`${safe(e.sourceArchiveBasename)}\``,
+                `- source SHA256: \`${safe(e.sourceArchiveSha256)}\``, `- TIA/Openness build: \`${safe(e.tiaBuildIdentity)}\``,
+                `- qualification identity: \`${safe(e.qualificationIdentity)}\``, `- qualified archive: \`${safe(e.qualifiedArchiveName)}\``,
+                `- qualified archive SHA256: \`${safe(e.qualifiedArchiveSha256)}\``, `- run 1 reuse: \`${safe(e.run1IsReuse)}\``,
+                `- run 1 native reopen: \`${safe(e.run1NativeReopenSuccess)}\``, `- run 2 reuse: \`${safe(e.run2IsReuse)}\``,
+                `- run 2 native reopen: \`${safe(e.run2NativeReopenSuccess)}\``, `- original provenance run ID: \`${safe(e.originalProvenanceRunId)}\``,
+                `- original completed at UTC: \`${safe(e.originalCompletedAtUtc)}\``, `- deterministic second run: \`${safe(e.deterministicSecondRun)}\``,
+                `- failure: ${safe(e.failure)}`, '', `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`, '',
+                'Only sanitized hashes/identities/reuse/provenance/status are published; vendor payload and raw runner-local diagnostics are not uploaded.'
               ].join('\n');
             }
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: 19,
-              body
-            });
+            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: 19, body });
 
       - name: Enforce qualification result
         if: always()
