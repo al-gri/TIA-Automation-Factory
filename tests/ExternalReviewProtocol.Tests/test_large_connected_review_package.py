@@ -93,8 +93,9 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 cwd=ROOT,
             )
             output_path = temp / "previous-findings.txt"
-            output = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
-            return proc, output
+            output_exists = output_path.exists()
+            output = output_path.read_text(encoding="utf-8") if output_exists else ""
+            return proc, output, output_exists
 
     def _render_connected_package(self, previous_findings):
         task = json.loads(ALLOWLIST_TASK_PATH.read_text(encoding="utf-8"))
@@ -259,7 +260,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 wrapper="z" * 8000,
             ),
         ]
-        proc, output = self._run_history_compactor(comments)
+        proc, output, _ = self._run_history_compactor(comments)
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertLessEqual(len(output.encode("utf-8")), 5000)
         compact = json.loads(output)
@@ -289,7 +290,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             ),
             self._review_comment(3, [self._finding("F002", severity="minor", suffix="current-later")]),
         ]
-        proc, output = self._run_history_compactor(comments)
+        proc, output, _ = self._run_history_compactor(comments)
         self.assertEqual(0, proc.returncode, proc.stderr)
         compact = json.loads(output)
         findings = {item["lineageFindingId"]: item for item in compact["findings"]}
@@ -307,7 +308,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 reviewer_slot="chatgpt-secondary",
             ),
         ]
-        proc, output = self._run_history_compactor(comments, review_round=3)
+        proc, output, _ = self._run_history_compactor(comments, review_round=3)
         self.assertEqual(0, proc.returncode, proc.stderr)
         compact = json.loads(output)
         findings = {item["lineageFindingId"]: item for item in compact["findings"]}
@@ -320,7 +321,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             self._review_comment(1, [self._finding("F001", suffix="round-one")], wrapper="x" * 8000),
             self._review_comment(2, [self._finding("F001", suffix="round-two")], wrapper="y" * 8000),
         ]
-        compact_proc, previous_findings = self._run_history_compactor(comments)
+        compact_proc, previous_findings, _ = self._run_history_compactor(comments)
         self.assertEqual(0, compact_proc.returncode, compact_proc.stderr)
         render_proc, rendered = self._render_connected_package(previous_findings)
         self.assertEqual(0, render_proc.returncode, render_proc.stderr)
@@ -333,8 +334,8 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         ]
         comments = [self._review_comment(1, findings)]
 
-        first_proc, first_output = self._run_history_compactor(comments, review_round=2)
-        second_proc, second_output = self._run_history_compactor(comments, review_round=2)
+        first_proc, first_output, _ = self._run_history_compactor(comments, review_round=2)
+        second_proc, second_output, _ = self._run_history_compactor(comments, review_round=2)
 
         self.assertEqual(0, first_proc.returncode, first_proc.stderr)
         self.assertEqual(0, second_proc.returncode, second_proc.stderr)
@@ -400,12 +401,13 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 self.assertGreaterEqual(padding, 0)
                 finding["file"] = "f" * padding
 
-                proc, output = self._run_history_compactor(
+                proc, output, output_exists = self._run_history_compactor(
                     [self._review_comment_from_payload(payload)],
                     review_round=2,
                 )
                 self.assertNotEqual(0, proc.returncode)
                 self.assertEqual("", output)
+                self.assertFalse(output_exists)
                 self.assertIn("identity skeleton with full truncation markers", proc.stderr)
 
     def test_oversized_identity_skeleton_fails_closed_without_output(self):
@@ -415,17 +417,18 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         )
         payload["findings"][0]["file"] = "f" * 6000
 
-        proc, output = self._run_history_compactor(
+        proc, output, output_exists = self._run_history_compactor(
             [self._review_comment_from_payload(payload)],
             review_round=2,
         )
 
         self.assertNotEqual(0, proc.returncode)
         self.assertEqual("", output)
+        self.assertFalse(output_exists)
         self.assertIn("identity skeleton with full truncation markers", proc.stderr)
 
     def test_malformed_json_trusted_review_fails_closed_even_when_older_than_latest_two(self):
-        proc, output = self._run_history_compactor([
+        proc, output, _ = self._run_history_compactor([
             {
                 "user": {"login": "github-actions[bot]"},
                 "body": "### External review result\n```json\n{not-json}\n```",
@@ -452,7 +455,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
             with self.subTest(name=name):
                 invalid = self._review_payload(1, [self._finding("F001")])
                 mutate(invalid)
-                proc, output = self._run_history_compactor([
+                proc, output, _ = self._run_history_compactor([
                     self._review_comment_from_payload(invalid),
                     self._review_comment(2, []),
                     self._review_comment(3, []),
@@ -462,7 +465,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
                 self.assertIn("prior external review response contract is invalid", proc.stderr)
 
     def test_non_prior_round_for_current_lineage_fails_closed(self):
-        proc, output = self._run_history_compactor(
+        proc, output, _ = self._run_history_compactor(
             [self._review_comment(4, [])],
             review_round=4,
         )
@@ -471,7 +474,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertIn("non-prior reviewRound", proc.stderr)
 
     def test_untrusted_review_like_comment_is_ignored(self):
-        proc, output = self._run_history_compactor([
+        proc, output, _ = self._run_history_compactor([
             {"user": {"login": "someone-else"}, "body": "### External review result\n```json\n{not-json}\n```"}
         ])
         self.assertEqual(0, proc.returncode, proc.stderr)
