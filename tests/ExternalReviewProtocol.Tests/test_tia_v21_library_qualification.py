@@ -59,7 +59,12 @@ def manifest(*, is_reuse: bool, native_reopen: bool) -> dict[str, object]:
     }
 
 
-def run_pwsh(script_text: str, *, environment: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def run_pwsh(
+    script_text: str,
+    *,
+    environment: dict[str, str] | None = None,
+    timeout_seconds: float | None = None,
+) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as directory:
         script_path = Path(directory) / "test.ps1"
         script_path.write_text(script_text, encoding="utf-8")
@@ -73,6 +78,7 @@ def run_pwsh(script_text: str, *, environment: dict[str, str] | None = None) -> 
             stderr=subprocess.STDOUT,
             check=False,
             env=env,
+            timeout=timeout_seconds,
         )
 
 
@@ -304,6 +310,10 @@ New-Item -ItemType Directory -Force -Path $rawRoot | Out-Null
 $parentScript = Join-Path $rawRoot 'parent.ps1'
 $childPidPath = Join-Path $rawRoot 'child.pid'
 $exitGatePath = Join-Path $rawRoot 'exit.gate'
+$parentStdoutPath = Join-Path $rawRoot 'parent.stdout.txt'
+$parentStderrPath = Join-Path $rawRoot 'parent.stderr.txt'
+$childStdoutPath = Join-Path $rawRoot 'child.stdout.txt'
+$childStderrPath = Join-Path $rawRoot 'child.stderr.txt'
 $resultPath = $env:OLQ_RACE_RESULT_PATH
 if ([string]::IsNullOrWhiteSpace($resultPath)) {
   throw 'Race regression result path is not configured.'
@@ -312,12 +322,16 @@ if ([string]::IsNullOrWhiteSpace($resultPath)) {
 $parentSource = @"
 param(
   [string]`$ChildPidPath,
-  [string]`$ExitGatePath
+  [string]`$ExitGatePath,
+  [string]`$ChildStdoutPath,
+  [string]`$ChildStderrPath
 )
 `$pwsh = (Get-Command pwsh).Source
 `$child = Start-Process `
   -FilePath `$pwsh `
   -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60') `
+  -RedirectStandardOutput `$ChildStdoutPath `
+  -RedirectStandardError `$ChildStderrPath `
   -PassThru
 [System.IO.File]::WriteAllText(`$ChildPidPath, [string]`$child.Id)
 while (-not (Test-Path -LiteralPath `$ExitGatePath)) {
@@ -338,8 +352,14 @@ $parent = Start-Process `
     '-ChildPidPath',
     $childPidPath,
     '-ExitGatePath',
-    $exitGatePath
+    $exitGatePath,
+    '-ChildStdoutPath',
+    $childStdoutPath,
+    '-ChildStderrPath',
+    $childStderrPath
   ) `
+  -RedirectStandardOutput $parentStdoutPath `
+  -RedirectStandardError $parentStderrPath `
   -PassThru
 
 $fake = [pscustomobject]@{
@@ -353,10 +373,15 @@ $fake = [pscustomobject]@{
 }
 $fake | Add-Member -MemberType ScriptMethod -Name TerminateAndWait -Value {
   param([int]$WaitMilliseconds)
+  if ($WaitMilliseconds -le 0) {
+    throw 'Test containment wait must be positive.'
+  }
+
   $trackedProcesses = @(
     $this.Process
     $this.ChildProcess
   ) | Where-Object { $null -ne $_ }
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($WaitMilliseconds)
 
   foreach ($trackedProcess in $trackedProcesses) {
     if (-not $trackedProcess.HasExited) {
@@ -371,24 +396,18 @@ $fake | Add-Member -MemberType ScriptMethod -Name TerminateAndWait -Value {
     }
   }
 
-  $deadline = [DateTime]::UtcNow.AddMilliseconds($WaitMilliseconds)
-  do {
-    $alive = @(
-      $trackedProcesses |
-        Where-Object { -not $_.HasExited }
-    )
-    if ($alive.Count -eq 0) {
-      foreach ($trackedProcess in $trackedProcesses) {
-        $trackedProcess.WaitForExit()
-      }
-      $this.VerifiedEmpty = $true
-      return
+  foreach ($trackedProcess in $trackedProcesses) {
+    $remainingMilliseconds = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds
+    if ($remainingMilliseconds -le 0 -or
+        -not $trackedProcess.WaitForExit($remainingMilliseconds)) {
+      throw 'Test containment did not become empty before its deadline.'
     }
-    Start-Sleep -Milliseconds 20
+    if (-not $trackedProcess.HasExited) {
+      throw 'Tracked process remained alive after bounded wait.'
+    }
   }
-  while ([DateTime]::UtcNow -lt $deadline)
 
-  throw 'Test containment did not become empty.'
+  $this.VerifiedEmpty = $true
 }
 $fake | Add-Member -MemberType ScriptMethod -Name Dispose -Value {
   $this.Disposed = $true
@@ -427,6 +446,29 @@ $waitAction = {
   return $false
 }
 
+function Stop-TestProcessBounded {
+  param(
+    [System.Diagnostics.Process]$Process,
+    [string]$Name,
+    [int]$WaitMilliseconds = 5000
+  )
+
+  if ($null -eq $Process) { return }
+  if (-not $Process.HasExited) {
+    try {
+      $Process.Kill()
+    }
+    catch [System.InvalidOperationException] {
+      if (-not $Process.HasExited) {
+        throw
+      }
+    }
+  }
+  if (-not $Process.WaitForExit($WaitMilliseconds) -or -not $Process.HasExited) {
+    throw ("{0} did not exit during bounded cleanup." -f $Name)
+  }
+}
+
 try {
   $result = Invoke-Qualification `
     -Phase 'race' `
@@ -455,23 +497,21 @@ try {
     [System.Text.UTF8Encoding]::new($false))
 }
 finally {
-  if ($null -ne $fake.ChildProcess) {
+  try {
+    Stop-TestProcessBounded -Process $fake.ChildProcess -Name 'Long-lived child'
+  }
+  finally {
     try {
-      if (-not $fake.ChildProcess.HasExited) {
-        $fake.ChildProcess.Kill()
-        $fake.ChildProcess.WaitForExit()
-      }
+      Stop-TestProcessBounded -Process $parent -Name 'Parent'
     }
     finally {
-      $fake.ChildProcess.Dispose()
+      if ($null -ne $fake.ChildProcess) {
+        $fake.ChildProcess.Dispose()
+      }
+      $parent.Dispose()
+      Remove-Item -LiteralPath $rawRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
   }
-  if (-not $parent.HasExited) {
-    $parent.Kill()
-    $parent.WaitForExit()
-  }
-  $parent.Dispose()
-  Remove-Item -LiteralPath $rawRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 '''
         with tempfile.TemporaryDirectory() as directory:
@@ -479,6 +519,7 @@ finally {
             completed = run_pwsh(
                 script,
                 environment={"OLQ_RACE_RESULT_PATH": str(result_path)},
+                timeout_seconds=30,
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
             self.assertTrue(result_path.is_file(), completed.stdout)
