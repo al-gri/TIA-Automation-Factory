@@ -326,6 +326,37 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertEqual(0, render_proc.returncode, render_proc.stderr)
         self.assertLessEqual(len(rendered), 54000)
 
+    def test_max_findings_with_long_text_are_bounded_without_dropping_identity(self):
+        findings = [
+            self._finding(f"F{index:03d}", suffix=(" long-review-detail" * 300))
+            for index in range(1, 13)
+        ]
+        comments = [self._review_comment(1, findings)]
+
+        first_proc, first_output = self._run_history_compactor(comments, review_round=2)
+        second_proc, second_output = self._run_history_compactor(comments, review_round=2)
+
+        self.assertEqual(0, first_proc.returncode, first_proc.stderr)
+        self.assertEqual(0, second_proc.returncode, second_proc.stderr)
+        self.assertEqual(first_output, second_output)
+        self.assertLessEqual(len(first_output.encode("utf-8")), 5000)
+
+        compact = json.loads(first_output)
+        self.assertEqual(12, len(compact["findings"]))
+        self.assertEqual(
+            {f"chatgpt:F{index:03d}" for index in range(1, 13)},
+            {item["lineageFindingId"] for item in compact["findings"]},
+        )
+        for item in compact["findings"]:
+            self.assertEqual("major", item["severity"])
+            self.assertEqual(1, item["lastSeenReviewRound"])
+            self.assertIn("[truncated]", item["problem"])
+            self.assertIn("[truncated]", item["requiredChange"])
+
+        render_proc, rendered = self._render_connected_package(first_output)
+        self.assertEqual(0, render_proc.returncode, render_proc.stderr)
+        self.assertLessEqual(len(rendered), 54000)
+
     def test_malformed_json_trusted_review_fails_closed_even_when_older_than_latest_two(self):
         proc, output = self._run_history_compactor([
             {
