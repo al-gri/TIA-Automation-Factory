@@ -328,7 +328,7 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
 
     def test_max_findings_with_long_text_are_bounded_without_dropping_identity(self):
         findings = [
-            self._finding(f"F{index:03d}", suffix=(" long-review-detail" * 300))
+            self._finding(f"F{index:03d}", suffix=(" длинная-многоязычная-деталь🙂" * 300))
             for index in range(1, 13)
         ]
         comments = [self._review_comment(1, findings)]
@@ -350,12 +350,79 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         for item in compact["findings"]:
             self.assertEqual("major", item["severity"])
             self.assertEqual(1, item["lastSeenReviewRound"])
-            self.assertIn("[truncated]", item["problem"])
-            self.assertIn("[truncated]", item["requiredChange"])
+            self.assertTrue(item["problem"].endswith(" [truncated]"))
+            self.assertTrue(item["requiredChange"].endswith(" [truncated]"))
 
         render_proc, rendered = self._render_connected_package(first_output)
         self.assertEqual(0, render_proc.returncode, render_proc.stderr)
         self.assertLessEqual(len(rendered), 54000)
+
+    def test_near_bound_caps_zero_through_eleven_fail_closed_without_partial_marker(self):
+        marker = " [truncated]"
+        marker_bytes = len(marker.encode("utf-8"))
+
+        for cap in range(marker_bytes):
+            with self.subTest(cap=cap):
+                payload = self._review_payload(
+                    1,
+                    [self._finding("F001", suffix=(" длинная-деталь🙂" * 300))],
+                )
+                finding = payload["findings"][0]
+                finding["file"] = ""
+
+                compact = {
+                    "reviews": [{
+                        "reviewRequestId": payload["reviewRequestId"],
+                        "reviewerSlot": payload["reviewerSlot"],
+                        "taskId": payload["taskId"],
+                        "candidateSha": payload["candidateSha"],
+                        "reviewType": payload["reviewType"],
+                        "reviewRound": payload["reviewRound"],
+                        "reviewStatus": payload["reviewStatus"],
+                    }],
+                    "findings": [{
+                        "id": finding["id"],
+                        "lineageFindingId": payload["reviewerSlot"] + ":" + finding["id"],
+                        "reviewerSlot": payload["reviewerSlot"],
+                        "severity": finding["severity"],
+                        "file": finding.get("file"),
+                        "location": finding.get("location"),
+                        "problem": "",
+                        "requiredChange": "",
+                        "lastSeenReviewRound": payload["reviewRound"],
+                        "lastSeenReviewRequestId": payload["reviewRequestId"],
+                    }],
+                }
+                base_size = len(
+                    (json.dumps(compact, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+                )
+                padding = 5000 - (2 * cap) - base_size
+                self.assertGreaterEqual(padding, 0)
+                finding["file"] = "f" * padding
+
+                proc, output = self._run_history_compactor(
+                    [self._review_comment_from_payload(payload)],
+                    review_round=2,
+                )
+                self.assertNotEqual(0, proc.returncode)
+                self.assertEqual("", output)
+                self.assertIn("identity skeleton with full truncation markers", proc.stderr)
+
+    def test_oversized_identity_skeleton_fails_closed_without_output(self):
+        payload = self._review_payload(
+            1,
+            [self._finding("F001", suffix=(" длинная-деталь🙂" * 30))],
+        )
+        payload["findings"][0]["file"] = "f" * 6000
+
+        proc, output = self._run_history_compactor(
+            [self._review_comment_from_payload(payload)],
+            review_round=2,
+        )
+
+        self.assertNotEqual(0, proc.returncode)
+        self.assertEqual("", output)
+        self.assertIn("identity skeleton with full truncation markers", proc.stderr)
 
     def test_malformed_json_trusted_review_fails_closed_even_when_older_than_latest_two(self):
         proc, output = self._run_history_compactor([
@@ -414,6 +481,10 @@ class LargeConnectedReviewPackageTests(unittest.TestCase):
         self.assertIn("MAX_REVIEWS = 2", self.workflow)
         self.assertIn("MAX_UNIQUE_FINDINGS = 12", self.workflow)
         self.assertIn("MAX_BYTES = 5000", self.workflow)
+        self.assertIn("TRUNCATION_MARKER = ' [truncated]'", self.workflow)
+        self.assertIn("marker_bytes = len(TRUNCATION_MARKER.encode('utf-8'))", self.workflow)
+        self.assertIn("low = marker_bytes", self.workflow)
+        self.assertIn("identity skeleton with full truncation markers", self.workflow)
         self.assertIn("item['user'].get('login') == 'github-actions[bot]'", self.workflow)
         self.assertIn("agents/runtime/external-review.py", self.workflow)
         self.assertIn("validate-response", self.workflow)
