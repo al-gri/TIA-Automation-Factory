@@ -357,21 +357,156 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.build-review-package.outputs.pr_number }}
+          TASK_ID: ${{ needs.build-review-package.outputs.task_id }}
+          REVIEW_TYPE: ${{ needs.build-review-package.outputs.review_type }}
+          REVIEW_ROUND: ${{ needs.build-review-package.outputs.review_round }}
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" \
-            --jq '[.[] | select(.body | contains("### External review result")) | .body][-2:][]' \
-            > "$RUNNER_TEMP/previous-findings.txt" || true
-          test -s "$RUNNER_TEMP/previous-findings.txt" || echo 'None.' > "$RUNNER_TEMP/previous-findings.txt"
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" \
+            > "$RUNNER_TEMP/pr-comments-pages.json"
+          # review-history-compactor-v2
           python3 - <<'PY'
+          import json
           import os
+          import re
+          import subprocess
+          import sys
           from pathlib import Path
-          p=Path(os.environ['RUNNER_TEMP'])/'previous-findings.txt'
-          data=p.read_bytes()
-          if len(data) > 12000:
-              data=data[:12000] + b'\n[truncated prior-review evidence]\n'
-          text=data.decode('utf-8', errors='replace').replace('<!-- external-review-state-v1','[escaped external-review-state marker]')
-          p.write_text(text, encoding='utf-8')
+
+          MAX_REVIEWS = 2
+          MAX_UNIQUE_FINDINGS = 12
+          MAX_BYTES = 5000
+
+          temp = Path(os.environ['RUNNER_TEMP'])
+          current_task_id = os.environ['TASK_ID']
+          current_review_type = os.environ['REVIEW_TYPE']
+          try:
+              current_review_round = int(os.environ['REVIEW_ROUND'])
+          except (KeyError, ValueError) as exc:
+              raise SystemExit('current review round is invalid') from exc
+          if current_review_round < 1:
+              raise SystemExit('current review round must be positive')
+
+          pages = json.loads((temp / 'pr-comments-pages.json').read_text(encoding='utf-8'))
+          if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+              raise SystemExit('GitHub paginated issue comments payload is not an array of arrays')
+          comments = [item for page in pages for item in page]
+
+          review_comments = [
+              item for item in comments
+              if isinstance(item, dict)
+              and isinstance(item.get('user'), dict)
+              and item['user'].get('login') == 'github-actions[bot]'
+              and '### External review result' in str(item.get('body', ''))
+          ]
+
+          if not review_comments:
+              (temp / 'previous-findings.txt').write_text('None.\n', encoding='utf-8')
+              raise SystemExit(0)
+
+          review_payloads = []
+          findings_by_lineage_id = {}
+
+          for index, comment in enumerate(review_comments):
+              body = str(comment.get('body', ''))
+              match = re.search(r'```json\s*(\{.*?\})\s*```', body, flags=re.DOTALL)
+              if match is None:
+                  raise SystemExit('prior external review result is missing fenced JSON')
+
+              raw_review_path = temp / f'prior-review-{index}.json'
+              raw_review_path.write_text(match.group(1), encoding='utf-8')
+              validation = subprocess.run(
+                  [
+                      sys.executable,
+                      'agents/runtime/external-review.py',
+                      'validate-response',
+                      '--input',
+                      str(raw_review_path),
+                  ],
+                  text=True,
+                  capture_output=True,
+                  check=False,
+              )
+              if validation.returncode != 0:
+                  details = validation.stderr.strip() or validation.stdout.strip() or 'unknown validation failure'
+                  raise SystemExit('prior external review response contract is invalid: ' + details)
+              try:
+                  payload = json.loads(validation.stdout)
+              except json.JSONDecodeError as exc:
+                  raise SystemExit('trusted review validator returned invalid normalized JSON') from exc
+
+              # The comments endpoint binds evidence to the current PR. Task ID and
+              # review type bind the logical lineage across candidate repairs. Reviewer
+              # ownership may transition after maintainer repair, so reviewerSlot is
+              # namespaced into each response-local finding ID instead of filtering it out.
+              if payload['taskId'] != current_task_id or payload['reviewType'] != current_review_type:
+                  continue
+              if payload['reviewRound'] >= current_review_round:
+                  raise SystemExit(
+                      'prior external review result has a non-prior reviewRound for the current lineage'
+                  )
+
+              review_payloads.append(payload)
+              for finding in payload['findings']:
+                  lineage_finding_id = payload['reviewerSlot'] + ':' + finding['id']
+                  item = {
+                      'id': finding['id'],
+                      'lineageFindingId': lineage_finding_id,
+                      'reviewerSlot': payload['reviewerSlot'],
+                      'severity': finding['severity'],
+                      'file': finding.get('file'),
+                      'location': finding.get('location'),
+                      'problem': finding['problem'],
+                      'requiredChange': finding['requiredChange'],
+                      'lastSeenReviewRound': payload['reviewRound'],
+                      'lastSeenReviewRequestId': payload['reviewRequestId'],
+                  }
+                  findings_by_lineage_id[lineage_finding_id] = item
+
+          if not review_payloads:
+              (temp / 'previous-findings.txt').write_text('None.\n', encoding='utf-8')
+              raise SystemExit(0)
+
+          review_summaries = []
+          for payload in review_payloads[-MAX_REVIEWS:]:
+              summary = {
+                  'reviewRequestId': payload['reviewRequestId'],
+                  'reviewerSlot': payload['reviewerSlot'],
+                  'taskId': payload['taskId'],
+                  'candidateSha': payload['candidateSha'],
+                  'reviewType': payload['reviewType'],
+                  'reviewRound': payload['reviewRound'],
+                  'reviewStatus': payload['reviewStatus'],
+              }
+              if payload['reviewStatus'] == 'BLOCKED' and not payload['findings']:
+                  summary['summary'] = payload.get('summary', '')
+                  summary['recommendation'] = payload.get('recommendation', '')
+              review_summaries.append(summary)
+
+          if len(findings_by_lineage_id) > MAX_UNIQUE_FINDINGS:
+              raise SystemExit(
+                  f'prior external review evidence has too many unique lineage findings: '
+                  f'{len(findings_by_lineage_id)} > {MAX_UNIQUE_FINDINGS}'
+              )
+
+          compact = {
+              'reviews': review_summaries,
+              'findings': [findings_by_lineage_id[key] for key in sorted(findings_by_lineage_id)],
+          }
+          text = json.dumps(compact, indent=2, ensure_ascii=False) + '\n'
+          text = text.replace(
+              '<!-- external-review-state-v1',
+              '[escaped external-review-state marker]',
+          ).replace(
+              '### External review result',
+              '[escaped external-review-result heading]',
+          )
+          size = len(text.encode('utf-8'))
+          if size > MAX_BYTES:
+              raise SystemExit(
+                  f'compacted prior external review evidence exceeds publication bound: {size} > {MAX_BYTES}'
+              )
+          (temp / 'previous-findings.txt').write_text(text, encoding='utf-8')
           PY
 
       - name: Build self-contained package in clean publisher
