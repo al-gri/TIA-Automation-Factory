@@ -15,4 +15,7 @@
     <ProjectReference Include="../../src/PlcCompiler/PlcCompiler.csproj" />
     <ProjectReference Include="../../src/SiemensBackend/SiemensBackend.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../src/TiaV21Worker/QualificationState.cs" Link="QualificationState.cs" />
+  </ItemGroup>
 </Project>

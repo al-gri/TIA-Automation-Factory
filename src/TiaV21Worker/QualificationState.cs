@@ -9,8 +9,7 @@ namespace TiaAutomationFactory.TiaV21Worker
     {
         None,
         InProgress,
-        CompletedSuccess,
-        Reuse
+        CompletedSuccess
     }
 
     internal sealed class QualificationStateRecord
@@ -23,10 +22,13 @@ namespace TiaAutomationFactory.TiaV21Worker
         public DateTime CompletedAtUtc { get; set; }
         public QualificationStateKind StateKind { get; set; }
         public string OriginalProvenanceRunId { get; set; }
+        public int SchemaVersion { get; set; }
     }
 
     internal sealed class QualificationStateManager
     {
+        private const int CurrentSchemaVersion = 1;
+
         private readonly string _qualificationOutputRoot;
         private readonly string _qualificationIdentity;
 
@@ -64,7 +66,8 @@ namespace TiaAutomationFactory.TiaV21Worker
                 QualificationRecipeIdentity = qualificationRecipeIdentity,
                 StateKind = QualificationStateKind.InProgress,
                 CompletedAtUtc = DateTime.MinValue,
-                OriginalProvenanceRunId = null
+                OriginalProvenanceRunId = null,
+                SchemaVersion = CurrentSchemaVersion
             };
             WriteStateAtomic(record);
         }
@@ -80,23 +83,8 @@ namespace TiaAutomationFactory.TiaV21Worker
                 QualificationRecipeIdentity = qualificationRecipeIdentity,
                 StateKind = QualificationStateKind.CompletedSuccess,
                 CompletedAtUtc = DateTime.UtcNow,
-                OriginalProvenanceRunId = provenanceRunId
-            };
-            WriteStateAtomic(record);
-        }
-
-        public void WriteReuse(QualificationStateRecord existingRecord)
-        {
-            var record = new QualificationStateRecord
-            {
-                SourceArchiveSha256 = existingRecord.SourceArchiveSha256,
-                TiaBuildIdentity = existingRecord.TiaBuildIdentity,
-                QualificationIdentity = existingRecord.QualificationIdentity,
-                QualifiedArchiveSha256 = existingRecord.QualifiedArchiveSha256,
-                QualificationRecipeIdentity = existingRecord.QualificationRecipeIdentity,
-                StateKind = QualificationStateKind.Reuse,
-                CompletedAtUtc = DateTime.UtcNow,
-                OriginalProvenanceRunId = existingRecord.OriginalProvenanceRunId ?? existingRecord.QualificationIdentity
+                OriginalProvenanceRunId = provenanceRunId,
+                SchemaVersion = CurrentSchemaVersion
             };
             WriteStateAtomic(record);
         }
@@ -105,7 +93,9 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             string json = QualificationStateJson.Serialize(record);
             File.WriteAllText(StateTempFilePath, json, new UTF8Encoding(false));
-            File.Move(StateTempFilePath, StateFilePath, true);
+            if (File.Exists(StateFilePath))
+                File.Delete(StateFilePath);
+            File.Move(StateTempFilePath, StateFilePath);
         }
 
         public bool TryValidateAndReuse(string sourceArchiveSha256, string tiaBuildIdentity, string qualificationRecipeIdentity, string qualifiedArchiveSha256, out QualificationStateRecord reuseRecord)
@@ -115,7 +105,13 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (existing == null)
                 return false;
 
+            if (existing.SchemaVersion != CurrentSchemaVersion)
+                return false;
+
             if (existing.StateKind != QualificationStateKind.CompletedSuccess)
+                return false;
+
+            if (!string.Equals(existing.QualificationIdentity, _qualificationIdentity, StringComparison.Ordinal))
                 return false;
 
             if (!string.Equals(existing.SourceArchiveSha256, sourceArchiveSha256, StringComparison.OrdinalIgnoreCase))
@@ -130,6 +126,12 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (!string.Equals(existing.QualifiedArchiveSha256, qualifiedArchiveSha256, StringComparison.OrdinalIgnoreCase))
                 return false;
 
+            if (existing.CompletedAtUtc == DateTime.MinValue)
+                return false;
+
+            if (string.IsNullOrEmpty(existing.OriginalProvenanceRunId))
+                return false;
+
             reuseRecord = existing;
             return true;
         }
@@ -139,6 +141,38 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (File.Exists(StateFilePath))
                 File.Delete(StateFilePath);
         }
+
+        public bool HasInvalidStateAlongsideArchive(string qualifiedArchivePath)
+        {
+            if (!File.Exists(qualifiedArchivePath))
+                return false;
+
+            var existing = Load();
+            if (existing == null)
+                return true;
+
+            if (existing.SchemaVersion != CurrentSchemaVersion)
+                return true;
+
+            if (existing.StateKind != QualificationStateKind.CompletedSuccess)
+                return true;
+
+            if (!string.Equals(existing.QualificationIdentity, _qualificationIdentity, StringComparison.Ordinal))
+                return true;
+
+            if (existing.CompletedAtUtc == DateTime.MinValue)
+                return true;
+
+            if (string.IsNullOrEmpty(existing.OriginalProvenanceRunId))
+                return true;
+
+            return false;
+        }
+
+        public void ClearInvalidState()
+        {
+            DeleteState();
+        }
     }
 
     internal static class QualificationStateJson
@@ -147,6 +181,7 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             var builder = new StringBuilder();
             builder.AppendLine("{");
+            AppendProperty(builder, "schemaVersion", record.SchemaVersion.ToString(), false, true);
             AppendProperty(builder, "sourceArchiveSha256", record.SourceArchiveSha256, true, true);
             AppendProperty(builder, "tiaBuildIdentity", record.TiaBuildIdentity, true, true);
             AppendProperty(builder, "qualificationIdentity", record.QualificationIdentity, true, true);
@@ -163,26 +198,74 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             var record = new QualificationStateRecord();
             var lines = json.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            bool hasSchemaVersion = false;
+            bool hasSourceArchiveSha256 = false;
+            bool hasTiaBuildIdentity = false;
+            bool hasQualificationIdentity = false;
+            bool hasQualifiedArchiveSha256 = false;
+            bool hasQualificationRecipeIdentity = false;
+            bool hasStateKind = false;
+            bool hasCompletedAtUtc = false;
+            bool hasOriginalProvenanceRunId = false;
+
             foreach (var line in lines)
             {
                 var trimmed = line.Trim();
-                if (trimmed.StartsWith("\"sourceArchiveSha256\":"))
+                if (trimmed.StartsWith("\"schemaVersion\":"))
+                {
+                    record.SchemaVersion = int.TryParse(ExtractValue(trimmed), out var v) ? v : 0;
+                    hasSchemaVersion = true;
+                }
+                else if (trimmed.StartsWith("\"sourceArchiveSha256\":"))
+                {
                     record.SourceArchiveSha256 = ExtractValue(trimmed);
+                    hasSourceArchiveSha256 = true;
+                }
                 else if (trimmed.StartsWith("\"tiaBuildIdentity\":"))
+                {
                     record.TiaBuildIdentity = ExtractValue(trimmed);
+                    hasTiaBuildIdentity = true;
+                }
                 else if (trimmed.StartsWith("\"qualificationIdentity\":"))
+                {
                     record.QualificationIdentity = ExtractValue(trimmed);
+                    hasQualificationIdentity = true;
+                }
                 else if (trimmed.StartsWith("\"qualifiedArchiveSha256\":"))
+                {
                     record.QualifiedArchiveSha256 = ExtractValue(trimmed);
+                    hasQualifiedArchiveSha256 = true;
+                }
                 else if (trimmed.StartsWith("\"qualificationRecipeIdentity\":"))
+                {
                     record.QualificationRecipeIdentity = ExtractValue(trimmed);
+                    hasQualificationRecipeIdentity = true;
+                }
                 else if (trimmed.StartsWith("\"stateKind\":"))
+                {
                     record.StateKind = Enum.TryParse<QualificationStateKind>(ExtractValue(trimmed), out var sk) ? sk : QualificationStateKind.None;
+                    hasStateKind = true;
+                }
                 else if (trimmed.StartsWith("\"completedAtUtc\":"))
-                    DateTime.TryParse(ExtractValue(trimmed), out var dt) ? record.CompletedAtUtc = dt : record.CompletedAtUtc = DateTime.MinValue;
+                {
+                    DateTime.TryParse(ExtractValue(trimmed), out var dt);
+                    record.CompletedAtUtc = dt;
+                    hasCompletedAtUtc = true;
+                }
                 else if (trimmed.StartsWith("\"originalProvenanceRunId\":"))
+                {
                     record.OriginalProvenanceRunId = ExtractValue(trimmed);
+                    hasOriginalProvenanceRunId = true;
+                }
             }
+
+            if (!hasSchemaVersion || !hasSourceArchiveSha256 || !hasTiaBuildIdentity ||
+                !hasQualificationIdentity || !hasQualifiedArchiveSha256 || !hasQualificationRecipeIdentity ||
+                !hasStateKind || !hasCompletedAtUtc || !hasOriginalProvenanceRunId)
+            {
+                throw new InvalidDataException("Qualification state record missing required fields");
+            }
+
             return record;
         }
 
@@ -235,7 +318,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 .Replace("\"", "\\\"")
                 .Replace("\r", "\\r")
                 .Replace("\n", "\\n")
-                .Replace("\t", "\\t");
+                .Replace("\\t", "\\t");
         }
     }
 }

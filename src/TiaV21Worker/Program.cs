@@ -409,13 +409,21 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (File.Exists(qualifiedArchivePath))
             {
                 string existingArchiveSha256 = ComputeSha256(qualifiedArchivePath);
+
+                if (stateManager.HasInvalidStateAlongsideArchive(qualifiedArchivePath))
+                {
+                    stateManager.ClearInvalidState();
+                }
+
                 if (stateManager.TryValidateAndReuse(sourceSha256, tiaBuildIdentity, qualificationRecipeIdentity, existingArchiveSha256, out var reuseRecord))
                 {
-                    stateManager.WriteReuse(reuseRecord);
                     manifest.Success = true;
                     manifest.QualifiedArchiveSha256 = existingArchiveSha256;
-                    manifest.NativeReopenSuccess = true;
-                    manifest.NativeReopenDetails = "Reuse of completed qualification; original provenance run: " + (reuseRecord.OriginalProvenanceRunId ?? reuseRecord.QualificationIdentity);
+                    manifest.IsReuse = true;
+                    manifest.OriginalProvenanceRunId = reuseRecord.OriginalProvenanceRunId;
+                    manifest.OriginalCompletedAtUtc = reuseRecord.CompletedAtUtc.ToString("o");
+                    manifest.NativeReopenSuccess = false;
+                    manifest.NativeReopenDetails = "Reuse of completed qualification; original verification run: " + reuseRecord.OriginalProvenanceRunId + " at " + reuseRecord.CompletedAtUtc.ToString("o") + " UTC. No fresh native reopen performed.";
                     return manifest;
                 }
 
@@ -867,6 +875,9 @@ namespace TiaAutomationFactory.TiaV21Worker
         public string NativeReopenDetails { get; set; }
         public string Failure { get; set; }
         public string FailureDetails { get; set; }
+        public bool IsReuse { get; set; }
+        public string OriginalProvenanceRunId { get; set; }
+        public string OriginalCompletedAtUtc { get; set; }
 
         public static QualificationResult FromException(Exception exception, string sourceArchivePath)
         {
@@ -926,6 +937,9 @@ namespace TiaAutomationFactory.TiaV21Worker
             AppendProperty(builder, "qualifiedArchiveSha256", result.QualifiedArchiveSha256, true, true);
             AppendProperty(builder, "nativeReopenSuccess", result.NativeReopenSuccess ? "true" : "false", false, true);
             AppendProperty(builder, "nativeReopenDetails", result.NativeReopenDetails, true, true);
+            AppendProperty(builder, "isReuse", result.IsReuse ? "true" : "false", false, true);
+            AppendProperty(builder, "originalProvenanceRunId", result.OriginalProvenanceRunId, true, true);
+            AppendProperty(builder, "originalCompletedAtUtc", result.OriginalCompletedAtUtc, true, true);
             AppendProperty(builder, "failure", result.Failure, true, true);
             AppendProperty(builder, "failureDetails", result.FailureDetails, true, false);
             builder.AppendLine("}");
@@ -957,6 +971,12 @@ namespace TiaAutomationFactory.TiaV21Worker
                     result.NativeReopenSuccess = trimmed.Contains("true");
                 else if (trimmed.StartsWith("\"nativeReopenDetails\":"))
                     result.NativeReopenDetails = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"isReuse\":"))
+                    result.IsReuse = trimmed.Contains("true");
+                else if (trimmed.StartsWith("\"originalProvenanceRunId\":"))
+                    result.OriginalProvenanceRunId = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"originalCompletedAtUtc\":"))
+                    result.OriginalCompletedAtUtc = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"failure\":"))
                     result.Failure = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"failureDetails\":"))
