@@ -1,0 +1,84 @@
+{
+  "id": "OLQ-V21-QUALIFICATION-TXN-001",
+  "title": "Make V19-to-V21 qualification transaction truthful before Valve discovery",
+  "goal": "Replace the failed monolithic OLQ Valve candidate with a smaller Stage A that makes qualification/reuse state mechanically truthful, preserves the documented V19-to-V21 migration sequence, and produces trusted-main evidence of either a real native V21 archive plus current-version reopen or a sanitized external-prerequisite BLOCKED result. This stage must not implement or guess any fbValve_Solenoid contract, dependency, ownership, DB, memory, or reference-project facts.",
+  "baselineEvidence": {
+    "authorizedContinuation": "Human explicitly authorized continued #61 candidate-changing work after PR #81 exhausted 2/2 repairs, via the two-stage replacement decomposition recorded in issue #61.",
+    "trustedMainShaAtTaskDraft": "3d92ef81af48124bf97d14934e08b58bb4e2b3b3",
+    "sourceArchiveSha256": "ed8fe3f52e90399475b321e40f7ce842d86e414324f06f1b078f44fcb666eed3",
+    "tiaBuildIdentity": "Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)",
+    "qualificationIdentity": "olq-c6c75a368b16bbf34a367cb843ba5e55",
+    "trustedFailure": "phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:5fd3443943908efc",
+    "supersededCandidate": "PR #81 closed unmerged at 8101d1e197cf33eaf96874acb4a9933fb5256656 after 2/2 repairs; do not reuse its candidate source as authority."
+  },
+  "contextFiles": [
+    "src/TiaV21Worker/Program.cs",
+    "tasks/OLQ-VALVE-PROFILE-001.json",
+    "docs/PROJECT_STATE.md"
+  ],
+  "scope": [
+    "Work only on qualification transaction/reuse/provenance and the exact V19-to-V21 qualification gate. Do not implement ValveProfileProbe, ValveProfileContract, Valve call/reference generation, dependency discovery, target CPU materialization, DB ownership, memory addressing, or any Stage B behavior.",
+    "Preserve exactly the documented migration sequence already present in the trusted worker: GlobalLibraries.RetrieveWithUpgrade(source .zal19, target directory, OpenMode.ReadWrite) -> Save -> compressed .zal21 Archive -> close -> current-version GlobalLibraries.Retrieve verification. Do not substitute OpenWithUpgrade, change OpenMode/TiaPortalMode, add retry heuristics, or invent fallback APIs.",
+    "Create the smallest Siemens-independent qualification-state helper necessary for deterministic Linux tests. The helper may model attempt/in-progress/completed-success/reuse provenance, archive identity and recovery decisions, but must not become a general persistence framework or orchestration layer.",
+    "A qualification attempt is completed-success only after the native .zal21 archive hash is known and a real current-version Retrieve of that archive succeeds. No earlier state, file existence check, flag, or matching filename may be treated as native reopen success.",
+    "Completed-success publication must be staged/fail-closed. Interrupted, incomplete, corrupt, stored-false-success, archive-hash mismatch, source-hash mismatch, TIA-build mismatch or recipe-identity mismatch must never be reused as success and must permit a truthful retry without silently overwriting a different valid completed identity.",
+    "Reuse must require a valid completed-success record whose source hash, TIA build identity, qualification recipe identity and native archive hash all match the current run. Reuse must be explicitly represented as reuse and preserve the original successful verification/run provenance rather than claiming a fresh migration or fresh reopen.",
+    "Keep public diagnostics sanitized. Existing safe phase/type/HRESULT/tags/detail-count/fingerprint behavior remains the public boundary. You may add only fixed allowlisted prerequisite categories needed to distinguish supported external blockers; never publish arbitrary Siemens exception text, absolute paths, usernames, vendor object names or payload contents.",
+    "The worker targets .NET Framework 4.8. Candidate code must compile against the existing net48 worker surface and must not use APIs/overloads unavailable there.",
+    "No candidate Windows/TIA execution. Linux acceptance proves only pure helper/tests/source contracts. Real migration/reopen evidence is post-merge trusted-main only and is valid only after #80 non-interactive V21 AllowList admission is trusted.",
+    "Do not modify workflows, agents, tasks, prompts, runner configuration, Domain, PlcCompiler, SiemensBackend, GeneratorCli, vendor payloads, or IndustrialMDE."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate changes are limited exactly to candidatePolicy.allowedPaths; Siemens.Engineering remains isolated to src/TiaV21Worker.",
+      "The existing qualify-library CLI remains compatible and the migration call sequence RetrieveWithUpgrade -> Save -> Archive -> current-version Retrieve is behaviorally preserved.",
+      "A completed-success record cannot become visible before native archive hashing and actual current-version reopen both succeed.",
+      "Completed-success reuse validates source hash, TIA build identity, qualification recipe identity, native archive hash and completed-success provenance, is explicitly marked as reuse, and preserves original successful verification/run provenance.",
+      "Incomplete, corrupt, false-success, archive/hash mismatch, source/build/recipe mismatch and interrupted publication are rejected as reusable success and have deterministic recovery/retry behavior.",
+      "Failure after a prior valid completed-success record does not silently destroy or rewrite that unrelated valid record; publication/replacement rules are deterministic and fail closed.",
+      "Linux deterministic tests cover at least: completed-success reuse, incomplete state, corrupt state, stored false-success, archive/hash mismatch, source/build/recipe mismatch, interrupted publication/recovery, retry, and preservation of original provenance on reuse.",
+      "The qualification-state helper is Siemens-independent and can be compiled/executed in the existing Linux test project without loading Siemens.Engineering.",
+      "The net48 worker source remains buildable by construction; no unsupported framework API overloads or cross-file signature drift are introduced.",
+      "No candidate code/test/example contains guessed fbValve_Solenoid interface/dependency/version/ownership/DB/memory/target facts or Stage B reference-project implementation.",
+      "Public failure evidence remains privacy-safe and bounded; arbitrary vendor exception text/paths/usernames/vendor payload content are not emitted.",
+      "Existing SiemensBackend tests and Motor regression stay green.",
+      "No candidate Windows/TIA execution occurs."
+    ],
+    "tia": [
+      "Prerequisite: #80 V21 AllowList admission has been independently reviewed, merged and proven non-interactive on trusted main; if admission still requires a Siemens popup/manual click, this Stage A trusted run is BLOCKED by #80 rather than manually bypassed.",
+      "After independent exact-SHA review and trusted merge, TiaV21Worker builds on TIA-V21-PC against installed V21 net48 Openness assemblies with zero compile errors.",
+      "Run trusted qualification with exact source SHA256 ed8fe3f52e90399475b321e40f7ce842d86e414324f06f1b078f44fcb666eed3 and TIA identity Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1).",
+      "The run either (a) completes RetrieveWithUpgrade -> Save -> compressed .zal21 Archive -> current-version Retrieve and records the native archive SHA-256 plus truthful completed-success provenance, or (b) stops BLOCKED/FAIL with the precise supported sanitized external-prerequisite category/evidence. No alternative migration API/workaround is introduced.",
+      "On success, a second trusted run proves deterministic truthful reuse of the same completed identity without claiming a new migration or native reopen.",
+      "Stage A success is only the native V21 qualification gate. It does not claim a Valve contract/profile or complete issue #61; Stage B remains separately authorized only after this native V21 open evidence exists."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "PLC_REVIEW",
+    "reviewerSlots": [
+      "chatgpt",
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "src/TiaV21Worker/Program.cs",
+      "src/TiaV21Worker/QualificationState.cs",
+      "tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj",
+      "tests/SiemensBackend.Tests/QualificationStateTests.cs"
+    ],
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 61
+}
