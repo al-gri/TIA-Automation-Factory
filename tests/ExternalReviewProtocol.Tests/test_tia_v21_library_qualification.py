@@ -37,6 +37,13 @@ def harness_functions() -> str:
     return script[start:end].strip() + "\n"
 
 
+def invocation_functions() -> str:
+    script = qualification_script()
+    start = script.index("function Invoke-Qualification")
+    end = script.index("function Stop-Evidence", start)
+    return harness_functions() + script[start:end].strip() + "\n"
+
+
 def manifest(*, is_reuse: bool, native_reopen: bool) -> dict[str, object]:
     return {
         "success": True,
@@ -272,36 +279,174 @@ Remove-Item -LiteralPath $failedRoot -Recurse -Force -ErrorAction Stop
         self.assertTrue(result["failedRootStillExists"], result)
 
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
-    def test_timeout_termination_waits_until_process_exit(self) -> None:
+    def test_job_object_helper_csharp_compiles_when_pwsh_is_available(self) -> None:
         script = harness_functions() + r'''
-$pwsh = (Get-Command pwsh).Source
-$child = Start-Process `
-  -FilePath $pwsh `
-  -ArgumentList '-NoProfile -NonInteractive -Command "Start-Sleep -Seconds 60"' `
-  -PassThru
-try {
-  Stop-QualificationProcessTree `
-    -Process $child `
-    -ProcessTreeIds @($child.Id) `
-    -WaitMilliseconds 10000 `
-    -KillTreeAction {
-      param($Target)
-      Stop-Process -Id $Target.Id -Force -ErrorAction Stop
-    }
+Initialize-QualificationJobObjectTypes
+$type = 'TiaAutomationFactory.Qualification.ContainedProcess' -as [type]
+if ($null -eq $type) {
+  throw 'ContainedProcess type was not created.'
+}
+[pscustomobject]@{ typeName = $type.FullName } | ConvertTo-Json -Compress
+'''
+        completed = run_pwsh(script)
+        self.assertEqual(0, completed.returncode, completed.stdout)
+        result = json.loads(completed.stdout.strip())
+        self.assertEqual(
+            "TiaAutomationFactory.Qualification.ContainedProcess",
+            result["typeName"],
+        )
 
-  [pscustomobject]@{ hasExited = [bool]$child.HasExited } |
-    ConvertTo-Json -Compress
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_timeout_race_waits_for_surviving_child_absence_before_return(self) -> None:
+        script = invocation_functions() + r'''
+$rawRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("olq-timeout-race-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Force -Path $rawRoot | Out-Null
+$parentScript = Join-Path $rawRoot 'parent.ps1'
+$childPidPath = Join-Path $rawRoot 'child.pid'
+$exitGatePath = Join-Path $rawRoot 'exit.gate'
+
+$parentSource = @"
+param(
+  [string]`$ChildPidPath,
+  [string]`$ExitGatePath
+)
+`$pwsh = (Get-Command pwsh).Source
+`$child = Start-Process `
+  -FilePath `$pwsh `
+  -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60') `
+  -PassThru
+[System.IO.File]::WriteAllText(`$ChildPidPath, [string]`$child.Id)
+while (-not (Test-Path -LiteralPath `$ExitGatePath)) {
+  Start-Sleep -Milliseconds 20
+}
+exit 0
+"@
+$parentSource | Set-Content -LiteralPath $parentScript -Encoding UTF8
+
+$pwsh = (Get-Command pwsh).Source
+$parent = Start-Process `
+  -FilePath $pwsh `
+  -ArgumentList @(
+    '-NoProfile',
+    '-NonInteractive',
+    '-File',
+    $parentScript,
+    '-ChildPidPath',
+    $childPidPath,
+    '-ExitGatePath',
+    $exitGatePath
+  ) `
+  -PassThru
+
+$fake = [pscustomobject]@{
+  Process = $parent
+  ChildId = 0
+  ChildPidPath = $childPidPath
+  ExitGatePath = $exitGatePath
+  VerifiedEmpty = $false
+  Disposed = $false
+}
+$fake | Add-Member -MemberType ScriptMethod -Name TerminateAndWait -Value {
+  param([int]$WaitMilliseconds)
+  $trackedIds = @([int]$this.Process.Id, [int]$this.ChildId) |
+    Where-Object { $_ -gt 0 }
+  foreach ($processId in $trackedIds) {
+    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+  }
+
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($WaitMilliseconds)
+  do {
+    $alive = @(
+      $trackedIds |
+        Where-Object {
+          $null -ne (Get-Process -Id $_ -ErrorAction SilentlyContinue)
+        }
+    )
+    if ($alive.Count -eq 0) {
+      $this.VerifiedEmpty = $true
+      return
+    }
+    Start-Sleep -Milliseconds 20
+  }
+  while ([DateTime]::UtcNow -lt $deadline)
+
+  throw 'Test containment did not become empty.'
+}
+$fake | Add-Member -MemberType ScriptMethod -Name Dispose -Value {
+  $this.Disposed = $true
+}
+
+$startAction = {
+  param($HostPath, $ScriptPath, $InvocationPath, $WorkingDirectory)
+  return $script:fake
+}
+$waitAction = {
+  param($ContainedProcess, $WaitMilliseconds)
+  $deadline = [DateTime]::UtcNow.AddSeconds(10)
+  while (-not (Test-Path -LiteralPath $ContainedProcess.ChildPidPath)) {
+    if ([DateTime]::UtcNow -ge $deadline) {
+      throw 'Parent did not publish the long-lived child PID.'
+    }
+    Start-Sleep -Milliseconds 20
+  }
+
+  $ContainedProcess.ChildId = [int](
+    Get-Content -LiteralPath $ContainedProcess.ChildPidPath -Raw)
+  if ($null -eq (Get-Process -Id $ContainedProcess.ChildId -ErrorAction SilentlyContinue)) {
+    throw 'Long-lived child was not alive at the timeout boundary.'
+  }
+
+  Set-Content -LiteralPath $ContainedProcess.ExitGatePath -Value 'exit'
+  if (-not $ContainedProcess.Process.WaitForExit(10000)) {
+    throw 'Parent did not exit at the timeout boundary.'
+  }
+  if ($null -eq (Get-Process -Id $ContainedProcess.ChildId -ErrorAction SilentlyContinue)) {
+    throw 'Long-lived child did not survive the parent exit race.'
+  }
+
+  return $false
+}
+
+try {
+  $result = Invoke-Qualification `
+    -Phase 'race' `
+    -Executable 'unused-by-test' `
+    -SourceArchive 'unused-by-test' `
+    -OutputRoot 'unused-by-test' `
+    -ManifestPath (Join-Path $rawRoot 'manifest.json') `
+    -WorkPath (Join-Path $rawRoot 'work') `
+    -TimeoutMinutes 1 `
+    -StartContainedProcessAction $startAction `
+    -WaitForExitAction $waitAction
+
+  $childAliveAfterReturn = $null -ne (
+    Get-Process -Id $fake.ChildId -ErrorAction SilentlyContinue)
+  [pscustomobject]@{
+    timedOut = [bool]$result.TimedOut
+    verifiedEmpty = [bool]$fake.VerifiedEmpty
+    childAliveAfterReturn = [bool]$childAliveAfterReturn
+    parentExited = [bool]$fake.Process.HasExited
+    disposed = [bool]$fake.Disposed
+  } | ConvertTo-Json -Compress
 }
 finally {
-  if (-not $child.HasExited) {
-    Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
+  if ($fake.ChildId -gt 0) {
+    Stop-Process -Id $fake.ChildId -Force -ErrorAction SilentlyContinue
   }
+  if (-not $parent.HasExited) {
+    Stop-Process -Id $parent.Id -Force -ErrorAction SilentlyContinue
+  }
+  Remove-Item -LiteralPath $rawRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 '''
         completed = run_pwsh(script)
         self.assertEqual(0, completed.returncode, completed.stdout)
         result = json.loads(completed.stdout.strip())
-        self.assertTrue(result["hasExited"], result)
+        self.assertTrue(result["timedOut"], result)
+        self.assertTrue(result["verifiedEmpty"], result)
+        self.assertFalse(result["childAliveAfterReturn"], result)
+        self.assertTrue(result["parentExited"], result)
+        self.assertTrue(result["disposed"], result)
 
     def test_cleanup_is_independent_of_evidence_writes_and_cannot_leave_pass(self) -> None:
         script = qualification_script()
@@ -322,22 +467,46 @@ finally {
         self.assertIn("$evidence.deterministicSecondRun = $false", script)
         self.assertIn("if ($null -ne $cleanupError)", script)
 
-    def test_timeout_source_uses_verified_process_termination(self) -> None:
+    def test_timeout_source_uses_job_object_before_resume_and_verifies_empty_job(self) -> None:
         invocation = between(
             "          function Invoke-Qualification",
             "          function Stop-Evidence",
         )
-        stop_function = between(
-            "          function Stop-QualificationProcessTree",
-            "          function Remove-RawEvidence",
+        start_method = between(
+            "        public static ContainedProcess Start(",
+            "        public void TerminateAndWait(",
         )
-        self.assertIn("Stop-QualificationProcessTree -Process $process", invocation)
-        self.assertIn("WaitForExit($WaitMilliseconds)", stop_function)
-        self.assertIn("$Process.HasExited", stop_function)
-        self.assertIn("taskkill.exe", stop_function)
-        self.assertIn("Get-QualificationProcessTreeIds", stop_function)
-        self.assertIn("Get-Process -Id $_", stop_function)
-        self.assertIn("$remaining.Count -ne 0", stop_function)
+        termination_method = between(
+            "        public void TerminateAndWait(",
+            "        public void Dispose()",
+        )
+
+        self.assertIn("JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE", WORKFLOW)
+        self.assertNotIn("JOB_OBJECT_LIMIT_BREAKAWAY_OK", WORKFLOW)
+        self.assertNotIn("JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK", WORKFLOW)
+        self.assertIn("NativeMethods.CREATE_SUSPENDED", start_method)
+        self.assertIn("AssignProcessToJobObject(job, processInformation.hProcess)", start_method)
+        self.assertIn("ResumeThread(processInformation.hThread)", start_method)
+        self.assertLess(
+            start_method.index("AssignProcessToJobObject(job, processInformation.hProcess)"),
+            start_method.index("ResumeThread(processInformation.hThread)"),
+        )
+        self.assertIn("TerminateJobObject(this.jobHandle, 1)", termination_method)
+        self.assertIn("QueryActiveProcessCount(this.jobHandle)", termination_method)
+        self.assertIn("activeProcesses == 0 && rootExited", termination_method)
+        self.assertIn("Start-QualificationContainedProcess", invocation)
+        self.assertIn("Stop-QualificationContainedProcess", invocation)
+        self.assertLess(
+            invocation.index("$contained = & $StartContainedProcessAction"),
+            invocation.index("$completedBeforeTimeout = & $WaitForExitAction"),
+        )
+        self.assertLess(
+            invocation.index("Stop-QualificationContainedProcess"),
+            invocation.index("TimedOut = $true"),
+        )
+        self.assertNotIn("taskkill.exe", WORKFLOW)
+        self.assertNotIn("Get-QualificationProcessTreeIds", WORKFLOW)
+        self.assertNotIn("if ($Process.HasExited) { return }", WORKFLOW)
 
     def test_public_evidence_uses_exact_tia_identity_and_never_copies_worker_failure(self) -> None:
         functions = harness_functions()
