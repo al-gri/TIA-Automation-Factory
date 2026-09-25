@@ -344,29 +344,43 @@ $parent = Start-Process `
 
 $fake = [pscustomobject]@{
   Process = $parent
-  ChildId = 0
+  ChildProcess = $null
   ChildPidPath = $childPidPath
   ExitGatePath = $exitGatePath
+  ChildSurvivedParentExit = $false
   VerifiedEmpty = $false
   Disposed = $false
 }
 $fake | Add-Member -MemberType ScriptMethod -Name TerminateAndWait -Value {
   param([int]$WaitMilliseconds)
-  $trackedIds = @([int]$this.Process.Id, [int]$this.ChildId) |
-    Where-Object { $_ -gt 0 }
-  foreach ($processId in $trackedIds) {
-    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+  $trackedProcesses = @(
+    $this.Process
+    $this.ChildProcess
+  ) | Where-Object { $null -ne $_ }
+
+  foreach ($trackedProcess in $trackedProcesses) {
+    if (-not $trackedProcess.HasExited) {
+      try {
+        $trackedProcess.Kill()
+      }
+      catch [System.InvalidOperationException] {
+        if (-not $trackedProcess.HasExited) {
+          throw
+        }
+      }
+    }
   }
 
   $deadline = [DateTime]::UtcNow.AddMilliseconds($WaitMilliseconds)
   do {
     $alive = @(
-      $trackedIds |
-        Where-Object {
-          $null -ne (Get-Process -Id $_ -ErrorAction SilentlyContinue)
-        }
+      $trackedProcesses |
+        Where-Object { -not $_.HasExited }
     )
     if ($alive.Count -eq 0) {
+      foreach ($trackedProcess in $trackedProcesses) {
+        $trackedProcess.WaitForExit()
+      }
       $this.VerifiedEmpty = $true
       return
     }
@@ -394,9 +408,10 @@ $waitAction = {
     Start-Sleep -Milliseconds 20
   }
 
-  $ContainedProcess.ChildId = [int](
+  $childId = [int](
     Get-Content -LiteralPath $ContainedProcess.ChildPidPath -Raw)
-  if ($null -eq (Get-Process -Id $ContainedProcess.ChildId -ErrorAction SilentlyContinue)) {
+  $ContainedProcess.ChildProcess = [System.Diagnostics.Process]::GetProcessById($childId)
+  if ($ContainedProcess.ChildProcess.HasExited) {
     throw 'Long-lived child was not alive at the timeout boundary.'
   }
 
@@ -404,9 +419,10 @@ $waitAction = {
   if (-not $ContainedProcess.Process.WaitForExit(10000)) {
     throw 'Parent did not exit at the timeout boundary.'
   }
-  if ($null -eq (Get-Process -Id $ContainedProcess.ChildId -ErrorAction SilentlyContinue)) {
+  if ($ContainedProcess.ChildProcess.HasExited) {
     throw 'Long-lived child did not survive the parent exit race.'
   }
+  $ContainedProcess.ChildSurvivedParentExit = $true
 
   return $false
 }
@@ -423,12 +439,12 @@ try {
     -StartContainedProcessAction $startAction `
     -WaitForExitAction $waitAction
 
-  $childAliveAfterReturn = $null -ne (
-    Get-Process -Id $fake.ChildId -ErrorAction SilentlyContinue)
+  $childExitedAfterReturn = [bool]$fake.ChildProcess.HasExited
   $raceResult = [pscustomobject]@{
     timedOut = [bool]$result.TimedOut
+    childSurvivedParentExit = [bool]$fake.ChildSurvivedParentExit
     verifiedEmpty = [bool]$fake.VerifiedEmpty
-    childAliveAfterReturn = [bool]$childAliveAfterReturn
+    childExitedAfterReturn = $childExitedAfterReturn
     parentExited = [bool]$fake.Process.HasExited
     disposed = [bool]$fake.Disposed
   }
@@ -439,12 +455,22 @@ try {
     [System.Text.UTF8Encoding]::new($false))
 }
 finally {
-  if ($fake.ChildId -gt 0) {
-    Stop-Process -Id $fake.ChildId -Force -ErrorAction SilentlyContinue
+  if ($null -ne $fake.ChildProcess) {
+    try {
+      if (-not $fake.ChildProcess.HasExited) {
+        $fake.ChildProcess.Kill()
+        $fake.ChildProcess.WaitForExit()
+      }
+    }
+    finally {
+      $fake.ChildProcess.Dispose()
+    }
   }
   if (-not $parent.HasExited) {
-    Stop-Process -Id $parent.Id -Force -ErrorAction SilentlyContinue
+    $parent.Kill()
+    $parent.WaitForExit()
   }
+  $parent.Dispose()
   Remove-Item -LiteralPath $rawRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 '''
@@ -468,8 +494,9 @@ finally {
 
         self.assertIsInstance(result, dict, result)
         self.assertTrue(result["timedOut"], result)
+        self.assertTrue(result["childSurvivedParentExit"], result)
         self.assertTrue(result["verifiedEmpty"], result)
-        self.assertFalse(result["childAliveAfterReturn"], result)
+        self.assertTrue(result["childExitedAfterReturn"], result)
         self.assertTrue(result["parentExited"], result)
         self.assertTrue(result["disposed"], result)
 
