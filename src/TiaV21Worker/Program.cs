@@ -390,8 +390,11 @@ namespace TiaAutomationFactory.TiaV21Worker
             string tiaBuildIdentity = GetTiaBuildIdentity();
 
             string qualificationIdentity = DeriveQualificationIdentity(sourceSha256, tiaBuildIdentity);
+            string qualificationRecipeIdentity = "v21-qualification-recipe-1";
             string qualifiedArchiveName = qualificationIdentity + ".zal21";
             string qualifiedArchivePath = Path.Combine(qualificationOutputRoot, qualifiedArchiveName);
+
+            var stateManager = new QualificationStateManager(qualificationOutputRoot, qualificationIdentity);
 
             var manifest = new QualificationResult
             {
@@ -406,24 +409,17 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (File.Exists(qualifiedArchivePath))
             {
                 string existingArchiveSha256 = ComputeSha256(qualifiedArchivePath);
-                string existingManifestPath = Path.ChangeExtension(qualifiedArchivePath, ".manifest.json");
-                if (File.Exists(existingManifestPath))
+                if (stateManager.TryValidateAndReuse(sourceSha256, tiaBuildIdentity, qualificationRecipeIdentity, existingArchiveSha256, out var reuseRecord))
                 {
-                    var existingManifest = QualificationJson.Deserialize(File.ReadAllText(existingManifestPath));
-                    if (existingManifest.QualificationIdentity == qualificationIdentity &&
-                        existingManifest.SourceArchiveSha256 == sourceSha256 &&
-                        existingManifest.TiaBuildIdentity == tiaBuildIdentity &&
-                        existingManifest.QualifiedArchiveSha256 == existingArchiveSha256)
-                    {
-                        manifest.Success = true;
-                        manifest.QualifiedArchiveSha256 = existingArchiveSha256;
-                        manifest.NativeReopenSuccess = true;
-                        manifest.NativeReopenDetails = "Already qualified; existing archive matches identity and hash.";
-                        return manifest;
-                    }
+                    stateManager.WriteReuse(reuseRecord);
+                    manifest.Success = true;
+                    manifest.QualifiedArchiveSha256 = existingArchiveSha256;
+                    manifest.NativeReopenSuccess = true;
+                    manifest.NativeReopenDetails = "Reuse of completed qualification; original provenance run: " + (reuseRecord.OriginalProvenanceRunId ?? reuseRecord.QualificationIdentity);
+                    return manifest;
                 }
 
-                manifest.Failure = "Qualification identity conflict: archive exists with different hash or manifest mismatch.";
+                manifest.Failure = "Qualification identity conflict: archive exists with different hash or state mismatch.";
                 manifest.FailureDetails = "Existing qualified archive at " + qualifiedArchivePath + " has SHA256 " + existingArchiveSha256 + " but current qualification requires identity " + qualificationIdentity + ".";
                 return manifest;
             }
@@ -431,9 +427,12 @@ namespace TiaAutomationFactory.TiaV21Worker
             string retrieveWorkPath = Path.Combine(workRoot, "retrieve_" + qualificationIdentity);
             Directory.CreateDirectory(retrieveWorkPath);
 
+            stateManager.WriteInProgress(sourceSha256, tiaBuildIdentity, qualificationRecipeIdentity);
+
             var whitelistResult = WhitelistManager.SynchronizeWhitelist();
             if (!whitelistResult.Success)
             {
+                stateManager.DeleteState();
                 if (whitelistResult.BootstrapRequired)
                 {
                     manifest.Success = false;
@@ -472,6 +471,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 {
                     if (userGlobalLibrary == null)
                     {
+                        stateManager.DeleteState();
                         manifest.Failure = FormatFailure(QualificationPhase.RetrieveWithUpgrade, new InvalidOperationException("RetrieveWithUpgrade returned null"));
                         manifest.FailureDetails = "Source: " + sourceBasename + ", SHA256: " + sourceSha256;
                         return manifest;
@@ -514,6 +514,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             if (retrieveWithUpgradeException != null)
             {
+                stateManager.DeleteState();
                 manifest.Failure = FormatFailure(QualificationPhase.RetrieveWithUpgrade, retrieveWithUpgradeException);
                 manifest.FailureDetails = retrieveWithUpgradeException.ToString();
                 if (upgradeCloseException != null)
@@ -523,6 +524,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             if (saveException != null)
             {
+                stateManager.DeleteState();
                 manifest.Failure = FormatFailure(QualificationPhase.Save, saveException);
                 manifest.FailureDetails = saveException.ToString();
                 if (upgradeCloseException != null)
@@ -532,6 +534,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             if (archiveException != null)
             {
+                stateManager.DeleteState();
                 manifest.Failure = FormatFailure(QualificationPhase.Archive, archiveException);
                 manifest.FailureDetails = archiveException.ToString();
                 if (upgradeCloseException != null)
@@ -541,6 +544,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             if (upgradeCloseException != null)
             {
+                stateManager.DeleteState();
                 manifest.Failure = FormatFailure(QualificationPhase.UpgradeClose, upgradeCloseException);
                 manifest.FailureDetails = upgradeCloseException.ToString();
                 return manifest;
@@ -555,6 +559,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             var whitelistResult2 = WhitelistManager.SynchronizeWhitelist();
             if (!whitelistResult2.Success)
             {
+                stateManager.DeleteState();
                 if (whitelistResult2.BootstrapRequired)
                 {
                     manifest.Success = false;
@@ -638,10 +643,13 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (!nativeReopenSuccess)
             {
                 manifest.Failure = FormatFailure(QualificationPhase.NativeRetrieve, new InvalidOperationException(nativeReopenDetails));
+                stateManager.DeleteState();
                 return manifest;
             }
 
             manifest.Success = true;
+            string provenanceRunId = "run-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+            stateManager.WriteCompletedSuccess(sourceSha256, tiaBuildIdentity, qualificationRecipeIdentity, qualifiedArchiveSha256, provenanceRunId);
 
             string manifestPath = Path.ChangeExtension(qualifiedArchivePath, ".manifest.json");
             File.WriteAllText(manifestPath, QualificationJson.Serialize(manifest), new UTF8Encoding(false));
