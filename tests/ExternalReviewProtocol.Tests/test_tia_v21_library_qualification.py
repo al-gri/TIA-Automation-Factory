@@ -74,7 +74,14 @@ def run_production_pair_cases(cases: list[dict[str, object]]) -> dict[str, dict[
         cases_path = Path(directory) / "cases.json"
         cases_path.write_text(json.dumps(cases), encoding="utf-8")
         script = harness_functions() + r'''
-$cases = Get-Content -LiteralPath $env:OLQ_CASES_PATH -Raw | ConvertFrom-Json
+$caseJson = Get-Content -LiteralPath $env:OLQ_CASES_PATH -Raw
+$convertFromJson = Get-Command ConvertFrom-Json
+if ($convertFromJson.Parameters.ContainsKey('DateKind')) {
+  $cases = $caseJson | ConvertFrom-Json -DateKind String
+}
+else {
+  $cases = $caseJson | ConvertFrom-Json
+}
 $results = @()
 foreach ($case in @($cases)) {
   $result = Test-QualificationPair `
