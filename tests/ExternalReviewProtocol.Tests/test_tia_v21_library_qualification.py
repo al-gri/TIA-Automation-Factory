@@ -304,6 +304,10 @@ New-Item -ItemType Directory -Force -Path $rawRoot | Out-Null
 $parentScript = Join-Path $rawRoot 'parent.ps1'
 $childPidPath = Join-Path $rawRoot 'child.pid'
 $exitGatePath = Join-Path $rawRoot 'exit.gate'
+$resultPath = $env:OLQ_RACE_RESULT_PATH
+if ([string]::IsNullOrWhiteSpace($resultPath)) {
+  throw 'Race regression result path is not configured.'
+}
 
 $parentSource = @"
 param(
@@ -421,13 +425,18 @@ try {
 
   $childAliveAfterReturn = $null -ne (
     Get-Process -Id $fake.ChildId -ErrorAction SilentlyContinue)
-  [pscustomobject]@{
+  $raceResult = [pscustomobject]@{
     timedOut = [bool]$result.TimedOut
     verifiedEmpty = [bool]$fake.VerifiedEmpty
     childAliveAfterReturn = [bool]$childAliveAfterReturn
     parentExited = [bool]$fake.Process.HasExited
     disposed = [bool]$fake.Disposed
-  } | ConvertTo-Json -Compress
+  }
+  $raceJson = $raceResult | ConvertTo-Json -Compress
+  [System.IO.File]::WriteAllText(
+    $resultPath,
+    $raceJson,
+    [System.Text.UTF8Encoding]::new($false))
 }
 finally {
   if ($fake.ChildId -gt 0) {
@@ -439,9 +448,25 @@ finally {
   Remove-Item -LiteralPath $rawRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 '''
-        completed = run_pwsh(script)
-        self.assertEqual(0, completed.returncode, completed.stdout)
-        result = json.loads(completed.stdout.strip())
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "race-result.json"
+            completed = run_pwsh(
+                script,
+                environment={"OLQ_RACE_RESULT_PATH": str(result_path)},
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            self.assertTrue(result_path.is_file(), completed.stdout)
+            payload = result_path.read_text(encoding="utf-8").strip()
+            self.assertTrue(payload, completed.stdout)
+            try:
+                result = json.loads(payload)
+            except json.JSONDecodeError as error:
+                self.fail(
+                    f"Race regression result is not valid JSON: {error}; "
+                    f"payload={payload!r}; pwsh={completed.stdout!r}"
+                )
+
+        self.assertIsInstance(result, dict, result)
         self.assertTrue(result["timedOut"], result)
         self.assertTrue(result["verifiedEmpty"], result)
         self.assertFalse(result["childAliveAfterReturn"], result)
