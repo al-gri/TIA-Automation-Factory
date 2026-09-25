@@ -1,3 +1,4 @@
+import os
 import re
 import shutil
 import subprocess
@@ -239,15 +240,18 @@ class TiaV21LibraryQualificationWorkflowTests(unittest.TestCase):
             parser = (
                 "$tokens=$null; $errors=$null; "
                 "[System.Management.Automation.Language.Parser]::ParseFile("
-                "$args[0],[ref]$tokens,[ref]$errors) | Out-Null; "
+                "$env:POWERSHELL_PARSE_TARGET,[ref]$tokens,[ref]$errors) | Out-Null; "
                 "if ($errors.Count) { $errors | % { Write-Error $_.Message }; exit 1 }"
             )
+            environment = os.environ.copy()
+            environment["POWERSHELL_PARSE_TARGET"] = str(script)
             completed = subprocess.run(
-                ["pwsh", "-NoProfile", "-NonInteractive", "-Command", parser, str(script)],
+                ["pwsh", "-NoProfile", "-NonInteractive", "-Command", parser],
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 check=False,
+                env=environment,
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
 
