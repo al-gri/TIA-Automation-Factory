@@ -1,113 +1,23 @@
+import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
 import textwrap
 import unittest
-from datetime import datetime, timezone
+from copy import deepcopy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = (ROOT / ".github" / "workflows" / "tia-v21-library-qualification.yml").read_text(encoding="utf-8")
-IDENTITY_FIELDS = (
-    "sourceArchiveSha256",
-    "tiaBuildIdentity",
-    "qualificationIdentity",
-    "qualifiedArchiveName",
-    "qualifiedArchiveSha256",
-)
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "tia-v21-library-qualification.yml"
+WORKFLOW = WORKFLOW_PATH.read_text(encoding="utf-8")
+EXPECTED_SOURCE_SHA256 = "a" * 64
+EXPECTED_TIA_BUILD = "Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)"
 
 
 def between(start: str, end: str) -> str:
     start_index = WORKFLOW.index(start)
     return WORKFLOW[start_index : WORKFLOW.index(end, start_index)]
-
-
-def truthful_mode(is_reuse: object, native_reopen: object, *, require_reuse: bool) -> bool:
-    if type(is_reuse) is not bool or type(native_reopen) is not bool:
-        return False
-    return is_reuse and not native_reopen if require_reuse else (
-        (is_reuse and not native_reopen) or (not is_reuse and native_reopen)
-    )
-
-
-def canonical_utc(value: object) -> bool:
-    if not isinstance(value, str) or re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z", value
-    ) is None:
-        return False
-    try:
-        return datetime.fromisoformat(value[:-1] + "+00:00").tzinfo == timezone.utc
-    except ValueError:
-        return False
-
-
-def safe_provenance(value: object) -> bool:
-    return isinstance(value, str) and re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", value
-    ) is not None
-
-
-def valid_identity(manifest: dict[str, object]) -> bool:
-    source_hash = manifest.get("sourceArchiveSha256")
-    archive_hash = manifest.get("qualifiedArchiveSha256")
-    build = manifest.get("tiaBuildIdentity")
-    qualification = manifest.get("qualificationIdentity")
-    archive_name = manifest.get("qualifiedArchiveName")
-    return (
-        isinstance(source_hash, str)
-        and re.fullmatch(r"[0-9a-f]{64}", source_hash) is not None
-        and isinstance(archive_hash, str)
-        and re.fullmatch(r"[0-9a-f]{64}", archive_hash) is not None
-        and isinstance(build, str)
-        and 0 < len(build) <= 256
-        and re.search(r"[\r\n`]", build) is None
-        and safe_provenance(qualification)
-        and isinstance(archive_name, str)
-        and 0 < len(archive_name) <= 255
-        and re.search(r"[\r\n`/\\]", archive_name) is None
-        and archive_name.lower().endswith(".zal21")
-    )
-
-
-def valid_manifest(manifest: dict[str, object], *, require_reuse: bool) -> bool:
-    return (
-        manifest.get("success") is True
-        and truthful_mode(
-            manifest.get("isReuse"),
-            manifest.get("nativeReopenSuccess"),
-            require_reuse=require_reuse,
-        )
-        and safe_provenance(manifest.get("originalProvenanceRunId"))
-        and canonical_utc(manifest.get("originalCompletedAtUtc"))
-        and valid_identity(manifest)
-    )
-
-
-def valid_pair(run1: dict[str, object], run2: dict[str, object]) -> bool:
-    return (
-        valid_manifest(run1, require_reuse=False)
-        and valid_manifest(run2, require_reuse=True)
-        and all(run1.get(field) == run2.get(field) for field in IDENTITY_FIELDS)
-        and run1.get("originalProvenanceRunId") == run2.get("originalProvenanceRunId")
-        and run1.get("originalCompletedAtUtc") == run2.get("originalCompletedAtUtc")
-    )
-
-
-def manifest(*, is_reuse: bool, native_reopen: bool) -> dict[str, object]:
-    return {
-        "success": True,
-        "isReuse": is_reuse,
-        "nativeReopenSuccess": native_reopen,
-        "sourceArchiveSha256": "a" * 64,
-        "tiaBuildIdentity": "Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)",
-        "qualificationIdentity": "olq-v21-txn-002-v1",
-        "qualifiedArchiveName": "OpenLibrary-qualified.zal21",
-        "qualifiedArchiveSha256": "b" * 64,
-        "originalProvenanceRunId": "trusted-run-123",
-        "originalCompletedAtUtc": "2026-09-25T17:00:00.1234567Z",
-    }
 
 
 def qualification_script() -> str:
@@ -118,7 +28,102 @@ def qualification_script() -> str:
     return textwrap.dedent(block.split("        run: |\n", 1)[1])
 
 
+def harness_functions() -> str:
+    script = qualification_script()
+    start_marker = "# OLQ-HARNESS-FUNCTIONS-BEGIN"
+    end_marker = "# OLQ-HARNESS-FUNCTIONS-END"
+    start = script.index(start_marker) + len(start_marker)
+    end = script.index(end_marker, start)
+    return script[start:end].strip() + "\n"
+
+
+def manifest(*, is_reuse: bool, native_reopen: bool) -> dict[str, object]:
+    return {
+        "success": True,
+        "isReuse": is_reuse,
+        "nativeReopenSuccess": native_reopen,
+        "sourceArchiveSha256": EXPECTED_SOURCE_SHA256,
+        "tiaBuildIdentity": EXPECTED_TIA_BUILD,
+        "qualificationIdentity": "olq-v21-txn-002-v1",
+        "qualifiedArchiveName": "OpenLibrary-qualified.zal21",
+        "qualifiedArchiveSha256": "b" * 64,
+        "originalProvenanceRunId": "trusted-run-123",
+        "originalCompletedAtUtc": "2026-09-25T17:00:00.1234567Z",
+    }
+
+
+def run_pwsh(script_text: str, *, environment: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as directory:
+        script_path = Path(directory) / "test.ps1"
+        script_path.write_text(script_text, encoding="utf-8")
+        env = os.environ.copy()
+        if environment:
+            env.update(environment)
+        return subprocess.run(
+            ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(script_path)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            env=env,
+        )
+
+
+def run_production_pair_cases(cases: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+    with tempfile.TemporaryDirectory() as directory:
+        cases_path = Path(directory) / "cases.json"
+        cases_path.write_text(json.dumps(cases), encoding="utf-8")
+        script = harness_functions() + r'''
+$cases = Get-Content -LiteralPath $env:OLQ_CASES_PATH -Raw | ConvertFrom-Json
+$results = @()
+foreach ($case in @($cases)) {
+  $result = Test-QualificationPair `
+    -Run1 $case.run1 `
+    -Run2 $case.run2 `
+    -Run1ExitCode ([int]$case.run1ExitCode) `
+    -Run2ExitCode ([int]$case.run2ExitCode) `
+    -ExpectedSourceArchiveSha256 ([string]$case.expectedSourceArchiveSha256)
+
+  $results += [pscustomobject]@{
+    name = [string]$case.name
+    isValid = [bool]$result.IsValid
+    failureCode = $result.FailureCode
+  }
+}
+$results | ConvertTo-Json -Depth 8 -Compress
+'''
+        completed = run_pwsh(
+            script,
+            environment={"OLQ_CASES_PATH": str(cases_path)},
+        )
+        if completed.returncode != 0:
+            raise AssertionError(completed.stdout)
+        parsed = json.loads(completed.stdout.strip())
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        return {str(item["name"]): item for item in parsed}
+
+
 class TiaV21LibraryQualificationWorkflowTests(unittest.TestCase):
+    def case(
+        self,
+        name: str,
+        run1: dict[str, object],
+        run2: dict[str, object],
+        *,
+        run1_exit: int = 0,
+        run2_exit: int = 0,
+        expected_source: str = EXPECTED_SOURCE_SHA256,
+    ) -> dict[str, object]:
+        return {
+            "name": name,
+            "run1": run1,
+            "run2": run2,
+            "run1ExitCode": run1_exit,
+            "run2ExitCode": run2_exit,
+            "expectedSourceArchiveSha256": expected_source,
+        }
+
     def test_trusted_main_only_boundary_is_preserved(self) -> None:
         self.assertIn("if: github.ref == 'refs/heads/main'", WORKFLOW)
         self.assertIn("ref: main", WORKFLOW)
@@ -126,96 +131,217 @@ class TiaV21LibraryQualificationWorkflowTests(unittest.TestCase):
         self.assertIn("Trusted checkout is not current origin/main.", WORKFLOW)
         self.assertNotIn("pull_request_target", WORKFLOW)
 
-    def test_public_evidence_has_explicit_per_run_mode_and_provenance(self) -> None:
-        self.assertIn("schema = 'olq-001-public-evidence-v2'", WORKFLOW)
-        for field in (
-            "run1IsReuse",
-            "run1NativeReopenSuccess",
-            "run2IsReuse",
-            "run2NativeReopenSuccess",
-            "originalProvenanceRunId",
-            "originalCompletedAtUtc",
-        ):
-            self.assertIn(f"{field} =", WORKFLOW)
-            self.assertIn(f"e.{field}", WORKFLOW)
-
-    def test_fresh_then_reuse_and_repeated_reuse_are_truthful(self) -> None:
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_production_pair_gate_accepts_fresh_then_reuse_and_repeated_reuse(self) -> None:
         fresh = manifest(is_reuse=False, native_reopen=True)
         reuse = manifest(is_reuse=True, native_reopen=False)
-        self.assertTrue(valid_pair(fresh, reuse))
-        self.assertTrue(valid_pair(reuse, reuse.copy()))
+        cases = [
+            self.case("fresh-reuse", fresh, reuse),
+            self.case("reuse-reuse", reuse, deepcopy(reuse)),
+        ]
+        results = run_production_pair_cases(cases)
+        self.assertTrue(results["fresh-reuse"]["isValid"], results)
+        self.assertTrue(results["reuse-reuse"]["isValid"], results)
 
-        old_gate_shape = reuse.copy()
-        old_gate_shape["nativeReopenSuccess"] = True
-        self.assertFalse(valid_pair(fresh, old_gate_shape))
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_production_pair_gate_rejects_old_mode_exit_and_success_claims(self) -> None:
+        fresh = manifest(is_reuse=False, native_reopen=True)
+        reuse = manifest(is_reuse=True, native_reopen=False)
 
-    def test_missing_malformed_or_changed_provenance_fails_closed(self) -> None:
-        run1 = manifest(is_reuse=False, native_reopen=True)
-        run2 = manifest(is_reuse=True, native_reopen=False)
-        for field, value in (
-            ("originalProvenanceRunId", None),
-            ("originalProvenanceRunId", "unsafe path\\name"),
-            ("originalCompletedAtUtc", "2026-09-25T17:00:00+02:00"),
-            ("originalCompletedAtUtc", "not-a-time"),
-            ("isReuse", "true"),
-            ("nativeReopenSuccess", None),
-        ):
-            bad = run2.copy()
+        old_gate = deepcopy(reuse)
+        old_gate["nativeReopenSuccess"] = True
+
+        run1_failed = deepcopy(fresh)
+        run1_failed["success"] = False
+
+        run2_failed = deepcopy(reuse)
+        run2_failed["success"] = False
+
+        cases = [
+            self.case("old-run2-fresh-reopen", fresh, old_gate),
+            self.case("run1-exit", fresh, reuse, run1_exit=7),
+            self.case("run2-exit", fresh, reuse, run2_exit=8),
+            self.case("run1-success", run1_failed, reuse),
+            self.case("run2-success", fresh, run2_failed),
+        ]
+        results = run_production_pair_cases(cases)
+        for name in (case["name"] for case in cases):
+            self.assertFalse(results[str(name)]["isValid"], (name, results))
+
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_production_pair_gate_rejects_missing_malformed_or_changed_provenance(self) -> None:
+        fresh = manifest(is_reuse=False, native_reopen=True)
+        reuse = manifest(is_reuse=True, native_reopen=False)
+        mutations = [
+            ("missing-run-id", "originalProvenanceRunId", None),
+            ("path-run-id", "originalProvenanceRunId", r"DOMAIN\user"),
+            ("changed-run-id", "originalProvenanceRunId", "trusted-run-456"),
+            ("offset-time", "originalCompletedAtUtc", "2026-09-25T19:00:00+02:00"),
+            ("malformed-time", "originalCompletedAtUtc", "not-a-time"),
+            ("changed-time", "originalCompletedAtUtc", "2026-09-25T17:00:01Z"),
+            ("typed-is-reuse", "isReuse", "true"),
+            ("missing-reopen", "nativeReopenSuccess", None),
+        ]
+        cases = []
+        for name, field, value in mutations:
+            bad = deepcopy(reuse)
             bad[field] = value
-            self.assertFalse(valid_pair(run1, bad), (field, value))
+            cases.append(self.case(name, fresh, bad))
 
-        for field, value in (
-            ("originalProvenanceRunId", "trusted-run-456"),
-            ("originalCompletedAtUtc", "2026-09-25T17:00:01Z"),
-        ):
-            bad = run2.copy()
-            bad[field] = value
-            self.assertFalse(valid_pair(run1, bad), (field, value))
+        results = run_production_pair_cases(cases)
+        for name, _, _ in mutations:
+            self.assertFalse(results[name]["isValid"], (name, results))
 
-    def test_invalid_or_changed_identity_fails_closed(self) -> None:
-        run1 = manifest(is_reuse=False, native_reopen=True)
-        run2 = manifest(is_reuse=True, native_reopen=False)
-        for field, value in (
-            ("sourceArchiveSha256", "A" * 64),
-            ("qualifiedArchiveSha256", "not-a-hash"),
-            ("tiaBuildIdentity", "x" * 257),
-            ("qualificationIdentity", "bad identity"),
-            ("qualifiedArchiveName", r"C:\private\archive.zal21"),
-            ("qualifiedArchiveName", "archive.zip"),
-        ):
-            bad = run2.copy()
-            bad[field] = value
-            self.assertFalse(valid_pair(run1, bad), (field, value))
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_production_pair_gate_rejects_paths_users_exception_text_and_bad_identities(self) -> None:
+        fresh = manifest(is_reuse=False, native_reopen=True)
+        reuse = manifest(is_reuse=True, native_reopen=False)
+        bad_builds = [
+            r"C:\Users\alice\Siemens.Engineering v21.0.0.0",
+            r"\\server\share\Siemens.Engineering v21.0.0.0",
+            r"DOMAIN\alice Siemens.Engineering v21.0.0.0",
+            "EngineeringTargetInvocationException hresult:0x80131500",
+            EXPECTED_TIA_BUILD + "\t",
+        ]
+        cases = []
+        for index, value in enumerate(bad_builds):
+            bad = deepcopy(reuse)
+            bad["tiaBuildIdentity"] = value
+            cases.append(self.case(f"build-{index}", fresh, bad))
 
-        changed = run2.copy()
-        changed["qualifiedArchiveSha256"] = "c" * 64
-        self.assertFalse(valid_pair(run1, changed))
+        bad_hash = deepcopy(reuse)
+        bad_hash["qualifiedArchiveSha256"] = "not-a-hash"
+        cases.append(self.case("archive-hash", fresh, bad_hash))
 
-    def test_source_gate_requires_reuse_without_fresh_reopen(self) -> None:
-        mode = between("          function Truthful-Mode", "          $identityFields")
-        self.assertIn("Bool $Manifest 'isReuse'", mode)
-        self.assertIn("Bool $Manifest 'nativeReopenSuccess'", mode)
-        self.assertIn("if ($RequireReuse)", mode)
-        self.assertIn("$isReuse -and -not $reopen", mode)
-        self.assertIn("-not $isReuse -and $reopen", mode)
+        bad_name = deepcopy(reuse)
+        bad_name["qualifiedArchiveName"] = r"C:\private\archive.zal21"
+        cases.append(self.case("archive-path", fresh, bad_name))
 
-        gate = between("            $same = (", "            $evidence.deterministicSecondRun")
-        self.assertIn("Truthful-Mode $r2 $true", gate)
-        self.assertIn("Identity-Same $r1 $r2", gate)
-        self.assertIn("$runId, $run2Id", gate)
-        self.assertIn("$completed, $run2Completed", gate)
-        self.assertNotIn("[bool]$r2.nativeReopenSuccess", gate)
+        changed_identity = deepcopy(reuse)
+        changed_identity["qualificationIdentity"] = "olq-v21-txn-002-v2"
+        cases.append(self.case("identity-mismatch", fresh, changed_identity))
 
-    def test_public_fields_are_bounded_and_raw_diagnostics_are_not_published(self) -> None:
-        identity = between("          function Safe-PublicText", "          function Identity-Same")
-        self.assertIn("$Value.Length -le $MaxLength", identity)
-        self.assertIn("^[0-9a-f]{64}$", identity)
-        self.assertIn("Safe-PublicText (Text $Manifest 'tiaBuildIdentity') 256", identity)
-        self.assertIn("Safe-ArchiveName (Text $Manifest 'qualifiedArchiveName')", identity)
-        self.assertIn("-ieq '.zal21'", identity)
-        self.assertIn("$actualSourceSha256", WORKFLOW)
-        self.assertIn("source identity did not match the runner-local archive", WORKFLOW)
+        wrong_source = deepcopy(reuse)
+        wrong_source["sourceArchiveSha256"] = "c" * 64
+        cases.append(self.case("source-mismatch", fresh, wrong_source))
 
+        results = run_production_pair_cases(cases)
+        for case in cases:
+            name = str(case["name"])
+            self.assertFalse(results[name]["isValid"], (name, results))
+
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_cleanup_function_deletes_and_fails_closed_when_deletion_is_suppressed(self) -> None:
+        script = harness_functions() + r'''
+$deletedRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("olq-clean-" + [guid]::NewGuid().ToString("N"))
+$failedRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("olq-fail-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Force -Path $deletedRoot, $failedRoot | Out-Null
+Set-Content -LiteralPath (Join-Path $deletedRoot "raw.txt") -Value "raw"
+Set-Content -LiteralPath (Join-Path $failedRoot "raw.txt") -Value "raw"
+
+Remove-RawEvidence -Path $deletedRoot
+$normalDeleted = -not (Test-Path -LiteralPath $deletedRoot)
+$failureCaught = $false
+try {
+  Remove-RawEvidence -Path $failedRoot -RemoveAction { param($Target) }
+}
+catch {
+  $failureCaught = $true
+}
+$failedRootStillExists = Test-Path -LiteralPath $failedRoot
+Remove-Item -LiteralPath $failedRoot -Recurse -Force -ErrorAction Stop
+
+[pscustomobject]@{
+  normalDeleted = $normalDeleted
+  failureCaught = $failureCaught
+  failedRootStillExists = $failedRootStillExists
+} | ConvertTo-Json -Compress
+'''
+        completed = run_pwsh(script)
+        self.assertEqual(0, completed.returncode, completed.stdout)
+        result = json.loads(completed.stdout.strip())
+        self.assertTrue(result["normalDeleted"], result)
+        self.assertTrue(result["failureCaught"], result)
+        self.assertTrue(result["failedRootStillExists"], result)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_timeout_termination_waits_until_process_exit(self) -> None:
+        script = harness_functions() + r'''
+$pwsh = (Get-Command pwsh).Source
+$child = Start-Process `
+  -FilePath $pwsh `
+  -ArgumentList '-NoProfile -NonInteractive -Command "Start-Sleep -Seconds 60"' `
+  -PassThru
+try {
+  Stop-QualificationProcessTree `
+    -Process $child `
+    -ProcessTreeIds @($child.Id) `
+    -WaitMilliseconds 10000 `
+    -KillTreeAction {
+      param($Target)
+      Stop-Process -Id $Target.Id -Force -ErrorAction Stop
+    }
+
+  [pscustomobject]@{ hasExited = [bool]$child.HasExited } |
+    ConvertTo-Json -Compress
+}
+finally {
+  if (-not $child.HasExited) {
+    Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
+  }
+}
+'''
+        completed = run_pwsh(script)
+        self.assertEqual(0, completed.returncode, completed.stdout)
+        result = json.loads(completed.stdout.strip())
+        self.assertTrue(result["hasExited"], result)
+
+    def test_cleanup_is_independent_of_evidence_writes_and_cannot_leave_pass(self) -> None:
+        script = qualification_script()
+        cleanup_index = script.rindex("Remove-RawEvidence -Path $rawRoot")
+        evidence_write_index = script.rindex("$evidence |")
+        output_write_index = script.rindex('"status=$($evidence.status)"')
+
+        self.assertLess(cleanup_index, evidence_write_index)
+        self.assertLess(cleanup_index, output_write_index)
+        cleanup_block = between(
+            "          function Remove-RawEvidence",
+            "          # OLQ-HARNESS-FUNCTIONS-END",
+        )
+        self.assertIn("-ErrorAction Stop", cleanup_block)
+        self.assertNotIn("-ErrorAction SilentlyContinue", cleanup_block)
+        self.assertIn("Raw qualification evidence cleanup could not be verified.", cleanup_block)
+        self.assertIn("$evidence.status = 'FAIL'", script)
+        self.assertIn("$evidence.deterministicSecondRun = $false", script)
+        self.assertIn("if ($null -ne $cleanupError)", script)
+
+    def test_timeout_source_uses_verified_process_termination(self) -> None:
+        invocation = between(
+            "          function Invoke-Qualification",
+            "          function Stop-Evidence",
+        )
+        stop_function = between(
+            "          function Stop-QualificationProcessTree",
+            "          function Remove-RawEvidence",
+        )
+        self.assertIn("Stop-QualificationProcessTree -Process $process", invocation)
+        self.assertIn("WaitForExit($WaitMilliseconds)", stop_function)
+        self.assertIn("$Process.HasExited", stop_function)
+        self.assertIn("taskkill.exe", stop_function)
+        self.assertIn("Get-QualificationProcessTreeIds", stop_function)
+        self.assertIn("Get-Process -Id $_", stop_function)
+        self.assertIn("$remaining.Count -ne 0", stop_function)
+
+    def test_public_evidence_uses_exact_tia_identity_and_never_copies_worker_failure(self) -> None:
+        functions = harness_functions()
+        self.assertIn(EXPECTED_TIA_BUILD, functions)
+        self.assertIn("Test-ExactTiaBuildIdentity", functions)
+        self.assertNotIn("[string]$run1.failure", WORKFLOW)
+        self.assertNotIn("[string]$run2.failure", WORKFLOW)
+        self.assertIn(
+            "Qualification harness failed before valid public evidence could be completed.",
+            WORKFLOW,
+        )
         publication = between(
             "      - name: Publish sanitized result to qualification issue",
             "      - name: Enforce qualification result",
@@ -223,14 +349,6 @@ class TiaV21LibraryQualificationWorkflowTests(unittest.TestCase):
         self.assertNotIn("stdout", publication.lower())
         self.assertNotIn("stderr", publication.lower())
         self.assertIn("String(value).replace(/[\\r\\n`]/g, ' ').slice(0, 512)", publication)
-        self.assertIn(
-            "Only sanitized hashes/identities/reuse/provenance/status are published",
-            publication,
-        )
-        self.assertNotIn("Public-Failure", WORKFLOW)
-        self.assertNotIn("[string]$r1.failure", WORKFLOW)
-        self.assertNotIn("[string]$r2.failure", WORKFLOW)
-        self.assertIn("Qualification harness failed before valid public evidence", WORKFLOW)
 
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
     def test_embedded_powershell_parses_when_pwsh_is_available(self) -> None:
@@ -243,15 +361,13 @@ class TiaV21LibraryQualificationWorkflowTests(unittest.TestCase):
                 "$env:POWERSHELL_PARSE_TARGET,[ref]$tokens,[ref]$errors) | Out-Null; "
                 "if ($errors.Count) { $errors | % { Write-Error $_.Message }; exit 1 }"
             )
-            environment = os.environ.copy()
-            environment["POWERSHELL_PARSE_TARGET"] = str(script)
             completed = subprocess.run(
                 ["pwsh", "-NoProfile", "-NonInteractive", "-Command", parser],
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 check=False,
-                env=environment,
+                env={**os.environ, "POWERSHELL_PARSE_TARGET": str(script)},
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
 
