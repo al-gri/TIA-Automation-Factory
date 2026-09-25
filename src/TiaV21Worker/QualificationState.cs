@@ -44,7 +44,23 @@ namespace TiaAutomationFactory.TiaV21Worker
         public QualificationStateRecord Load()
         {
             if (!File.Exists(StateFilePath))
+            {
+                if (File.Exists(StateTempFilePath))
+                {
+                    try
+                    {
+                        var record = QualificationStateJson.Deserialize(File.ReadAllText(StateTempFilePath));
+                        File.Move(StateTempFilePath, StateFilePath);
+                        return record;
+                    }
+                    catch
+                    {
+                        File.Delete(StateTempFilePath);
+                        return null;
+                    }
+                }
                 return null;
+            }
 
             try
             {
@@ -140,6 +156,8 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             if (File.Exists(StateFilePath))
                 File.Delete(StateFilePath);
+            if (File.Exists(StateTempFilePath))
+                File.Delete(StateTempFilePath);
         }
 
         public bool HasInvalidStateAlongsideArchive(string qualifiedArchivePath)
@@ -177,6 +195,19 @@ namespace TiaAutomationFactory.TiaV21Worker
 
     internal static class QualificationStateJson
     {
+        private static readonly HashSet<string> KnownFields = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "schemaVersion",
+            "sourceArchiveSha256",
+            "tiaBuildIdentity",
+            "qualificationIdentity",
+            "qualifiedArchiveSha256",
+            "qualificationRecipeIdentity",
+            "stateKind",
+            "completedAtUtc",
+            "originalProvenanceRunId"
+        };
+
         public static string Serialize(QualificationStateRecord record)
         {
             var builder = new StringBuilder();
@@ -198,6 +229,7 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             var record = new QualificationStateRecord();
             var lines = json.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            var seenFields = new HashSet<string>(StringComparer.Ordinal);
             bool hasSchemaVersion = false;
             bool hasSourceArchiveSha256 = false;
             bool hasTiaBuildIdentity = false;
@@ -211,51 +243,65 @@ namespace TiaAutomationFactory.TiaV21Worker
             foreach (var line in lines)
             {
                 var trimmed = line.Trim();
-                if (trimmed.StartsWith("\"schemaVersion\":"))
+                int colonIndex = trimmed.IndexOf(':');
+                if (colonIndex < 0)
+                    throw new InvalidDataException("Malformed JSON line: " + trimmed);
+
+                string fieldName = trimmed.Substring(0, colonIndex).Trim().Trim('"');
+                if (!KnownFields.Contains(fieldName))
+                    throw new InvalidDataException("Unknown field in qualification state: " + fieldName);
+
+                if (!seenFields.Add(fieldName))
+                    throw new InvalidDataException("Duplicate field in qualification state: " + fieldName);
+
+                string value = ExtractValueStrict(trimmed, fieldName);
+
+                switch (fieldName)
                 {
-                    record.SchemaVersion = int.TryParse(ExtractValue(trimmed), out var v) ? v : 0;
-                    hasSchemaVersion = true;
-                }
-                else if (trimmed.StartsWith("\"sourceArchiveSha256\":"))
-                {
-                    record.SourceArchiveSha256 = ExtractValue(trimmed);
-                    hasSourceArchiveSha256 = true;
-                }
-                else if (trimmed.StartsWith("\"tiaBuildIdentity\":"))
-                {
-                    record.TiaBuildIdentity = ExtractValue(trimmed);
-                    hasTiaBuildIdentity = true;
-                }
-                else if (trimmed.StartsWith("\"qualificationIdentity\":"))
-                {
-                    record.QualificationIdentity = ExtractValue(trimmed);
-                    hasQualificationIdentity = true;
-                }
-                else if (trimmed.StartsWith("\"qualifiedArchiveSha256\":"))
-                {
-                    record.QualifiedArchiveSha256 = ExtractValue(trimmed);
-                    hasQualifiedArchiveSha256 = true;
-                }
-                else if (trimmed.StartsWith("\"qualificationRecipeIdentity\":"))
-                {
-                    record.QualificationRecipeIdentity = ExtractValue(trimmed);
-                    hasQualificationRecipeIdentity = true;
-                }
-                else if (trimmed.StartsWith("\"stateKind\":"))
-                {
-                    record.StateKind = Enum.TryParse<QualificationStateKind>(ExtractValue(trimmed), out var sk) ? sk : QualificationStateKind.None;
-                    hasStateKind = true;
-                }
-                else if (trimmed.StartsWith("\"completedAtUtc\":"))
-                {
-                    DateTime.TryParse(ExtractValue(trimmed), out var dt);
-                    record.CompletedAtUtc = dt;
-                    hasCompletedAtUtc = true;
-                }
-                else if (trimmed.StartsWith("\"originalProvenanceRunId\":"))
-                {
-                    record.OriginalProvenanceRunId = ExtractValue(trimmed);
-                    hasOriginalProvenanceRunId = true;
+                    case "schemaVersion":
+                        if (!int.TryParse(value, out var v))
+                            throw new InvalidDataException("Invalid schemaVersion: " + value);
+                        record.SchemaVersion = v;
+                        hasSchemaVersion = true;
+                        break;
+                    case "sourceArchiveSha256":
+                        record.SourceArchiveSha256 = ValidateNonEmptyString(value, "sourceArchiveSha256");
+                        hasSourceArchiveSha256 = true;
+                        break;
+                    case "tiaBuildIdentity":
+                        record.TiaBuildIdentity = ValidateNonEmptyString(value, "tiaBuildIdentity");
+                        hasTiaBuildIdentity = true;
+                        break;
+                    case "qualificationIdentity":
+                        record.QualificationIdentity = ValidateNonEmptyString(value, "qualificationIdentity");
+                        hasQualificationIdentity = true;
+                        break;
+                    case "qualifiedArchiveSha256":
+                        record.QualifiedArchiveSha256 = ValidateNonEmptyString(value, "qualifiedArchiveSha256");
+                        hasQualifiedArchiveSha256 = true;
+                        break;
+                    case "qualificationRecipeIdentity":
+                        record.QualificationRecipeIdentity = ValidateNonEmptyString(value, "qualificationRecipeIdentity");
+                        hasQualificationRecipeIdentity = true;
+                        break;
+                    case "stateKind":
+                        if (!Enum.TryParse<QualificationStateKind>(value, out var sk))
+                            throw new InvalidDataException("Invalid stateKind: " + value);
+                        record.StateKind = sk;
+                        hasStateKind = true;
+                        break;
+                    case "completedAtUtc":
+                        if (!DateTime.TryParseExact(value, "o", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var dt))
+                            throw new InvalidDataException("completedAtUtc must be UTC round-trip format (o): " + value);
+                        if (dt.Kind != DateTimeKind.Utc)
+                            throw new InvalidDataException("completedAtUtc must be UTC: " + value);
+                        record.CompletedAtUtc = dt;
+                        hasCompletedAtUtc = true;
+                        break;
+                    case "originalProvenanceRunId":
+                        record.OriginalProvenanceRunId = ValidateNonEmptyString(value, "originalProvenanceRunId");
+                        hasOriginalProvenanceRunId = true;
+                        break;
                 }
             }
 
@@ -266,19 +312,44 @@ namespace TiaAutomationFactory.TiaV21Worker
                 throw new InvalidDataException("Qualification state record missing required fields");
             }
 
+            if (seenFields.Count != KnownFields.Count)
+            {
+                var missing = new List<string>();
+                foreach (var kf in KnownFields)
+                {
+                    if (!seenFields.Contains(kf))
+                        missing.Add(kf);
+                }
+                throw new InvalidDataException("Qualification state record missing required fields: " + string.Join(", ", missing));
+            }
+
             return record;
         }
 
-        private static string ExtractValue(string line)
+        private static string ExtractValueStrict(string line, string fieldName)
         {
             int colonIndex = line.IndexOf(':');
-            if (colonIndex < 0) return null;
             string value = line.Substring(colonIndex + 1).Trim();
             if (value.EndsWith(","))
                 value = value.Substring(0, value.Length - 1).Trim();
+
+            if (value == "null")
+                throw new InvalidDataException("Field " + fieldName + " cannot be null");
+
             if (value.StartsWith("\"") && value.EndsWith("\""))
+            {
                 value = value.Substring(1, value.Length - 2);
-            return Unescape(value);
+                return Unescape(value);
+            }
+
+            return value;
+        }
+
+        private static string ValidateNonEmptyString(string value, string fieldName)
+        {
+            if (string.IsNullOrEmpty(value))
+                throw new InvalidDataException("Field " + fieldName + " cannot be empty");
+            return value;
         }
 
         private static string Unescape(string value)

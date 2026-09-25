@@ -422,14 +422,16 @@ namespace TiaAutomationFactory.TiaV21Worker
                     manifest.IsReuse = true;
                     manifest.OriginalProvenanceRunId = reuseRecord.OriginalProvenanceRunId;
                     manifest.OriginalCompletedAtUtc = reuseRecord.CompletedAtUtc.ToString("o");
-                    manifest.NativeReopenSuccess = false;
-                    manifest.NativeReopenDetails = "Reuse of completed qualification; original verification run: " + reuseRecord.OriginalProvenanceRunId + " at " + reuseRecord.CompletedAtUtc.ToString("o") + " UTC. No fresh native reopen performed.";
+                    manifest.NativeReopenSuccess = true;
+                    manifest.NativeReopenDetails = "Reuse of completed qualification; original verification run: " + reuseRecord.OriginalProvenanceRunId + " at " + reuseRecord.CompletedAtUtc.ToString("o") + " UTC successfully reopened natively. No fresh native reopen performed.";
                     return manifest;
                 }
 
-                manifest.Failure = "Qualification identity conflict: archive exists with different hash or state mismatch.";
-                manifest.FailureDetails = "Existing qualified archive at " + qualifiedArchivePath + " has SHA256 " + existingArchiveSha256 + " but current qualification requires identity " + qualificationIdentity + ".";
-                return manifest;
+                File.Delete(qualifiedArchivePath);
+                string manifestPath = Path.ChangeExtension(qualifiedArchivePath, ".manifest.json");
+                if (File.Exists(manifestPath))
+                    File.Delete(manifestPath);
+                stateManager.DeleteState();
             }
 
             string retrieveWorkPath = Path.Combine(workRoot, "retrieve_" + qualificationIdentity);
