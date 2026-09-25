@@ -510,16 +510,15 @@ jobs:
                   json.dumps(value, ensure_ascii=False, separators=(',', ':')) + '\n'
               )
 
+          marker_bytes = len(TRUNCATION_MARKER.encode('utf-8'))
+
           def truncate_utf8(value, max_bytes):
               data = value.encode('utf-8')
               if len(data) <= max_bytes:
                   return value
-              if max_bytes <= 0:
-                  return ''
-              marker = TRUNCATION_MARKER.encode('utf-8')
-              if max_bytes <= len(marker):
-                  return marker[:max_bytes].decode('utf-8', errors='ignore')
-              prefix = data[:max_bytes - len(marker)]
+              if max_bytes < marker_bytes:
+                  raise ValueError('full truncation marker does not fit')
+              prefix = data[:max_bytes - marker_bytes]
               return prefix.decode('utf-8', errors='ignore') + TRUNCATION_MARKER
 
           def with_text_limit(value, max_bytes):
@@ -549,7 +548,15 @@ jobs:
                       f'{len(text.encode("utf-8"))} > {MAX_BYTES}'
                   )
 
-              low = 0
+              minimum_text = render(with_text_limit(compact, marker_bytes))
+              minimum_size = len(minimum_text.encode('utf-8'))
+              if minimum_size > MAX_BYTES:
+                  raise SystemExit(
+                      f'compacted prior external review identity skeleton with full truncation markers '
+                      f'exceeds publication bound: {minimum_size} > {MAX_BYTES}'
+                  )
+
+              low = marker_bytes
               high = max(len(value.encode('utf-8')) for value in compressible)
               bounded_text = None
               while low <= high:
