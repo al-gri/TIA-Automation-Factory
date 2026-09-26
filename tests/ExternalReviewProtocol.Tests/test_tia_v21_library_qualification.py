@@ -366,15 +366,16 @@ if ([string]::IsNullOrWhiteSpace($resultPath)) {
 }
 
 $childSource = @"
-param(
-  [string]`$ChildPidPath
-)
-`$childPidTempPath = `$ChildPidPath + '.tmp'
+`$childPidPath = `$env:OLQ_RACE_CHILD_PID_PATH
+if ([string]::IsNullOrWhiteSpace(`$childPidPath)) {
+  throw 'Synthetic race child PID path environment variable is not configured.'
+}
+`$childPidTempPath = `$childPidPath + '.tmp'
 [System.IO.File]::WriteAllText(
   `$childPidTempPath,
   [string]`$PID,
   [System.Text.UTF8Encoding]::new(`$false))
-[System.IO.File]::Move(`$childPidTempPath, `$ChildPidPath)
+[System.IO.File]::Move(`$childPidTempPath, `$childPidPath)
 Start-Sleep -Seconds 60
 "@
 $childSource | Set-Content -LiteralPath $childScript -Encoding UTF8
@@ -382,7 +383,6 @@ $childSource | Set-Content -LiteralPath $childScript -Encoding UTF8
 $parentSource = @"
 param(
   [string]`$ChildScriptPath,
-  [string]`$ChildPidPath,
   [string]`$ExitGatePath,
   [string]`$ChildStdoutPath,
   [string]`$ChildStderrPath
@@ -394,9 +394,7 @@ param(
     '-NoProfile',
     '-NonInteractive',
     '-File',
-    `$ChildScriptPath,
-    '-ChildPidPath',
-    `$ChildPidPath
+    `$ChildScriptPath
   ) `
   -RedirectStandardOutput `$ChildStdoutPath `
   -RedirectStandardError `$ChildStderrPath `
@@ -408,6 +406,11 @@ exit 0
 "@
 $parentSource | Set-Content -LiteralPath $parentScript -Encoding UTF8
 
+$env:OLQ_RACE_CHILD_PID_PATH = $childPidPath
+if ([string]::IsNullOrWhiteSpace($env:OLQ_RACE_CHILD_PID_PATH)) {
+  throw 'Synthetic race child PID path environment variable is not configured.'
+}
+
 $pwsh = (Get-Command pwsh).Source
 $parent = Start-Process `
   -FilePath $pwsh `
@@ -418,8 +421,6 @@ $parent = Start-Process `
     $parentScript,
     '-ChildScriptPath',
     $childScript,
-    '-ChildPidPath',
-    $childPidPath,
     '-ExitGatePath',
     $exitGatePath,
     '-ChildStdoutPath',
@@ -525,7 +526,29 @@ $waitAction = {
   $deadline = [DateTime]::UtcNow.AddSeconds(10)
   while (-not (Test-Path -LiteralPath $ContainedProcess.ChildPidPath)) {
     if ([DateTime]::UtcNow -ge $deadline) {
-      throw 'Parent did not publish the long-lived child PID.'
+      $diagnostics = @()
+      foreach ($diagnosticPath in @($parentStderrPath, $childStderrPath)) {
+        if (Test-Path -LiteralPath $diagnosticPath) {
+          $excerpt = Get-Content -LiteralPath $diagnosticPath -Raw -ErrorAction SilentlyContinue
+          if ($null -ne $excerpt) {
+            $excerpt = [System.Text.RegularExpressions.Regex]::Replace(
+              [string]$excerpt,
+              '[\r\n]+',
+              ' ')
+            if ($excerpt.Length -gt 512) { $excerpt = $excerpt.Substring(0, 512) }
+            if (-not [string]::IsNullOrWhiteSpace($excerpt)) {
+              $diagnostics += $excerpt
+            }
+          }
+        }
+      }
+      $suffix = if ($diagnostics.Count -gt 0) {
+        ' diagnostics=' + ($diagnostics -join ' | ')
+      }
+      else {
+        ''
+      }
+      throw ('Child did not publish the long-lived child PID.' + $suffix)
     }
     Start-Sleep -Milliseconds 20
   }
