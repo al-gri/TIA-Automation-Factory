@@ -1,0 +1,101 @@
+{
+  "id": "OLQ-V21-QUALIFICATION-EVIDENCE-003",
+  "title": "Preserve sanitized worker failure evidence on nonzero trusted qualification exits",
+  "goal": "Repair the trusted TIA V21 Open Library qualification harness so a nonzero worker exit does not collapse an already-created sanitized worker manifest into generic RUN1_EXIT/RUN2_EXIT evidence. Preserve the successful fresh/reuse contract unchanged, stop after a failed first invocation, and publish only bounded validated worker failure tokens. This task is harness-only: it must not change TiaV21Worker migration/reuse semantics, Valve/Stage-B behavior, runner configuration, vendor payloads, or IndustrialMDE.",
+  "baselineEvidence": {
+    "trustedMainShaAtTaskDraft": "04d2f8c22f3654ec8f978022a614790835f55cb6",
+    "precursorTask": "OLQ-V21-QUALIFICATION-TXN-002",
+    "precursorProductMerge": "PR #94 merged exact reviewed candidate d4055d72d79e650205a9bc96af65b8bc4cdf0ea2 as main commit 72fb23334984f806ab24a4769c0091b9a9f3a93b.",
+    "trustedRun": "TIA V21 Open Library Qualification #311 / run 36239362693 on main 72fb23334984f806ab24a4769c0091b9a9f3a93b.",
+    "trustedRunFacts": [
+      "Trusted checkout and TiaV21Worker net48 build against installed TIA V21 assemblies succeeded.",
+      "Both qualification invocations created manifests and returned exit code 1; neither invocation timed out.",
+      "The public evidence step completed and published status FAIL with failure 'Qualification manifest pair failed trusted validation: RUN1_EXIT.'.",
+      "The public evidence left TIA build identity, qualification identity, archive identity, reuse flags and provenance as n/a because pair validation checks Run1ExitCode before projecting manifest data.",
+      "Raw stdout/stderr and raw manifests remained runner-local and were cleaned; no precise worker failure token is recoverable from public evidence after the run."
+    ],
+    "defect": "Test-QualificationPair returns RUN1_EXIT/RUN2_EXIT before the harness safely projects the already-created manifest.failure field. The harness therefore loses a bounded worker-generated failure token that may contain the only supported prerequisite/category evidence needed by Stage A acceptance.",
+    "sourceArchiveSha256": "ed8fe3f52e90399475b321e40f7ce842d86e414324f06f1b078f44fcb666eed3",
+    "tiaBuildIdentity": "Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)"
+  },
+  "executionPlan": {
+    "ordering": "Merge this protected task authority first. Then implement the harness correction in a separate primary-authored protected workflow PR. Do not rerun trusted TIA qualification until that implementation PR is independently approved, merged, and post-merge CI is green.",
+    "stages": [
+      {
+        "id": "trusted-failure-evidence-refinement",
+        "title": "Project validated worker failure evidence before pair-success validation",
+        "author": "primary-chatgpt",
+        "requiredIndependentReviewer": "chatgpt-secondary",
+        "riskClass": "HIGH",
+        "reviewType": "CODE_REVIEW",
+        "allowedPaths": [
+          ".github/workflows/tia-v21-library-qualification.yml",
+          "tests/ExternalReviewProtocol.Tests/test_tia_v21_library_qualification.py"
+        ],
+        "requirements": [
+          "Change only the two exact allowed paths. Do not modify TiaV21Worker, any other workflow, agents, tasks, runner configuration, vendor payload handling, Valve/Stage-B code, or IndustrialMDE.",
+          "Keep the workflow trusted-main-only. No unmerged candidate code may execute on Windows/TIA.",
+          "After run1 creates a manifest, parse and validate its bounded public fields before deciding how to handle a nonzero exit.",
+          "If run1 exits nonzero, do not execute run2. Publish a terminal FAIL or BLOCKED evidence object that preserves trustedMainSha/source basename/source SHA and, only when individually validated as safe, TIA build identity, qualification identity and the worker manifest.failure token. Do not claim archive/native-reopen/reuse/provenance success fields.",
+          "If run1 exits zero, preserve the existing fresh-or-reuse run1 validation and execute run2 exactly as the current successful path requires.",
+          "If run2 exits nonzero, publish a terminal FAIL or BLOCKED result using the same safe worker-failure projection rules while preserving only already-validated run1 identity/provenance fields. Do not report deterministicSecondRun=true.",
+          "Never publish manifest.failureDetails, raw stdout/stderr, arbitrary exception messages, absolute paths, usernames, vendor payload content or unvalidated strings.",
+          "Accept a worker failure token for public projection only when it matches a strict bounded grammar derived from the current worker's sanitized failure contract: phase token, exception type token, uppercase HRESULT, and optional allowlisted tag/count/16-hex fingerprint suffixes. Reject unknown shape, control characters, path separators, overlong text or any token that cannot be proven safe.",
+          "Unsafe/malformed/missing failure tokens must collapse to a fixed generic public code without echoing the unsafe value.",
+          "Preserve the current successful pair semantics unchanged: truthful fresh/reuse modes, exact identities/hashes, immutable original provenance, canonical UTC completed timestamp and deterministicSecondRun=true only after the full pair passes.",
+          "Keep Job Object timeout/process containment behavior unchanged.",
+          "Add deterministic Python regressions that prove: run1 nonzero + safe manifest failure projects the safe token and skips run2; run1 nonzero + unsafe/path-bearing failure is redacted to a fixed generic code; run2 nonzero projects only safe failure after a valid run1; successful fresh->reuse and reuse->reuse paths remain accepted unchanged; failureDetails/raw path/vendor sentinels never enter public evidence."
+        ],
+        "completionGate": [
+          "Exact-SHA Linux CI is green.",
+          "Fresh isolated chatgpt-secondary exact-SHA CODE_REVIEW returns APPROVE with no critical/major findings.",
+          "Primary performs delegated merge only after both gates pass.",
+          "Post-merge trusted-main CI is green.",
+          "Only then trigger one new trusted /run-olq-001 on issue #19 and inspect the resulting sanitized evidence before any Valve/Stage-B authority is activated."
+        ]
+      }
+    ]
+  },
+  "acceptance": {
+    "requirements": [
+      "Trusted failure evidence no longer degrades an existing sanitized worker manifest to bare RUN1_EXIT/RUN2_EXIT.",
+      "A failed first invocation never starts the second invocation.",
+      "Only strictly validated bounded manifest.failure tokens can become public; manifest.failureDetails and arbitrary text never become public evidence.",
+      "Unsafe failure text is replaced by a fixed generic public code without echoing the original value.",
+      "Successful two-run fresh/reuse and repeated-reuse behavior is unchanged.",
+      "No TiaV21Worker/product/Valve/runner/vendor/IndustrialMDE change is included.",
+      "No unmerged Windows/TIA execution occurs."
+    ],
+    "tia": [
+      "After the reviewed harness refinement is merged, rerun trusted qualification exactly once on current main.",
+      "If the worker still exits nonzero, the public result must contain a precise bounded supported failure token/category from the trusted worker manifest or a fixed generic unsafe-token code; it must not collapse to RUN1_EXIT alone.",
+      "If the first invocation succeeds, the existing two-run fresh/reuse acceptance remains authoritative.",
+      "Valve/Stage-B remains blocked unless a trusted run proves a native V21 archive/current-version reopen with the required deterministic reuse provenance."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      ".github/workflows/tia-v21-library-qualification.yml",
+      "tests/ExternalReviewProtocol.Tests/test_tia_v21_library_qualification.py"
+    ],
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 61
+}
