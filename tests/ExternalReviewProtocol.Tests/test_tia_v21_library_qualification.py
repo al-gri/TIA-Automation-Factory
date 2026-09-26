@@ -406,21 +406,26 @@ $parent = Start-Process `
   -RedirectStandardOutput $parentStdoutPath `
   -RedirectStandardError $parentStderrPath `
   -PassThru
+$parentId = [int]$parent.Id
+if ($parentId -le 0 -or $parentId -eq [int]$PID) {
+  throw 'Race regression parent PID is invalid or matches the outer PowerShell PID.'
+}
 
 function Send-TestSinglePidKill {
   param(
     [Parameter(Mandatory = $true)]
     [System.Diagnostics.Process]$Process,
     [Parameter(Mandatory = $true)]
+    [int]$TargetId,
+    [Parameter(Mandatory = $true)]
     [string]$Name
   )
 
-  $targetId = [int]$Process.Id
-  if ($targetId -le 0) {
-    throw ("{0} has an invalid PID." -f $Name)
+  if ($TargetId -le 0) {
+    throw ("{0} has an invalid cached PID." -f $Name)
   }
-  if ($targetId -eq [int]$PID) {
-    throw ("{0} PID unexpectedly matches the outer PowerShell PID." -f $Name)
+  if ($TargetId -eq [int]$PID) {
+    throw ("{0} cached PID unexpectedly matches the outer PowerShell PID." -f $Name)
   }
   if ($Process.HasExited) {
     return
@@ -429,7 +434,7 @@ function Send-TestSinglePidKill {
     throw 'Required single-PID Linux kill utility is unavailable.'
   }
 
-  & /bin/kill -KILL -- $targetId 1>$null 2>$null
+  & /bin/kill -KILL -- $TargetId 1>$null 2>$null
   $signalExitCode = [int]$LASTEXITCODE
   if ($signalExitCode -ne 0 -and -not $Process.HasExited) {
     throw ("Single-PID kill failed for {0} while the exact process object remained alive." -f $Name)
@@ -438,7 +443,9 @@ function Send-TestSinglePidKill {
 
 $fake = [pscustomobject]@{
   Process = $parent
+  ParentId = $parentId
   ChildProcess = $null
+  ChildId = 0
   ChildPidPath = $childPidPath
   ExitGatePath = $exitGatePath
   ChildSurvivedParentExit = $false
@@ -452,24 +459,29 @@ $fake | Add-Member -MemberType ScriptMethod -Name TerminateAndWait -Value {
   }
 
   $trackedProcesses = @(
-    $this.Process
-    $this.ChildProcess
-  ) | Where-Object { $null -ne $_ }
+    [pscustomobject]@{ Process = $this.Process; TargetId = [int]$this.ParentId; Name = 'Parent' }
+    if ($null -ne $this.ChildProcess) {
+      [pscustomobject]@{ Process = $this.ChildProcess; TargetId = [int]$this.ChildId; Name = 'Long-lived child' }
+    }
+  )
   $deadline = [DateTime]::UtcNow.AddMilliseconds($WaitMilliseconds)
 
-  foreach ($trackedProcess in $trackedProcesses) {
-    if (-not $trackedProcess.HasExited) {
-      Send-TestSinglePidKill -Process $trackedProcess -Name 'Tracked process'
+  foreach ($tracked in $trackedProcesses) {
+    if ($tracked.TargetId -le 0 -or $tracked.TargetId -eq [int]$PID) {
+      throw ("{0} has an invalid cached PID." -f $tracked.Name)
+    }
+    if (-not $tracked.Process.HasExited) {
+      Send-TestSinglePidKill -Process $tracked.Process -TargetId $tracked.TargetId -Name $tracked.Name
     }
   }
 
-  foreach ($trackedProcess in $trackedProcesses) {
+  foreach ($tracked in $trackedProcesses) {
     $remainingMilliseconds = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds
     if ($remainingMilliseconds -le 0 -or
-        -not $trackedProcess.WaitForExit($remainingMilliseconds)) {
+        -not $tracked.Process.WaitForExit($remainingMilliseconds)) {
       throw 'Test containment did not become empty before its deadline.'
     }
-    if (-not $trackedProcess.HasExited) {
+    if (-not $tracked.Process.HasExited) {
       throw 'Tracked process remained alive after bounded wait.'
     }
   }
@@ -496,17 +508,17 @@ $waitAction = {
 
   $childId = [int](
     Get-Content -LiteralPath $ContainedProcess.ChildPidPath -Raw)
-  $ContainedProcess.ChildProcess = [System.Diagnostics.Process]::GetProcessById($childId)
-  if ([int]$ContainedProcess.Process.Id -eq [int]$PID -or
-      [int]$ContainedProcess.ChildProcess.Id -eq [int]$PID) {
-    throw 'Race regression target PID unexpectedly matches the outer PowerShell PID.'
+  if ($childId -le 0 -or $childId -eq [int]$PID) {
+    throw 'Race regression child PID is invalid or matches the outer PowerShell PID.'
   }
-  if ([int]$ContainedProcess.Process.Id -eq [int]$ContainedProcess.ChildProcess.Id) {
+  if ([int]$ContainedProcess.ParentId -eq $childId) {
     throw 'Race regression parent and child process identities collided.'
   }
+  $ContainedProcess.ChildProcess = [System.Diagnostics.Process]::GetProcessById($childId)
   if ($ContainedProcess.ChildProcess.HasExited) {
     throw 'Long-lived child was not alive at the timeout boundary.'
   }
+  $ContainedProcess.ChildId = $childId
 
   Set-Content -LiteralPath $ContainedProcess.ExitGatePath -Value 'exit'
   if (-not $ContainedProcess.Process.WaitForExit(10000)) {
@@ -523,13 +535,17 @@ $waitAction = {
 function Stop-TestProcessBounded {
   param(
     [System.Diagnostics.Process]$Process,
+    [int]$TargetId,
     [string]$Name,
     [int]$WaitMilliseconds = 5000
   )
 
   if ($null -eq $Process) { return }
+  if ($TargetId -le 0 -or $TargetId -eq [int]$PID) {
+    throw ("{0} has an invalid cached PID during cleanup." -f $Name)
+  }
   if (-not $Process.HasExited) {
-    Send-TestSinglePidKill -Process $Process -Name $Name
+    Send-TestSinglePidKill -Process $Process -TargetId $TargetId -Name $Name
   }
   if (-not $Process.WaitForExit($WaitMilliseconds) -or -not $Process.HasExited) {
     throw ("{0} did not exit during bounded cleanup." -f $Name)
@@ -565,11 +581,11 @@ try {
 }
 finally {
   try {
-    Stop-TestProcessBounded -Process $fake.ChildProcess -Name 'Long-lived child'
+    Stop-TestProcessBounded -Process $fake.ChildProcess -TargetId ([int]$fake.ChildId) -Name 'Long-lived child'
   }
   finally {
     try {
-      Stop-TestProcessBounded -Process $parent -Name 'Parent'
+      Stop-TestProcessBounded -Process $parent -TargetId ([int]$fake.ParentId) -Name 'Parent'
     }
     finally {
       if ($null -ne $fake.ChildProcess) {
