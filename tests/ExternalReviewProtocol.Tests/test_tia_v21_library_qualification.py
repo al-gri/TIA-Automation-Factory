@@ -393,17 +393,27 @@ if ([string]::IsNullOrWhiteSpace(`$pwsh) -or
     -not (Test-Path -LiteralPath `$pwsh -PathType Leaf)) {
   throw 'Synthetic race pwsh path environment variable is invalid.'
 }
-`$child = Start-Process `
-  -FilePath `$pwsh `
-  -ArgumentList @(
+foreach (`$requiredPath in @(`$ChildScriptPath, `$ChildStdoutPath, `$ChildStderrPath)) {
+  if ([string]::IsNullOrWhiteSpace([string]`$requiredPath)) {
+    throw 'Synthetic race nested launch path is empty.'
+  }
+}
+if (-not (Test-Path -LiteralPath `$ChildScriptPath -PathType Leaf)) {
+  throw 'Synthetic race child script path is invalid.'
+}
+`$childStartParameters = @{
+  FilePath = [string]`$pwsh
+  ArgumentList = @(
     '-NoProfile',
     '-NonInteractive',
     '-File',
-    `$ChildScriptPath
-  ) `
-  -RedirectStandardOutput `$ChildStdoutPath `
-  -RedirectStandardError `$ChildStderrPath `
-  -PassThru
+    [string]`$ChildScriptPath
+  )
+  RedirectStandardOutput = [string]`$ChildStdoutPath
+  RedirectStandardError = [string]`$ChildStderrPath
+  PassThru = `$true
+}
+`$child = Start-Process @childStartParameters
 while (-not (Test-Path -LiteralPath `$ExitGatePath)) {
   Start-Sleep -Milliseconds 20
 }
