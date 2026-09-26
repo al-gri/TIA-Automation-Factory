@@ -65,9 +65,17 @@ namespace TiaAutomationFactory.TiaV21Worker
 
         private static int RunQualifyLibrary(string[] args)
         {
+            return QualificationPublicDiagnostics.ExecuteBoundary(
+                "cli-boundary",
+                delegate { return RunQualifyLibraryCore(args); },
+                Console.Error);
+        }
+
+        private static int RunQualifyLibraryCore(string[] args)
+        {
             // Returns exit code 1 when result.Success is false; 0 on success.
-            // RunQualifyLibrary already returns nonzero for Success=false; no workflow change is included
-            // to chase the run1ExitCode observation from trusted run 35430943663.
+            // The outer qualification CLI boundary converts every unexpected exception into a
+            // bounded sanitized stderr token, including preflight/setup/final-output failures.
             if (args.Length < 4 || args.Length > 5)
             {
                 Console.Error.WriteLine("Usage: TiaV21Worker qualify-library <absolute-source-zal19> <absolute-qualification-output-root> <absolute-manifest-json> [absolute-work-root]");
