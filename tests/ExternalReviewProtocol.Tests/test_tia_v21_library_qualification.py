@@ -387,7 +387,12 @@ param(
   [string]`$ChildStdoutPath,
   [string]`$ChildStderrPath
 )
-`$pwsh = (Get-Command pwsh).Source
+`$pwsh = `$env:OLQ_RACE_PWSH_PATH
+if ([string]::IsNullOrWhiteSpace(`$pwsh) -or
+    -not [System.IO.Path]::IsPathRooted(`$pwsh) -or
+    -not (Test-Path -LiteralPath `$pwsh -PathType Leaf)) {
+  throw 'Synthetic race pwsh path environment variable is invalid.'
+}
 `$child = Start-Process `
   -FilePath `$pwsh `
   -ArgumentList @(
@@ -411,7 +416,14 @@ if ([string]::IsNullOrWhiteSpace($env:OLQ_RACE_CHILD_PID_PATH)) {
   throw 'Synthetic race child PID path environment variable is not configured.'
 }
 
-$pwsh = (Get-Command pwsh).Source
+$pwsh = (Get-Command pwsh -CommandType Application).Source
+if ([string]::IsNullOrWhiteSpace($pwsh) -or
+    -not [System.IO.Path]::IsPathRooted($pwsh) -or
+    -not (Test-Path -LiteralPath $pwsh -PathType Leaf)) {
+  throw 'Outer race regression could not resolve an absolute pwsh executable path.'
+}
+$env:OLQ_RACE_PWSH_PATH = $pwsh
+
 $parent = Start-Process `
   -FilePath $pwsh `
   -ArgumentList @(
