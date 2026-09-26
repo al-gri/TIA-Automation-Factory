@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Siemens.Engineering;
 using Siemens.Engineering.Compiler;
 using Siemens.Engineering.HW;
@@ -393,6 +394,12 @@ namespace TiaAutomationFactory.TiaV21Worker
             string qualifiedArchiveName = qualificationIdentity + ".zal21";
             string qualifiedArchivePath = Path.Combine(qualificationOutputRoot, qualifiedArchiveName);
 
+            var stateStore = new QualificationStateStore(qualificationOutputRoot, qualificationIdentity);
+            string attemptId = Guid.NewGuid().ToString("N")[..12];
+
+            var inProgressState = QualificationState.CreateInProgress(qualificationIdentity, sourceSha256, tiaBuildIdentity);
+            stateStore.WriteStaging(attemptId, inProgressState);
+
             var manifest = new QualificationResult
             {
                 SourceArchiveBasename = sourceBasename,
@@ -403,28 +410,46 @@ namespace TiaAutomationFactory.TiaV21Worker
                 Success = false
             };
 
-            if (File.Exists(qualifiedArchivePath))
+            if (stateStore.TryLoadCompleted(out var existingCompleted))
             {
                 string existingArchiveSha256 = ComputeSha256(qualifiedArchivePath);
-                string existingManifestPath = Path.ChangeExtension(qualifiedArchivePath, ".manifest.json");
-                if (File.Exists(existingManifestPath))
+                if (existingCompleted.QualificationIdentity == qualificationIdentity &&
+                    existingCompleted.SourceArchiveSha256 == sourceSha256 &&
+                    existingCompleted.TiaBuildIdentity == tiaBuildIdentity &&
+                    existingCompleted.QualifiedArchiveSha256 == existingArchiveSha256)
                 {
-                    var existingManifest = QualificationJson.Deserialize(File.ReadAllText(existingManifestPath));
-                    if (existingManifest.QualificationIdentity == qualificationIdentity &&
-                        existingManifest.SourceArchiveSha256 == sourceSha256 &&
-                        existingManifest.TiaBuildIdentity == tiaBuildIdentity &&
-                        existingManifest.QualifiedArchiveSha256 == existingArchiveSha256)
+                    string provenanceRunId = existingCompleted.OriginalProvenanceRunId;
+                    string completedAtUtc = existingCompleted.OriginalCompletedAtUtc;
+
+                    var reuseState = QualificationState.CreateCompletedSuccess(
+                        qualificationIdentity, sourceSha256, tiaBuildIdentity, existingArchiveSha256,
+                        provenanceRunId, completedAtUtc, true, false);
+                    stateStore.WriteStaging(attemptId, reuseState);
+
+                    if (stateStore.TryPromoteStagingToCompleted(attemptId, out string promoteError))
                     {
                         manifest.Success = true;
                         manifest.QualifiedArchiveSha256 = existingArchiveSha256;
-                        manifest.NativeReopenSuccess = true;
-                        manifest.NativeReopenDetails = "Already qualified; existing archive matches identity and hash.";
+                        manifest.NativeReopenSuccess = false;
+                        manifest.IsReuse = true;
+                        manifest.OriginalProvenanceRunId = provenanceRunId;
+                        manifest.OriginalCompletedAtUtc = completedAtUtc;
+                        manifest.NativeReopenDetails = "Reuse of existing qualified archive; no fresh migration or reopen performed.";
+                        stateStore.CleanupStaging(attemptId);
+                        return manifest;
+                    }
+                    else
+                    {
+                        stateStore.QuarantineStaging(attemptId, promoteError);
+                        manifest.Failure = "phase:state-promotion type:InvalidOperationException hresult:0x80131509";
+                        manifest.FailureDetails = "Failed to promote reuse state: " + promoteError;
                         return manifest;
                     }
                 }
 
                 manifest.Failure = "Qualification identity conflict: archive exists with different hash or manifest mismatch.";
                 manifest.FailureDetails = "Existing qualified archive at " + qualifiedArchivePath + " has SHA256 " + existingArchiveSha256 + " but current qualification requires identity " + qualificationIdentity + ".";
+                stateStore.CleanupStaging(attemptId);
                 return manifest;
             }
 
@@ -434,6 +459,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             var whitelistResult = WhitelistManager.SynchronizeWhitelist();
             if (!whitelistResult.Success)
             {
+                stateStore.CleanupStaging(attemptId);
                 if (whitelistResult.BootstrapRequired)
                 {
                     manifest.Success = false;
@@ -474,6 +500,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                     {
                         manifest.Failure = FormatFailure(QualificationPhase.RetrieveWithUpgrade, new InvalidOperationException("RetrieveWithUpgrade returned null"));
                         manifest.FailureDetails = "Source: " + sourceBasename + ", SHA256: " + sourceSha256;
+                        var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
+                        stateStore.WriteStaging(attemptId, falseState);
+                        stateStore.QuarantineStaging(attemptId, "RetrieveWithUpgrade returned null");
                         return manifest;
                     }
 
@@ -518,6 +547,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.FailureDetails = retrieveWithUpgradeException.ToString();
                 if (upgradeCloseException != null)
                     manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
+                var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
+                stateStore.WriteStaging(attemptId, falseState);
+                stateStore.QuarantineStaging(attemptId, "RetrieveWithUpgrade failed");
                 return manifest;
             }
 
@@ -527,6 +559,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.FailureDetails = saveException.ToString();
                 if (upgradeCloseException != null)
                     manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
+                var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
+                stateStore.WriteStaging(attemptId, falseState);
+                stateStore.QuarantineStaging(attemptId, "Save failed");
                 return manifest;
             }
 
@@ -536,6 +571,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.FailureDetails = archiveException.ToString();
                 if (upgradeCloseException != null)
                     manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
+                var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
+                stateStore.WriteStaging(attemptId, falseState);
+                stateStore.QuarantineStaging(attemptId, "Archive failed");
                 return manifest;
             }
 
@@ -543,6 +581,9 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 manifest.Failure = FormatFailure(QualificationPhase.UpgradeClose, upgradeCloseException);
                 manifest.FailureDetails = upgradeCloseException.ToString();
+                var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
+                stateStore.WriteStaging(attemptId, falseState);
+                stateStore.QuarantineStaging(attemptId, "UpgradeClose failed");
                 return manifest;
             }
 
@@ -555,6 +596,7 @@ namespace TiaAutomationFactory.TiaV21Worker
             var whitelistResult2 = WhitelistManager.SynchronizeWhitelist();
             if (!whitelistResult2.Success)
             {
+                stateStore.CleanupStaging(attemptId);
                 if (whitelistResult2.BootstrapRequired)
                 {
                     manifest.Success = false;
