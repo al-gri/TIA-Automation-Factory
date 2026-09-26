@@ -1,0 +1,72 @@
+{
+  "id": "OLQ-DIAG-PREREQ-CLASSIFIER-001",
+  "title": "Classify V21 global-library product/support prerequisites without publishing Siemens text",
+  "goal": "After the prerequisite-tag harness is merged and green, extend the worker's privacy-safe EngineeringException classification so official support-package/software-product/unsupported-library-element prerequisite wording can map to fixed bounded tags while raw MessageData/DetailMessageData text remains runner-local and migration semantics remain unchanged.",
+  "prerequisite": {
+    "task": "OLQ-DIAG-PREREQ-HARNESS-001",
+    "rule": "Do not dispatch until the harness task implementation is independently approved, merged to trusted main and post-merge CI is green."
+  },
+  "baselineEvidence": {
+    "trustedRunId": "36263142367",
+    "trustedFailure": "phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:f85ef7ebe21aad89",
+    "priorFailure": "phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:5fd3443943908efc",
+    "officialResearch": "Issue #61 comment 5752402710: V19->V21 direct global-library upgrade is supported; RetrieveWithUpgrade is the correct API; EngineeringTargetInvocationException exposes reason/detail surfaces; usable library elements can require installed TIA software products, licenses and support packages. Missing prerequisite is evidence-backed but not yet proven."
+  },
+  "scope": [
+    "Preserve exactly RetrieveWithUpgrade -> Save -> Archive -> close -> current-version Retrieve. Do not add retries, alternate migration APIs, OpenMode changes, headless/UI changes, exception swallowing or product-specific workarounds.",
+    "Add one small Siemens-independent classifier helper and focused tests. Program.cs may only adapt EngineeringException MessageData.Text/DetailMessageData.Text into that helper and append its returned fixed tags/fingerprints to the existing public failure token.",
+    "Classifier output may only use the existing tags plus support-package-missing, software-product-missing and unsupported-library-element. It must never return arbitrary words from Siemens text.",
+    "Use conservative case-insensitive phrase-family matching that requires both a supported prerequisite noun/context and explicit absence/unavailable/unsupported semantics. Generic mentions of a support package/product/library element without a missing/unavailable/unsupported indication must not classify as a missing prerequisite.",
+    "Keep license-missing behavior and all existing tag/fingerprint semantics. If no supported category matches, emit unknown. Multiple safe tags are sorted/deduplicated deterministically.",
+    "MessageData.Text and DetailMessageData.Text are used only in memory for classification/fingerprinting; raw text, product names, library object names, absolute paths, usernames and vendor payload must never enter public Failure/stdout/artifact/issue evidence.",
+    "The helper must be BCL/net48-compatible and linkable into SiemensBackend.Tests for Linux net10 execution plus net48 compile evidence without compiling full TiaV21Worker on Linux.",
+    "Focused tests use synthetic safe phrases and sentinel private path/user/vendor text. They must prove supported phrase families map only to fixed tags, ambiguous/generic text stays unknown, output ordering is deterministic, and sentinels are absent.",
+    "No Valve contract discovery/reference compile is authorized by this diagnostic task. If the next trusted run remains tags:unknown, stop and retain BLOCKED diagnosis rather than speculating."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate changes are limited exactly to candidatePolicy.allowedPaths.",
+      "Migration/qualification control flow and all fresh/reuse/provenance/archive transaction semantics are unchanged.",
+      "Classifier is Siemens-independent, net48-compatible and directly tested on Linux.",
+      "support-package-missing requires support-package context plus explicit missing/not-installed/not-available/required-but-unavailable semantics; plain mention alone does not match.",
+      "software-product-missing requires software-product/product context plus explicit missing/not-installed/not-available/required-but-unavailable semantics; plain mention alone does not match.",
+      "unsupported-library-element requires library element/type/object context plus explicit unsupported/cannot-be-used semantics; generic library text alone does not match.",
+      "No arbitrary raw diagnostic text or identifiers are emitted; public output remains fixed tags + bounded counts/fingerprints.",
+      "Existing diagnostic tags, unknown fallback and deterministic fingerprint construction remain intact.",
+      "Exact-SHA Linux CI is green and no candidate Windows/TIA execution occurs.",
+      "Coding-agent authored candidate requires independent primary chatgpt review; if primary materially authors candidate code, reviewer switches to fresh chatgpt-secondary."
+    ],
+    "tia": [
+      "After independent approval and trusted merge, run exactly one /run-olq-001 on trusted main.",
+      "If RetrieveWithUpgrade still fails, sanitized evidence either resolves to one or more supported prerequisite tags or remains unknown; raw Siemens text is never published.",
+      "Do not change migration APIs or claim a qualified Valve profile unless the unchanged OLQ success gates actually pass."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "src/TiaV21Worker/Program.cs",
+      "src/TiaV21Worker/QualificationPrerequisiteClassifier.cs",
+      "tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj",
+      "tests/SiemensBackend.Tests/QualificationPrerequisiteClassifierTests.cs"
+    ],
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 61
+}
