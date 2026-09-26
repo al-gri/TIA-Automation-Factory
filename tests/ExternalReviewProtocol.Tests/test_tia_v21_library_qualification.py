@@ -339,6 +339,35 @@ $grammar = [pscustomobject]@{
         self.assertNotIn("sentinel-user", completed.stdout)
 
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_worker_failure_projection_accepts_only_exact_prerequisite_tags(self) -> None:
+        script = harness_functions() + r'''
+$cases = [ordered]@{
+  supportPackageMissing = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:support-package-missing detail-count:3 msgfp:0123456789abcdef dtlfp:fedcba9876543210')
+  softwareProductMissing = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:software-product-missing detail-count:3 msgfp:0123456789abcdef dtlfp:fedcba9876543210')
+  unsupportedLibraryElement = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unsupported-library-element detail-count:3 msgfp:0123456789abcdef dtlfp:fedcba9876543210')
+  nearMiss = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:support-package detail-count:3')
+  mixedCase = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:Support-package-missing detail-count:3')
+  pathBearing = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:support-package-missing/secret detail-count:3')
+  unallowlisted = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:missing-support-package detail-count:3')
+}
+$controlToken = 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:support-package-missing' + [char]10 + 'detail-count:3'
+$cases['controlCharacter'] = [bool](Test-SafeWorkerFailureToken $controlToken)
+$cases | ConvertTo-Json -Depth 4 -Compress
+'''
+        completed = run_pwsh(script)
+        self.assertEqual(0, completed.returncode, completed.stdout)
+        result = json.loads(completed.stdout.strip())
+
+        self.assertTrue(result["supportPackageMissing"], result)
+        self.assertTrue(result["softwareProductMissing"], result)
+        self.assertTrue(result["unsupportedLibraryElement"], result)
+        self.assertFalse(result["nearMiss"], result)
+        self.assertFalse(result["mixedCase"], result)
+        self.assertFalse(result["pathBearing"], result)
+        self.assertFalse(result["unallowlisted"], result)
+        self.assertFalse(result["controlCharacter"], result)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
     def test_run2_failure_projection_preserves_only_prevalidated_run1_evidence(self) -> None:
         script = harness_functions() + r'''
 $evidence = [ordered]@{

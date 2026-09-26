@@ -258,11 +258,14 @@ jobs:
               'access-denied',
               'user-abort',
               'target-conflict',
-              'license-missing'
+              'license-missing',
+              'support-package-missing',
+              'software-product-missing',
+              'unsupported-library-element'
             )
             $seenTags = @{}
             foreach ($tag in @($tagText -split ',')) {
-              if ($allowedTags -notcontains $tag -or $seenTags.ContainsKey($tag)) { return $false }
+              if ($allowedTags -cnotcontains $tag -or $seenTags.ContainsKey($tag)) { return $false }
               $seenTags[$tag] = $true
             }
             $index++
