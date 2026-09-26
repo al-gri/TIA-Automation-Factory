@@ -578,6 +578,39 @@ namespace TiaAutomationFactory.TiaV21Worker
         }
     }
 
+    internal static class QualificationPublicDiagnostics
+    {
+        public static string SanitizeFailureDetails(string phaseToken, string rawDetails)
+        {
+            if (string.IsNullOrWhiteSpace(phaseToken) ||
+                phaseToken.Length > 64 ||
+                !Regex.IsMatch(phaseToken, "^[a-z0-9-]+$"))
+            {
+                throw new ArgumentException("Invalid public diagnostic phase token.", "phaseToken");
+            }
+
+            string fingerprint = "none";
+            if (!string.IsNullOrEmpty(rawDetails))
+            {
+                using (var sha256 = SHA256.Create())
+                {
+                    byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(rawDetails));
+                    fingerprint = BitConverter.ToString(hash)
+                        .Replace("-", "")
+                        .ToLowerInvariant()
+                        .Substring(0, 16);
+                }
+            }
+
+            return "details:redacted phase:" + phaseToken + " rawfp:" + fingerprint;
+        }
+
+        public static string SourceArchiveNotFoundMessage()
+        {
+            return "Source archive not found.";
+        }
+    }
+
     internal sealed class QualificationStateException : Exception
     {
         public QualificationStateException(string message) : base(message) { }
