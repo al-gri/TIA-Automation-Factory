@@ -1,0 +1,74 @@
+{
+  "id": "GEN-VALVE-FOUNDATION-CORE-001",
+  "title": "Add canonical generator identity and bounded Siemens name policy",
+  "goal": "Replace the oversized pre-publication GEN-VALVE-FOUNDATION-001 implementation attempt with a first small foundation slice: add deterministic parsed-model input identity in the vendor-neutral compiler boundary and the minimal Siemens emitted-name/symbol policy in SiemensBackend, with focused tests. Do not implement manifest/output/CLI profile plumbing yet and do not introduce any unverified Valve contract fact.",
+  "baselineEvidence": {
+    "parentTask": "GEN-VALVE-FOUNDATION-001",
+    "trustedBaseAtDecomposition": "04d2f8c22f3654ec8f978022a614790835f55cb6",
+    "failedRun": "Autonomous Agent run 36250733507 (#27) failed before publication on both attempt 1 and attempt 2. No candidate PR was created and repair budget was not consumed.",
+    "attempt1": "The coding step hit its step limit before self-test; deterministic acceptance found duplicate GeneratorManifest.SchemaVersion plus unresolved DiagnosticCode references.",
+    "attempt2": "A fresh rerun again hit its step limit before self-test; deterministic acceptance found CS7036 in the disposable CanonicalIdentity implementation. Publication was skipped.",
+    "decompositionReason": "Two independent pre-publication attempts show the combined identity+name+manifest+containment+CLI+diagnostics task is too broad for the current bounded coder step budget. Split by architecture boundary rather than increasing runtime limits."
+  },
+  "contextFiles": [
+    "src/Domain/AutomationDevice.cs",
+    "src/Domain/AutomationType.cs",
+    "src/PlcCompiler/AutomationCompiler.cs",
+    "src/PlcCompiler/PlcIr.cs",
+    "src/SiemensBackend/SclDataTypeGenerator.cs",
+    "tests/SiemensBackend.Tests/SclDataTypeGeneratorTests.cs"
+  ],
+  "scope": [
+    "Add one small vendor-neutral canonical input identity helper in PlcCompiler. It may consume the normalized parsed AutomationDevice model from Domain, but Domain itself must not change.",
+    "The input identity must be a lowercase SHA-256 over a deterministic canonical representation of the parsed model. Include device name plus every field name/type in original order. Do not sort fields, do not include an opaque profile token, raw JSON whitespace/property order, file paths, timestamps, locale, machine/user identity or output location.",
+    "Add the smallest Siemens emitted-name/symbol policy in SiemensBackend only. Reject null/empty names, names that cannot be safely emitted by the current quoted UDT/type/field generator policy, and case-insensitive duplicate allocated field symbols. Use stable bounded diagnostic codes or typed error identity; do not silently rename.",
+    "Integrate that policy into SclDataTypeGenerator before emitting a UDT. Keep the policy deliberately bounded to names the current generator emits; do not claim complete Siemens/TIA identifier semantics or add a catalog/framework.",
+    "Add focused tests for canonical identity equality for equivalent parsed models, order sensitivity, name/type sensitivity, invalid/empty names, case-insensitive duplicates, and existing Motor/Time SCL regression.",
+    "Do not modify GeneratorCli, manifest/output-containment behavior, TiaV21Worker, workflows, tasks, agents, vendor payloads, runner configuration or IndustrialMDE in the implementation candidate.",
+    "Do not add fbValve_Solenoid parameters, dependencies, versions, DB/ownership/memory/target facts or any Valve call."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate changes are limited exactly to candidatePolicy.allowedPaths; Domain remains unchanged and vendor-neutral.",
+      "Canonical input identity is deterministic lowercase SHA-256 derived from the normalized parsed AutomationDevice only; it has no profile-token or environment/path dependency.",
+      "Two independently constructed AutomationDevice instances with identical device name and ordered fields produce the same identity; changing a field name/type or field order changes identity.",
+      "The identity implementation preserves field declaration order and does not sort fields for hashing.",
+      "Siemens-specific emitted-name/symbol policy exists only in SiemensBackend and is invoked by SclDataTypeGenerator before output.",
+      "Null/empty or unsupported emitted names and case-insensitive duplicate field symbols fail with stable bounded diagnostic identity; user names are not silently renamed.",
+      "Focused Linux tests cover the identity and name-policy cases and all existing SiemensBackend tests remain green.",
+      "Existing Motor and Time UDT generation remains compatible.",
+      "No GeneratorCli/manifest/output-containment implementation is added in this slice.",
+      "No unqualified Valve contract fact is asserted in code/tests/examples.",
+      "No Windows/TIA candidate execution occurs."
+    ],
+    "tia": []
+  },
+  "review": {
+    "riskClass": "MEDIUM",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "src/PlcCompiler/CanonicalInputIdentity.cs",
+      "src/SiemensBackend/SiemensNamePolicy.cs",
+      "src/SiemensBackend/SclDataTypeGenerator.cs",
+      "tests/SiemensBackend.Tests/GeneratorFoundationCoreTests.cs",
+      "tests/SiemensBackend.Tests/SclDataTypeGeneratorTests.cs"
+    ],
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 62
+}
