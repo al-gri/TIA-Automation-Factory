@@ -8,6 +8,11 @@ public static class SclDataTypeGenerator
 {
     public static string Generate(PlcIrDataType dataType)
     {
+        ArgumentNullException.ThrowIfNull(dataType);
+
+        SiemensNamePolicy.ValidateUdtName(dataType.Name);
+        SiemensNamePolicy.ValidateFieldNames(dataType.Fields.Select(f => f.Name).ToArray());
+
         var sb = new StringBuilder();
         sb.AppendLine($"TYPE \"UDT_{dataType.Name}\"");
         sb.AppendLine("VERSION : 0.1");
