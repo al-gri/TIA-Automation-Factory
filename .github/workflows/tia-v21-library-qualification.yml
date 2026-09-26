@@ -258,7 +258,10 @@ jobs:
               'access-denied',
               'user-abort',
               'target-conflict',
-              'license-missing'
+              'license-missing',
+              'support-package-missing',
+              'software-product-missing',
+              'unsupported-library-element'
             )
             $seenTags = @{}
             foreach ($tag in @($tagText -split ',')) {
