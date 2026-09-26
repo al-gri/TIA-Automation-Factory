@@ -1,0 +1,57 @@
+{
+  "id": "OLQ-DIAG-PREREQ-HARNESS-001",
+  "title": "Allow bounded V21 prerequisite tags in trusted OLQ evidence",
+  "goal": "Extend only the trusted qualification evidence grammar/regressions so a later worker classifier may publish three additional bounded prerequisite categories supported by Siemens V21 documentation: support-package-missing, software-product-missing and unsupported-library-element. Preserve all existing success/failure, reuse/provenance and Job Object semantics and do not run TIA with unmerged code.",
+  "baselineEvidence": {
+    "trustedMainSha": "5640c605ce8f1c3dc7ec21024577a95d91e5ab74",
+    "trustedRunId": "36263142367",
+    "sourceArchiveSha256": "ed8fe3f52e90399475b321e40f7ce842d86e414324f06f1b078f44fcb666eed3",
+    "tiaBuildIdentity": "Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)",
+    "trustedFailure": "phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:f85ef7ebe21aad89",
+    "evidence": "Issue #61 official V21 research checkpoint 5752402710 confirms global-library usability can depend on required support packages and software products and that unsupported library elements/product prerequisites are evidence-backed hypotheses, not yet proven root cause."
+  },
+  "scope": [
+    "Modify only the trusted qualification workflow and its deterministic Python regression listed in candidatePolicy.allowedPaths.",
+    "Add exactly these new public-safe tag labels to the existing strict worker-failure grammar: support-package-missing, software-product-missing, unsupported-library-element. Do not add arbitrary tag pass-through or regex widening beyond exact allowlisted tokens.",
+    "Keep all current existing allowed tags and grammar constraints intact. Unknown, malformed, overlong, path-bearing, control-character, noncanonical-case or unallowlisted tag tokens remain fail-closed and project as WORKER_FAILURE_REDACTED.",
+    "Do not change TiaV21Worker, migration behavior, source/archive identities, fresh/reuse/provenance semantics, Job Object containment, timeout behavior, runner configuration, vendor payloads, Valve logic or IndustrialMDE.",
+    "Add deterministic regressions proving each new exact tag is accepted only in a syntactically valid worker failure token, near-miss/unallowlisted forms are rejected, and raw path/username/vendor sentinels never enter public evidence.",
+    "No candidate Windows/TIA execution. This task only prepares the public-safe evidence boundary for the later classifier task."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate diff is exactly the two allowed paths.",
+      "Test-SafeWorkerFailureToken/Get-PublicWorkerFailureToken recognize exactly the three new canonical tags in addition to the existing allowlist and do not weaken phase/type/HRESULT/suffix bounds.",
+      "Each new tag has a direct deterministic positive regression and malformed/case/path/control/unallowlisted negative coverage.",
+      "Unsafe worker failure values still collapse to fixed WORKER_FAILURE_REDACTED without echoing raw input.",
+      "Run1 failure short-circuit, run2 failure projection, successful fresh->reuse/reuse->reuse gates, cleanup and Job Object containment remain behaviorally unchanged.",
+      "Exact-SHA Linux CI is green.",
+      "Because primary ChatGPT authored this protected task authority and may author the candidate, fresh isolated chatgpt-secondary exact-SHA review is mandatory before merge."
+    ],
+    "tia": []
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      ".github/workflows/tia-v21-library-qualification.yml",
+      "tests/ExternalReviewProtocol.Tests/test_tia_v21_library_qualification.py"
+    ],
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 61
+}
