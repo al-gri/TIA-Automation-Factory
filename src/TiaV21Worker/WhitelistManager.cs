@@ -11,21 +11,19 @@ namespace TiaAutomationFactory.TiaV21Worker
     internal static class WhitelistManager
     {
         private const string ApplicationName = "TiaV21Worker.exe";
-        private const string WhitelistBasePath = @"SOFTWARE\Siemens\Automation\Openness\Whitelist";
+        private const string AllowListBasePath = @"SOFTWARE\Siemens\Automation\Openness\AllowList";
+        private const string EntryKeyPath = @"SOFTWARE\Siemens\Automation\Openness\AllowList\TiaV21Worker.exe\Entry";
 
         public static WhitelistSyncResult SynchronizeWhitelist()
         {
-            string version = GetWhitelistVersion();
             string executablePath = GetExecutablePath();
             string fileHash = ComputeFileHash(executablePath);
             string dateModified = GetDateModified(executablePath);
 
-            string entryKeyPath = $@"{WhitelistBasePath}\{version}\Entries\{ApplicationName}\Entry";
-
             try
             {
                 using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
-                using (RegistryKey entryKey = baseKey.OpenSubKey(entryKeyPath, RegistryKeyPermissionCheck.ReadWriteSubTree, RegistryRights.SetValue | RegistryRights.QueryValues))
+                using (RegistryKey entryKey = baseKey.OpenSubKey(EntryKeyPath, RegistryKeyPermissionCheck.ReadWriteSubTree, RegistryRights.SetValue | RegistryRights.QueryValues))
                 {
                     if (entryKey == null)
                     {
@@ -47,13 +45,6 @@ namespace TiaAutomationFactory.TiaV21Worker
             }
 
             return WhitelistSyncResult.CreateSuccess();
-        }
-
-        private static string GetWhitelistVersion()
-        {
-            Assembly engineeringAssembly = typeof(Siemens.Engineering.TiaPortal).Assembly;
-            Version version = engineeringAssembly.GetName().Version;
-            return $"{version.Major}.{version.Minor}";
         }
 
         private static string GetExecutablePath()
@@ -99,7 +90,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
         public static WhitelistSyncResult CreateBootstrapRequired()
         {
-            return new WhitelistSyncResult(false, true, "Whitelist synchronization requires elevated bootstrap. Run the bootstrap script to grant registry permissions.");
+            return new WhitelistSyncResult(false, true, "AllowList synchronization requires elevated bootstrap. Run the bootstrap script to grant registry permissions.");
         }
     }
 }

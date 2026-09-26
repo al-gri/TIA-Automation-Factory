@@ -1,19 +1,18 @@
 <#>
 .SYNOPSIS
-    Configures the Siemens Openness whitelist for TiaV21Worker.exe by creating the application-specific
+    Configures the Siemens Openness AllowList for TiaV21Worker.exe by creating the application-specific
     registry key and granting the current user minimum write permissions on that key only.
 
 .DESCRIPTION
     This script must be run elevated (as Administrator). It is idempotent and safe to run multiple times.
-    It creates the registry key path for the current TIA Portal version (derived from the loaded
-    Siemens.Engineering assembly) and grants the current Windows identity Write/SetValue permissions
-    only on the TiaV21Worker.exe\Entry key, never on the parent Whitelist tree.
+    It creates the version-independent registry key path for TIA Portal V21 AllowList and grants the current
+    Windows identity Write/SetValue permissions only on the TiaV21Worker.exe\Entry key, never on the parent
+    AllowList tree. Existing-rule detection normalizes IdentityReference to SecurityIdentifier for true
+    idempotence across NTAccount/SID representation differences.
 
 .NOTES
-    Task: TIA-AUTH-001
-    The whitelist version is derived from the Siemens.Engineering assembly major/minor version.
-    For TIA Portal V21, this will be "21.0".
-    The key path is: HKLM:\SOFTWARE\Siemens\Automation\Openness\Whitelist\<version>\Entries\TiaV21Worker.exe\Entry
+    Task: TIA-AUTH-V21-ALLOWLIST-001
+    For TIA Portal V21, the key path is: HKLM:\SOFTWARE\Siemens\Automation\Openness\AllowList\TiaV21Worker.exe\Entry
 #>
 
 #requires -RunAsAdministrator
@@ -26,15 +25,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Get-WhitelistVersion {
-    # The version is derived from the Siemens.Engineering assembly major/minor.
-    # Since we cannot load the assembly directly in PowerShell without the full path,
-    # we use the known TIA Portal V21 version. This matches the C# logic:
-    # Assembly engineeringAssembly = typeof(Siemens.Engineering.TiaPortal).Assembly;
-    # Version version = engineeringAssembly.GetName().Version;
-    # return $"{version.Major}.{version.Minor}";
-    # For TIA Portal V21, the assembly version is 21.x.x.x
-    return "21.0"
+function Get-AllowListKeyPath {
+    return "HKLM:\SOFTWARE\Siemens\Automation\Openness\AllowList\TiaV21Worker.exe\Entry"
 }
 
 function Get-CurrentUserSid {
@@ -42,24 +34,17 @@ function Get-CurrentUserSid {
     return [System.Security.Principal.SecurityIdentifier]::new($identity.User.Value)
 }
 
-function Get-WhitelistKeyPath {
-    param(
-        [string]$Version
-    )
-    return "HKLM:\SOFTWARE\Siemens\Automation\Openness\Whitelist\$Version\Entries\TiaV21Worker.exe\Entry"
-}
-
-function Ensure-WhitelistKey {
+function Ensure-AllowListKey {
     param(
         [string]$KeyPath
     )
 
     if (-not (Test-Path $KeyPath)) {
-        Write-Host "Creating whitelist key: $KeyPath"
+        Write-Host "Creating AllowList key: $KeyPath"
         New-Item -Path $KeyPath -Force | Out-Null
     }
     else {
-        Write-Host "Whitelist key already exists: $KeyPath"
+        Write-Host "AllowList key already exists: $KeyPath"
     }
 }
 
@@ -81,13 +66,15 @@ function Grant-MinimumPermissions {
         "Allow"
     )
 
-    # Check if an equivalent Allow rule with exactly the required rights already exists
+    # Check if an equivalent Allow rule with exactly the required rights already exists.
+    # Normalize each IdentityReference to SecurityIdentifier for comparison so that
+    # an NTAccount representation of the same principal does not cause duplicate rules.
     $existingRule = $acl.Access | Where-Object {
-        $_.IdentityReference.Value -eq $UserSid.Value -and
         $_.AccessControlType -eq "Allow" -and
         $_.RegistryRights -eq $requiredRights -and
         $_.InheritanceFlags -eq "None" -and
-        $_.PropagationFlags -eq "None"
+        $_.PropagationFlags -eq "None" -and
+        (TryNormalizeSid($_.IdentityReference) -eq $UserSid.Value)
     }
 
     if ($null -eq $existingRule) {
@@ -100,20 +87,33 @@ function Grant-MinimumPermissions {
     }
 }
 
+function TryNormalizeSid {
+    param(
+        [System.Security.Principal.IdentityReference]$IdentityRef
+    )
+
+    try {
+        $sid = $IdentityRef.Translate([System.Security.Principal.SecurityIdentifier])
+        return $sid.Value
+    }
+    catch {
+        # Non-translatable identity (e.g., well-known group, deleted account) - return original value
+        # to avoid false-positive matches, but do not broaden rights.
+        return $IdentityRef.Value
+    }
+}
+
 function Main {
-    Write-Host "=== TIA-AUTH-001: TiaV21Worker Whitelist Bootstrap ==="
+    Write-Host "=== TIA-AUTH-V21-ALLOWLIST-001: TiaV21Worker AllowList Bootstrap ==="
     Write-Host "Running elevated: $([System.Security.Principal.WindowsPrincipal]::new([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator))"
 
-    $version = Get-WhitelistVersion
-    Write-Host "TIA Whitelist version: $version"
-
-    $keyPath = Get-WhitelistKeyPath -Version $version
+    $keyPath = Get-AllowListKeyPath
     Write-Host "Target registry key: $keyPath"
 
     $userSid = Get-CurrentUserSid
     Write-Host "Current user SID: $userSid"
 
-    Ensure-WhitelistKey -KeyPath $keyPath
+    Ensure-AllowListKey -KeyPath $keyPath
     Grant-MinimumPermissions -KeyPath $keyPath -UserSid $userSid
 
     Write-Host "=== Bootstrap completed successfully ==="
