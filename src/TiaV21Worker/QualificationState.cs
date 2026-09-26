@@ -580,6 +580,28 @@ namespace TiaAutomationFactory.TiaV21Worker
 
     internal static class QualificationPublicDiagnostics
     {
+        public static int ExecuteBoundary(
+            string phaseToken,
+            Func<int> action,
+            TextWriter errorWriter)
+        {
+            if (action == null)
+                throw new ArgumentNullException("action");
+            if (errorWriter == null)
+                throw new ArgumentNullException("errorWriter");
+
+            try
+            {
+                return action();
+            }
+            catch (Exception exception)
+            {
+                errorWriter.WriteLine(
+                    SanitizeFailureDetails(phaseToken, exception.ToString()));
+                return 1;
+            }
+        }
+
         public static string SanitizeFailureDetails(string phaseToken, string rawDetails)
         {
             if (string.IsNullOrWhiteSpace(phaseToken) ||
