@@ -294,6 +294,9 @@ $grammar = [pscustomobject]@{
   unknownTag = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620 tags:not-allowlisted')
   lowercaseHresult = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x8013162a')
   unknownPhase = [bool](Test-SafeWorkerFailureToken 'phase:made-up type:IOException hresult:0x80131620')
+  detailWithoutTags = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620 detail-count:1')
+  fingerprintWithoutTags = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620 msgfp:eefb8fcdb933339b')
+  tagsOnly = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620 tags:unknown')
   baseToken = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620')
 }
 
@@ -328,7 +331,12 @@ $grammar = [pscustomobject]@{
         self.assertFalse(result["grammar"]["unknownTag"])
         self.assertFalse(result["grammar"]["lowercaseHresult"])
         self.assertFalse(result["grammar"]["unknownPhase"])
+        self.assertFalse(result["grammar"]["detailWithoutTags"])
+        self.assertFalse(result["grammar"]["fingerprintWithoutTags"])
+        self.assertTrue(result["grammar"]["tagsOnly"])
         self.assertTrue(result["grammar"]["baseToken"])
+        self.assertNotIn("VendorSecret", completed.stdout)
+        self.assertNotIn("sentinel-user", completed.stdout)
 
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
     def test_run2_failure_projection_preserves_only_prevalidated_run1_evidence(self) -> None:
