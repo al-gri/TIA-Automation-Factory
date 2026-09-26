@@ -187,6 +187,50 @@ namespace SiemensBackend.Tests
         }
 
         [Fact]
+        public void Public_diagnostics_redact_raw_path_username_and_vendor_text()
+        {
+            const string sentinelPath = @"C:\Users\sentinel-user\VendorSecret\private-library.zal19";
+            const string sentinelUser = "sentinel-user";
+            const string sentinelVendor = "VendorSecret";
+            string rawDetails = sentinelPath + " " + sentinelUser + " " + sentinelVendor +
+                " arbitrary vendor exception payload";
+
+            string sanitized = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                "retrieve-with-upgrade",
+                rawDetails);
+
+            Assert.StartsWith(
+                "details:redacted phase:retrieve-with-upgrade rawfp:",
+                sanitized);
+            Assert.True(sanitized.Length <= 96);
+            Assert.DoesNotContain(sentinelPath, sanitized);
+            Assert.DoesNotContain(sentinelUser, sanitized);
+            Assert.DoesNotContain(sentinelVendor, sanitized);
+            Assert.DoesNotContain("arbitrary vendor exception payload", sanitized);
+            Assert.Equal(
+                sanitized,
+                QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    "retrieve-with-upgrade",
+                    rawDetails));
+            Assert.Equal(
+                "Source archive not found.",
+                QualificationPublicDiagnostics.SourceArchiveNotFoundMessage());
+        }
+
+        [Fact]
+        public void Public_diagnostics_reject_noncanonical_phase_tokens()
+        {
+            Assert.Throws<ArgumentException>(
+                () => QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    "retrieve with upgrade",
+                    "raw"));
+            Assert.Throws<ArgumentException>(
+                () => QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    "UPPERCASE",
+                    "raw"));
+        }
+
+        [Fact]
         public void Durable_completed_record_rejects_reuse_shape_or_false_reopen()
         {
             var reuse = Completed(QualificationIdentity, ArchiveSha);
