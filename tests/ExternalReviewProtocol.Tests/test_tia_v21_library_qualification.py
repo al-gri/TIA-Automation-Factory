@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import textwrap
@@ -71,15 +72,59 @@ def run_pwsh(
         env = os.environ.copy()
         if environment:
             env.update(environment)
-        return subprocess.run(
-            ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(script_path)],
+
+        args = ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(script_path)]
+        if timeout_seconds is None:
+            return subprocess.run(
+                args,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+                env=env,
+            )
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+
+        process = subprocess.Popen(
+            args,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            check=False,
             env=env,
-            timeout=timeout_seconds,
+            start_new_session=True,
         )
+        try:
+            stdout, _ = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as timeout_error:
+            try:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+            except ProcessLookupError:
+                pass
+
+            try:
+                teardown_stdout, _ = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired as teardown_error:
+                if process.stdout is not None:
+                    process.stdout.close()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+                raise AssertionError(
+                    "Timed-out PowerShell process group could not be reaped "
+                    "within the bounded teardown window."
+                ) from teardown_error
+
+            raise AssertionError(
+                f"PowerShell process group exceeded {timeout_seconds} seconds; "
+                f"captured output={teardown_stdout!r}"
+            ) from timeout_error
+
+        return subprocess.CompletedProcess(args, process.returncode, stdout, None)
 
 
 def run_production_pair_cases(cases: list[dict[str, object]]) -> dict[str, dict[str, object]]:
