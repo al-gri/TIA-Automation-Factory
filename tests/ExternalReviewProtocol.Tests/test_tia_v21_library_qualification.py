@@ -407,6 +407,35 @@ $parent = Start-Process `
   -RedirectStandardError $parentStderrPath `
   -PassThru
 
+function Send-TestSinglePidKill {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.Diagnostics.Process]$Process,
+    [Parameter(Mandatory = $true)]
+    [string]$Name
+  )
+
+  $targetId = [int]$Process.Id
+  if ($targetId -le 0) {
+    throw ("{0} has an invalid PID." -f $Name)
+  }
+  if ($targetId -eq [int]$PID) {
+    throw ("{0} PID unexpectedly matches the outer PowerShell PID." -f $Name)
+  }
+  if ($Process.HasExited) {
+    return
+  }
+  if (-not (Test-Path -LiteralPath '/bin/kill' -PathType Leaf)) {
+    throw 'Required single-PID Linux kill utility is unavailable.'
+  }
+
+  & /bin/kill -KILL -- $targetId 1>$null 2>$null
+  $signalExitCode = [int]$LASTEXITCODE
+  if ($signalExitCode -ne 0 -and -not $Process.HasExited) {
+    throw ("Single-PID kill failed for {0} while the exact process object remained alive." -f $Name)
+  }
+}
+
 $fake = [pscustomobject]@{
   Process = $parent
   ChildProcess = $null
@@ -430,14 +459,7 @@ $fake | Add-Member -MemberType ScriptMethod -Name TerminateAndWait -Value {
 
   foreach ($trackedProcess in $trackedProcesses) {
     if (-not $trackedProcess.HasExited) {
-      try {
-        $trackedProcess.Kill()
-      }
-      catch [System.InvalidOperationException] {
-        if (-not $trackedProcess.HasExited) {
-          throw
-        }
-      }
+      Send-TestSinglePidKill -Process $trackedProcess -Name 'Tracked process'
     }
   }
 
@@ -475,6 +497,13 @@ $waitAction = {
   $childId = [int](
     Get-Content -LiteralPath $ContainedProcess.ChildPidPath -Raw)
   $ContainedProcess.ChildProcess = [System.Diagnostics.Process]::GetProcessById($childId)
+  if ([int]$ContainedProcess.Process.Id -eq [int]$PID -or
+      [int]$ContainedProcess.ChildProcess.Id -eq [int]$PID) {
+    throw 'Race regression target PID unexpectedly matches the outer PowerShell PID.'
+  }
+  if ([int]$ContainedProcess.Process.Id -eq [int]$ContainedProcess.ChildProcess.Id) {
+    throw 'Race regression parent and child process identities collided.'
+  }
   if ($ContainedProcess.ChildProcess.HasExited) {
     throw 'Long-lived child was not alive at the timeout boundary.'
   }
@@ -500,14 +529,7 @@ function Stop-TestProcessBounded {
 
   if ($null -eq $Process) { return }
   if (-not $Process.HasExited) {
-    try {
-      $Process.Kill()
-    }
-    catch [System.InvalidOperationException] {
-      if (-not $Process.HasExited) {
-        throw
-      }
-    }
+    Send-TestSinglePidKill -Process $Process -Name $Name
   }
   if (-not $Process.WaitForExit($WaitMilliseconds) -or -not $Process.HasExited) {
     throw ("{0} did not exit during bounded cleanup." -f $Name)
