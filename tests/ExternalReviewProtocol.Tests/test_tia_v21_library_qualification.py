@@ -353,6 +353,7 @@ if ($null -eq $type) {
 $rawRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("olq-timeout-race-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $rawRoot | Out-Null
 $parentScript = Join-Path $rawRoot 'parent.ps1'
+$childScript = Join-Path $rawRoot 'child.ps1'
 $childPidPath = Join-Path $rawRoot 'child.pid'
 $exitGatePath = Join-Path $rawRoot 'exit.gate'
 $parentStdoutPath = Join-Path $rawRoot 'parent.stdout.txt'
@@ -364,8 +365,23 @@ if ([string]::IsNullOrWhiteSpace($resultPath)) {
   throw 'Race regression result path is not configured.'
 }
 
+$childSource = @"
+param(
+  [string]`$ChildPidPath
+)
+`$childPidTempPath = `$ChildPidPath + '.tmp'
+[System.IO.File]::WriteAllText(
+  `$childPidTempPath,
+  [string]`$PID,
+  [System.Text.UTF8Encoding]::new(`$false))
+[System.IO.File]::Move(`$childPidTempPath, `$ChildPidPath)
+Start-Sleep -Seconds 60
+"@
+$childSource | Set-Content -LiteralPath $childScript -Encoding UTF8
+
 $parentSource = @"
 param(
+  [string]`$ChildScriptPath,
   [string]`$ChildPidPath,
   [string]`$ExitGatePath,
   [string]`$ChildStdoutPath,
@@ -374,16 +390,17 @@ param(
 `$pwsh = (Get-Command pwsh).Source
 `$child = Start-Process `
   -FilePath `$pwsh `
-  -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60') `
+  -ArgumentList @(
+    '-NoProfile',
+    '-NonInteractive',
+    '-File',
+    `$ChildScriptPath,
+    '-ChildPidPath',
+    `$ChildPidPath
+  ) `
   -RedirectStandardOutput `$ChildStdoutPath `
   -RedirectStandardError `$ChildStderrPath `
   -PassThru
-`$childPidTempPath = `$ChildPidPath + '.tmp'
-[System.IO.File]::WriteAllText(
-  `$childPidTempPath,
-  [string]`$child.Id,
-  [System.Text.UTF8Encoding]::new(`$false))
-[System.IO.File]::Move(`$childPidTempPath, `$ChildPidPath)
 while (-not (Test-Path -LiteralPath `$ExitGatePath)) {
   Start-Sleep -Milliseconds 20
 }
@@ -399,6 +416,8 @@ $parent = Start-Process `
     '-NonInteractive',
     '-File',
     $parentScript,
+    '-ChildScriptPath',
+    $childScript,
     '-ChildPidPath',
     $childPidPath,
     '-ExitGatePath',
