@@ -208,24 +208,22 @@ namespace TiaAutomationFactory.TiaV21Worker
 
         private static QualificationStateKind ParseKind(string value)
         {
-            QualificationStateKind parsed;
-            if (!Enum.TryParse(value, false, out parsed) ||
-                !Enum.IsDefined(typeof(QualificationStateKind), parsed))
-            {
-                throw new QualificationStateException("Invalid kind.");
-            }
-            return parsed;
+            if (string.Equals(value, "InProgress", StringComparison.Ordinal))
+                return QualificationStateKind.InProgress;
+            if (string.Equals(value, "CompletedSuccess", StringComparison.Ordinal))
+                return QualificationStateKind.CompletedSuccess;
+            if (string.Equals(value, "StoredFalseSuccess", StringComparison.Ordinal))
+                return QualificationStateKind.StoredFalseSuccess;
+
+            throw new QualificationStateException("Invalid kind.");
         }
 
         private static QualificationRecipeVersion ParseRecipeVersion(string value)
         {
-            QualificationRecipeVersion parsed;
-            if (!Enum.TryParse(value, false, out parsed) ||
-                !Enum.IsDefined(typeof(QualificationRecipeVersion), parsed))
-            {
-                throw new QualificationStateException("Invalid recipeVersion.");
-            }
-            return parsed;
+            if (string.Equals(value, "TXN002", StringComparison.Ordinal))
+                return QualificationRecipeVersion.TXN002;
+
+            throw new QualificationStateException("Invalid recipeVersion.");
         }
 
         private static void ValidateStateConsistency(QualificationState state)
