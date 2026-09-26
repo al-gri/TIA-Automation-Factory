@@ -218,6 +218,49 @@ namespace SiemensBackend.Tests
         }
 
         [Fact]
+        public void Qualification_cli_boundary_redacts_unexpected_filesystem_exception()
+        {
+            const string sentinelPath = @"C:\Users\boundary-user\VendorSecret\manifest.json";
+            const string sentinelUser = "boundary-user";
+            const string sentinelVendor = "VendorSecret";
+            var stderr = new StringWriter();
+
+            int exitCode = QualificationPublicDiagnostics.ExecuteBoundary(
+                "cli-boundary",
+                delegate
+                {
+                    throw new IOException(
+                        "Cannot write " + sentinelPath + " for " + sentinelUser + " " + sentinelVendor);
+                },
+                stderr);
+
+            string publicError = stderr.ToString();
+            Assert.Equal(1, exitCode);
+            Assert.StartsWith(
+                "details:redacted phase:cli-boundary rawfp:",
+                publicError.Trim());
+            Assert.True(publicError.Trim().Length <= 80);
+            Assert.DoesNotContain(sentinelPath, publicError);
+            Assert.DoesNotContain(sentinelUser, publicError);
+            Assert.DoesNotContain(sentinelVendor, publicError);
+            Assert.DoesNotContain("Cannot write", publicError);
+        }
+
+        [Fact]
+        public void Qualification_cli_boundary_preserves_success_exit_code_without_stderr()
+        {
+            var stderr = new StringWriter();
+
+            int exitCode = QualificationPublicDiagnostics.ExecuteBoundary(
+                "cli-boundary",
+                delegate { return 7; },
+                stderr);
+
+            Assert.Equal(7, exitCode);
+            Assert.Equal(string.Empty, stderr.ToString());
+        }
+
+        [Fact]
         public void Public_diagnostics_reject_noncanonical_phase_tokens()
         {
             Assert.Throws<ArgumentException>(
