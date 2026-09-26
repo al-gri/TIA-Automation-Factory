@@ -378,7 +378,12 @@ param(
   -RedirectStandardOutput `$ChildStdoutPath `
   -RedirectStandardError `$ChildStderrPath `
   -PassThru
-[System.IO.File]::WriteAllText(`$ChildPidPath, [string]`$child.Id)
+`$childPidTempPath = `$ChildPidPath + '.tmp'
+[System.IO.File]::WriteAllText(
+  `$childPidTempPath,
+  [string]`$child.Id,
+  [System.Text.UTF8Encoding]::new(`$false))
+[System.IO.File]::Move(`$childPidTempPath, `$ChildPidPath)
 while (-not (Test-Path -LiteralPath `$ExitGatePath)) {
   Start-Sleep -Milliseconds 20
 }
