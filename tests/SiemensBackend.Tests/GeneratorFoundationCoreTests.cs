@@ -40,6 +40,32 @@ public sealed class GeneratorFoundationCoreTests
     }
 
     [Fact]
+    public void CanonicalIdentity_DelimiterLikeNames_DoNotAlias()
+    {
+        var device1 = new AutomationDevice(
+            "A",
+            new[]
+            {
+                new AutomationField("B|C", AutomationType.Bool)
+            });
+
+        var device2 = new AutomationDevice(
+            "A|B",
+            new[]
+            {
+                new AutomationField("C", AutomationType.Bool)
+            });
+
+        var ir1 = AutomationCompiler.Compile(device1);
+        var ir2 = AutomationCompiler.Compile(device2);
+
+        var identity1 = CanonicalInputIdentity.Compute(ir1);
+        var identity2 = CanonicalInputIdentity.Compute(ir2);
+
+        Assert.NotEqual(identity1, identity2);
+    }
+
+    [Fact]
     public void CanonicalIdentity_FieldOrderChange_ProducesDifferentHash()
     {
         var device1 = new AutomationDevice(
