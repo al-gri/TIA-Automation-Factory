@@ -28,11 +28,14 @@
     <ProjectReference Include="../../src/PlcCompiler/PlcCompiler.csproj" />
     <ProjectReference Include="../../src/SiemensBackend/SiemensBackend.csproj" />
     <Compile Include="../../src/TiaV21Worker/QualificationState.cs" Link="QualificationState.cs" />
+    <Compile Include="../../src/TiaV21Worker/QualificationPrerequisiteClassifier.cs" Link="QualificationPrerequisiteClassifier.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
     <Compile Remove="**/*.cs" />
     <Compile Include="QualificationStateTests.cs" />
+    <Compile Include="QualificationPrerequisiteClassifierTests.cs" />
     <Compile Include="../../src/TiaV21Worker/QualificationState.cs" Link="QualificationState.cs" />
+    <Compile Include="../../src/TiaV21Worker/QualificationPrerequisiteClassifier.cs" Link="QualificationPrerequisiteClassifier.cs" />
   </ItemGroup>
 </Project>

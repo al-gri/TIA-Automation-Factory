@@ -894,57 +894,37 @@ namespace TiaAutomationFactory.TiaV21Worker
         {
             try
             {
-                var tags = new List<string>();
+                string messageText = exception.MessageData.Text;
+                var detailTexts = new List<string>();
                 int detailCount = 0;
-                string messageDataFingerprint = null;
-                string detailDataAggregateFingerprint = null;
-
-                if (!string.IsNullOrEmpty(exception.MessageData.Text))
-                {
-                    string messageText = exception.MessageData.Text;
-                    messageDataFingerprint = ComputeSha256Truncated(messageText, 16);
-                    tags.AddRange(DeriveTagsFromText(messageText));
-                }
 
                 if (exception.DetailMessageData != null)
                 {
-                    var detailTexts = new List<string>();
                     detailCount = exception.DetailMessageData.Count;
                     foreach (var detail in exception.DetailMessageData)
                     {
                         if (!string.IsNullOrEmpty(detail.Text))
-                        {
                             detailTexts.Add(detail.Text);
-                            tags.AddRange(DeriveTagsFromText(detail.Text));
-                        }
-                    }
-                    if (detailTexts.Count > 0)
-                    {
-                        detailDataAggregateFingerprint = ComputeAggregateFingerprint(detailTexts, 16);
                     }
                 }
 
-                if (tags.Count == 0)
-                {
-                    tags.Add("unknown");
-                }
-                else
-                {
-                    tags.Sort();
-                    tags = tags.Distinct().ToList();
-                }
+                var tags = QualificationPrerequisiteClassifier.Classify(messageText, detailTexts);
+
+                string messageDataFingerprint = null;
+                if (!string.IsNullOrEmpty(messageText))
+                    messageDataFingerprint = ComputeSha256Truncated(messageText, 16);
+
+                string detailDataAggregateFingerprint = null;
+                if (detailTexts.Count > 0)
+                    detailDataAggregateFingerprint = ComputeAggregateFingerprint(detailTexts, 16);
 
                 var parts = new List<string>();
                 parts.Add("tags:" + string.Join(",", tags));
                 parts.Add("detail-count:" + detailCount);
                 if (messageDataFingerprint != null)
-                {
                     parts.Add("msgfp:" + messageDataFingerprint);
-                }
                 if (detailDataAggregateFingerprint != null)
-                {
                     parts.Add("dtlfp:" + detailDataAggregateFingerprint);
-                }
 
                 return string.Join(" ", parts);
             }
@@ -971,41 +951,6 @@ namespace TiaAutomationFactory.TiaV21Worker
                 string hex = BitConverter.ToString(sha256.Hash).Replace("-", "").ToLowerInvariant();
                 return hex.Substring(0, Math.Min(length, hex.Length));
             }
-        }
-
-        private static List<string> DeriveTagsFromText(string text)
-        {
-            var tags = new List<string>();
-            string lowerText = text.ToLowerInvariant();
-
-            if (ContainsAny(lowerText, "missing product", "product not found", "product missing"))
-                tags.Add("missing-product");
-            if (ContainsAny(lowerText, "unreleased content", "not released", "pre-release version"))
-                tags.Add("unreleased-content");
-            if (ContainsAny(lowerText, "unsupported version", "version not supported", "incompatible version"))
-                tags.Add("unsupported-version");
-            if (ContainsAny(lowerText, "invalid archive", "corrupt archive", "archive corrupt", "not a valid archive"))
-                tags.Add("invalid-archive");
-            if (ContainsAny(lowerText, "access denied", "permission denied", "unauthorized access", "no access"))
-                tags.Add("access-denied");
-            if (ContainsAny(lowerText, "user abort", "cancelled by user", "aborted by user"))
-                tags.Add("user-abort");
-            if (ContainsAny(lowerText, "target conflict", "conflict with target"))
-                tags.Add("target-conflict");
-            if (ContainsAny(lowerText, "license missing", "license not found", "no license"))
-                tags.Add("license-missing");
-
-            return tags;
-        }
-
-        private static bool ContainsAny(string text, params string[] phrases)
-        {
-            foreach (string phrase in phrases)
-            {
-                if (text.Contains(phrase))
-                    return true;
-            }
-            return false;
         }
 
         private static string ComputeSha256Truncated(string input, int length)
