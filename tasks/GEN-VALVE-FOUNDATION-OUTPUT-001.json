@@ -1,0 +1,75 @@
+{
+  "id": "GEN-VALVE-FOUNDATION-OUTPUT-001",
+  "title": "Add deterministic generator manifest, containment and additive CLI profile binding",
+  "goal": "After GEN-VALVE-FOUNDATION-CORE-001 is merged, complete the second small foundation slice for issue #62: use the reviewed canonical input identity to add deterministic artifact manifest/hash plumbing, path-aware output containment and strictly additive optional profile binding in GeneratorCli while preserving the existing two-argument Motor CLI. Do not bind any real Valve interface fact.",
+  "prerequisite": {
+    "task": "GEN-VALVE-FOUNDATION-CORE-001",
+    "rule": "Do not dispatch this task until the core task implementation is merged to trusted main with green post-merge CI."
+  },
+  "baselineEvidence": {
+    "parentTask": "GEN-VALVE-FOUNDATION-001",
+    "failedRun": "Autonomous Agent run 36250733507 (#27) failed before candidate publication twice because the original combined task exceeded bounded coder steps. This task intentionally excludes compiler identity and Siemens name-policy implementation, which belong to its prerequisite core task."
+  },
+  "contextFiles": [
+    "src/GeneratorCli/Program.cs",
+    "src/GeneratorCli/GeneratorCli.csproj",
+    "src/PlcCompiler/CanonicalInputIdentity.cs",
+    "src/SiemensBackend/SclDataTypeGenerator.cs",
+    "examples/motor.json"
+  ],
+  "scope": [
+    "Use the already-reviewed CanonicalInputIdentity from the prerequisite task; do not reimplement or alter its semantics.",
+    "Add deterministic manifest plumbing in GeneratorCli. In profile-enabled mode the manifest contains a stable generator identity, canonical parsed-model input identity, the externally supplied opaque profile identity, and every generated PLC/source artifact as a relative path plus lowercase SHA-256 of exact bytes. Do not list/hash the manifest itself.",
+    "Manifest bytes must be deterministic with stable property/artifact ordering and no timestamp, absolute input/output path, locale, machine/user identity or other environment-dependent field.",
+    "Add path-aware output-root containment for every artifact and manifest before write. Reject rooted/absolute relative paths, parent traversal and sibling-prefix escapes. Use a separator-aware or Path.GetRelativePath-style containment proof; simple string-prefix StartsWith and substring-only '..' checks are not sufficient.",
+    "Keep the existing two-argument `GeneratorCli <input.json> <output-directory>` Motor flow compatible and still producing UDT_Motor.scl without requiring a profile token. Add profile/manifest behavior strictly additively, for example as an optional third opaque profile-identity argument.",
+    "Profile identity is opaque external binding only. Validate only bounded/safe representation needed for deterministic manifest transport; do not infer or fabricate Siemens library metadata.",
+    "Keep malformed/omitted JSON type tokens and unsupported AutomationType enum tokens fail-closed. Add stable bounded CLI diagnostic identity for parse/type/profile/containment failures without moving vendor-specific policy into Domain/PlcCompiler.",
+    "Add focused Linux tests for manifest determinism and hashes, profile-token separation from input identity, output containment including sibling-prefix/absolute/traversal attacks, malformed/omitted/unsupported type input, and legacy two-argument Motor compatibility.",
+    "Do not add any fbValve_Solenoid call, parameter, dependency/version, instance/data ownership, DB/memory or target prerequisite fact."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate changes are limited exactly to candidatePolicy.allowedPaths and the prerequisite core identity/name-policy files are not modified.",
+      "Same parsed model plus same profile token produces byte-identical artifact bytes and manifest bytes across repeated Linux generation.",
+      "Changing only profile token changes manifest profile binding but does not change canonical parsed-model input identity.",
+      "Manifest contains stable generator/input/profile identities plus relative artifact path and lowercase SHA-256 for every generated PLC/source artifact, and does not include/hash itself.",
+      "Manifest/public output contains no timestamps, absolute input/output paths, locale, machine/user identity or environment-specific data.",
+      "Every output write is proven contained beneath output root before write; absolute, traversal and sibling-prefix escapes fail closed with stable diagnostics and write nothing outside root.",
+      "Existing two-argument Motor CLI remains supported without requiring a profile token and still produces UDT_Motor.scl.",
+      "Malformed/omitted required type tokens and unsupported enum tokens fail rather than defaulting semantics.",
+      "Focused Linux tests cover determinism, profile/input separation, hashes, containment attacks, input parse/type failures and legacy Motor CLI.",
+      "No unqualified Valve contract fact is asserted.",
+      "No Windows/TIA candidate execution occurs."
+    ],
+    "tia": []
+  },
+  "review": {
+    "riskClass": "MEDIUM",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "src/GeneratorCli/Program.cs",
+      "src/GeneratorCli/GeneratorManifest.cs",
+      "src/GeneratorCli/OutputContainment.cs",
+      "tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj",
+      "tests/SiemensBackend.Tests/GeneratorFoundationOutputTests.cs"
+    ],
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 62
+}
