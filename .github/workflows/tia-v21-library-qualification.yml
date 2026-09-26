@@ -293,6 +293,16 @@ jobs:
             param($Manifest)
 
             $evidence.status = 'FAIL'
+            $evidence.tiaBuildIdentity = $null
+            $evidence.qualificationIdentity = $null
+            $evidence.qualifiedArchiveName = $null
+            $evidence.qualifiedArchiveSha256 = $null
+            $evidence.run1IsReuse = $null
+            $evidence.run1NativeReopenSuccess = $null
+            $evidence.run2IsReuse = $null
+            $evidence.run2NativeReopenSuccess = $null
+            $evidence.originalProvenanceRunId = $null
+            $evidence.originalCompletedAtUtc = $null
             $evidence.deterministicSecondRun = $false
 
             $tiaBuildIdentity = Get-ManifestString $Manifest 'tiaBuildIdentity'
@@ -312,6 +322,8 @@ jobs:
             param($Manifest)
 
             $evidence.status = 'FAIL'
+            $evidence.run2IsReuse = $null
+            $evidence.run2NativeReopenSuccess = $null
             $evidence.deterministicSecondRun = $false
             $evidence.failure = Get-PublicWorkerFailureToken $Manifest
           }
