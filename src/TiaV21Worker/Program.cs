@@ -6,7 +6,6 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Siemens.Engineering;
 using Siemens.Engineering.Compiler;
 using Siemens.Engineering.HW;
@@ -389,16 +388,18 @@ namespace TiaAutomationFactory.TiaV21Worker
             string sourceBasename = Path.GetFileName(sourceArchivePath);
             string sourceSha256 = ComputeSha256(sourceArchivePath);
             string tiaBuildIdentity = GetTiaBuildIdentity();
+            string recipeIdentity = QualificationState.CurrentRecipeIdentity;
 
-            string qualificationIdentity = DeriveQualificationIdentity(sourceSha256, tiaBuildIdentity);
+            string qualificationIdentity = DeriveQualificationIdentity(
+                sourceSha256,
+                tiaBuildIdentity,
+                recipeIdentity);
             string qualifiedArchiveName = qualificationIdentity + ".zal21";
             string qualifiedArchivePath = Path.Combine(qualificationOutputRoot, qualifiedArchiveName);
 
-            var stateStore = new QualificationStateStore(qualificationOutputRoot, qualificationIdentity);
-            string attemptId = Guid.NewGuid().ToString("N")[..12];
-
-            var inProgressState = QualificationState.CreateInProgress(qualificationIdentity, sourceSha256, tiaBuildIdentity);
-            stateStore.WriteStaging(attemptId, inProgressState);
+            var stateStore = new QualificationStateStore(
+                qualificationOutputRoot,
+                qualificationIdentity);
 
             var manifest = new QualificationResult
             {
@@ -406,70 +407,110 @@ namespace TiaAutomationFactory.TiaV21Worker
                 SourceArchiveSha256 = sourceSha256,
                 TiaBuildIdentity = tiaBuildIdentity,
                 QualificationIdentity = qualificationIdentity,
+                QualificationRecipeIdentity = recipeIdentity,
                 QualifiedArchiveName = qualifiedArchiveName,
+                IsReuse = false,
+                NativeReopenSuccess = false,
                 Success = false
             };
 
-            if (stateStore.TryLoadCompleted(out var existingCompleted))
+            QualificationState existingCompleted;
+            if (stateStore.TryLoadCompleted(out existingCompleted))
             {
-                string existingArchiveSha256 = ComputeSha256(qualifiedArchivePath);
-                if (existingCompleted.QualificationIdentity == qualificationIdentity &&
-                    existingCompleted.SourceArchiveSha256 == sourceSha256 &&
-                    existingCompleted.TiaBuildIdentity == tiaBuildIdentity &&
-                    existingCompleted.QualifiedArchiveSha256 == existingArchiveSha256)
+                if (!File.Exists(qualifiedArchivePath))
                 {
-                    string provenanceRunId = existingCompleted.OriginalProvenanceRunId;
-                    string completedAtUtc = existingCompleted.OriginalCompletedAtUtc;
-
-                    var reuseState = QualificationState.CreateCompletedSuccess(
-                        qualificationIdentity, sourceSha256, tiaBuildIdentity, existingArchiveSha256,
-                        provenanceRunId, completedAtUtc, true, false);
-                    stateStore.WriteStaging(attemptId, reuseState);
-
-                    if (stateStore.TryPromoteStagingToCompleted(attemptId, out string promoteError))
-                    {
-                        manifest.Success = true;
-                        manifest.QualifiedArchiveSha256 = existingArchiveSha256;
-                        manifest.NativeReopenSuccess = false;
-                        manifest.IsReuse = true;
-                        manifest.OriginalProvenanceRunId = provenanceRunId;
-                        manifest.OriginalCompletedAtUtc = completedAtUtc;
-                        manifest.NativeReopenDetails = "Reuse of existing qualified archive; no fresh migration or reopen performed.";
-                        stateStore.CleanupStaging(attemptId);
-                        return manifest;
-                    }
-                    else
-                    {
-                        stateStore.QuarantineStaging(attemptId, promoteError);
-                        manifest.Failure = "phase:state-promotion type:InvalidOperationException hresult:0x80131509";
-                        manifest.FailureDetails = "Failed to promote reuse state: " + promoteError;
-                        return manifest;
-                    }
+                    manifest.Failure = "phase:reuse-validation type:FileNotFoundException hresult:0x80070002";
+                    manifest.FailureDetails = "Verified completed state exists but its qualified archive is unavailable.";
+                    return manifest;
                 }
 
-                manifest.Failure = "Qualification identity conflict: archive exists with different hash or manifest mismatch.";
-                manifest.FailureDetails = "Existing qualified archive at " + qualifiedArchivePath + " has SHA256 " + existingArchiveSha256 + " but current qualification requires identity " + qualificationIdentity + ".";
-                stateStore.CleanupStaging(attemptId);
+                string existingArchiveSha256 = ComputeSha256(qualifiedArchivePath);
+                if (!QualificationStateStore.MatchesReuseIdentity(
+                    existingCompleted,
+                    qualificationIdentity,
+                    sourceSha256,
+                    tiaBuildIdentity,
+                    recipeIdentity,
+                    existingArchiveSha256))
+                {
+                    manifest.Failure = "phase:reuse-validation type:InvalidOperationException hresult:0x80131509";
+                    manifest.FailureDetails = "Verified completed evidence does not match the current TXN-002 identity.";
+                    return manifest;
+                }
+
+                manifest.Success = true;
+                manifest.IsReuse = true;
+                manifest.NativeReopenSuccess = false;
+                manifest.QualifiedArchiveSha256 = existingArchiveSha256;
+                manifest.OriginalProvenanceRunId = existingCompleted.OriginalProvenanceRunId;
+                manifest.OriginalCompletedAtUtc = existingCompleted.OriginalCompletedAtUtc;
+                manifest.NativeReopenDetails = "Reuse of immutable verified completed evidence; no fresh migration or reopen performed.";
                 return manifest;
             }
 
-            string retrieveWorkPath = Path.Combine(workRoot, "retrieve_" + qualificationIdentity);
+            string preflightId = Guid.NewGuid().ToString("N").Substring(0, 12);
+            if (stateStore.CompletedManifestExists())
+            {
+                string recoveryError;
+                if (!stateStore.TryQuarantineInvalidCompleted(preflightId, out recoveryError))
+                {
+                    manifest.Failure = "phase:state-recovery type:InvalidOperationException hresult:0x80131509";
+                    manifest.FailureDetails = recoveryError;
+                    return manifest;
+                }
+            }
+
+            if (File.Exists(qualifiedArchivePath))
+            {
+                string orphanError;
+                if (!stateStore.TryQuarantineOrphanFile(
+                    qualifiedArchivePath,
+                    preflightId,
+                    out orphanError))
+                {
+                    manifest.Failure = "phase:archive-recovery type:InvalidOperationException hresult:0x80131509";
+                    manifest.FailureDetails = orphanError;
+                    return manifest;
+                }
+            }
+
+            string attemptId = Guid.NewGuid().ToString("N").Substring(0, 12);
+            string attemptRoot = Path.Combine(
+                qualificationOutputRoot,
+                ".attempts",
+                qualificationIdentity + "." + attemptId);
+            string archiveStagingRoot = Path.Combine(attemptRoot, "archive");
+            string stagedArchivePath = Path.Combine(archiveStagingRoot, qualifiedArchiveName);
+            string retrieveWorkPath = Path.Combine(workRoot, "retrieve_" + qualificationIdentity + "_" + attemptId);
+            string verifyWorkPath = Path.Combine(workRoot, "verify_" + qualificationIdentity + "_" + attemptId);
+
+            Directory.CreateDirectory(archiveStagingRoot);
             Directory.CreateDirectory(retrieveWorkPath);
+            Directory.CreateDirectory(verifyWorkPath);
+
+            stateStore.WriteStaging(
+                attemptId,
+                QualificationState.CreateInProgress(
+                    qualificationIdentity,
+                    sourceSha256,
+                    tiaBuildIdentity));
 
             var whitelistResult = WhitelistManager.SynchronizeWhitelist();
             if (!whitelistResult.Success)
             {
-                stateStore.CleanupStaging(attemptId);
-                if (whitelistResult.BootstrapRequired)
-                {
-                    manifest.Success = false;
-                    manifest.Failure = "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005";
-                    manifest.FailureDetails = whitelistResult.Message;
-                    return manifest;
-                }
-                manifest.Success = false;
-                manifest.Failure = "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
+                manifest.Failure = whitelistResult.BootstrapRequired
+                    ? "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005"
+                    : "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
                 manifest.FailureDetails = whitelistResult.Message ?? "Whitelist synchronization failed.";
+                RecordFailedAttempt(
+                    stateStore,
+                    attemptId,
+                    qualificationIdentity,
+                    sourceSha256,
+                    tiaBuildIdentity,
+                    manifest.Failure,
+                    "Whitelist prerequisite failed.");
+                TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
 
@@ -498,29 +539,32 @@ namespace TiaAutomationFactory.TiaV21Worker
                 {
                     if (userGlobalLibrary == null)
                     {
-                        manifest.Failure = FormatFailure(QualificationPhase.RetrieveWithUpgrade, new InvalidOperationException("RetrieveWithUpgrade returned null"));
-                        manifest.FailureDetails = "Source: " + sourceBasename + ", SHA256: " + sourceSha256;
-                        var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
-                        stateStore.WriteStaging(attemptId, falseState);
-                        stateStore.QuarantineStaging(attemptId, "RetrieveWithUpgrade returned null");
-                        return manifest;
+                        retrieveWithUpgradeException =
+                            new InvalidOperationException("RetrieveWithUpgrade returned null");
                     }
-
-                    try
+                    else
                     {
-                        userGlobalLibrary.Save();
-                    }
-                    catch (Exception ex)
-                    {
-                        saveException = ex;
+                        try
+                        {
+                            userGlobalLibrary.Save();
+                        }
+                        catch (Exception ex)
+                        {
+                            saveException = ex;
+                        }
                     }
                 }
 
-                if (retrieveWithUpgradeException == null && userGlobalLibrary != null && saveException == null)
+                if (retrieveWithUpgradeException == null &&
+                    userGlobalLibrary != null &&
+                    saveException == null)
                 {
                     try
                     {
-                        userGlobalLibrary.Archive(new DirectoryInfo(qualificationOutputRoot), qualifiedArchiveName, LibraryArchivationMode.Compressed);
+                        userGlobalLibrary.Archive(
+                            new DirectoryInfo(archiveStagingRoot),
+                            qualifiedArchiveName,
+                            LibraryArchivationMode.Compressed);
                     }
                     catch (Exception ex)
                     {
@@ -531,9 +575,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 try
                 {
                     if (userGlobalLibrary != null)
-                    {
                         userGlobalLibrary.Close();
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -545,11 +587,10 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 manifest.Failure = FormatFailure(QualificationPhase.RetrieveWithUpgrade, retrieveWithUpgradeException);
                 manifest.FailureDetails = retrieveWithUpgradeException.ToString();
-                if (upgradeCloseException != null)
-                    manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
-                var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
-                stateStore.WriteStaging(attemptId, falseState);
-                stateStore.QuarantineStaging(attemptId, "RetrieveWithUpgrade failed");
+                RecordFailedAttempt(
+                    stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
+                    manifest.Failure, "RetrieveWithUpgrade failed.");
+                TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
 
@@ -557,11 +598,10 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 manifest.Failure = FormatFailure(QualificationPhase.Save, saveException);
                 manifest.FailureDetails = saveException.ToString();
-                if (upgradeCloseException != null)
-                    manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
-                var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
-                stateStore.WriteStaging(attemptId, falseState);
-                stateStore.QuarantineStaging(attemptId, "Save failed");
+                RecordFailedAttempt(
+                    stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
+                    manifest.Failure, "Save failed.");
+                TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
 
@@ -569,11 +609,10 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 manifest.Failure = FormatFailure(QualificationPhase.Archive, archiveException);
                 manifest.FailureDetails = archiveException.ToString();
-                if (upgradeCloseException != null)
-                    manifest.FailureDetails += Environment.NewLine + "Close failure: " + upgradeCloseException;
-                var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
-                stateStore.WriteStaging(attemptId, falseState);
-                stateStore.QuarantineStaging(attemptId, "Archive failed");
+                RecordFailedAttempt(
+                    stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
+                    manifest.Failure, "Archive failed.");
+                TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
 
@@ -581,32 +620,43 @@ namespace TiaAutomationFactory.TiaV21Worker
             {
                 manifest.Failure = FormatFailure(QualificationPhase.UpgradeClose, upgradeCloseException);
                 manifest.FailureDetails = upgradeCloseException.ToString();
-                var falseState = QualificationState.CreateStoredFalseSuccess(qualificationIdentity, sourceSha256, tiaBuildIdentity, manifest.Failure, manifest.FailureDetails);
-                stateStore.WriteStaging(attemptId, falseState);
-                stateStore.QuarantineStaging(attemptId, "UpgradeClose failed");
+                RecordFailedAttempt(
+                    stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
+                    manifest.Failure, "Upgrade close failed.");
+                TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
 
-            string qualifiedArchiveSha256 = ComputeSha256(qualifiedArchivePath);
-            manifest.QualifiedArchiveSha256 = qualifiedArchiveSha256;
+            if (!File.Exists(stagedArchivePath))
+            {
+                manifest.Failure = "phase:archive type:FileNotFoundException hresult:0x80070002";
+                manifest.FailureDetails = "Archive operation completed without the expected staged archive.";
+                RecordFailedAttempt(
+                    stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
+                    manifest.Failure, "Expected staged archive was missing.");
+                TryDeleteAttemptDirectory(attemptRoot);
+                return manifest;
+            }
 
-            string verifyWorkPath = Path.Combine(workRoot, "verify_" + qualificationIdentity);
-            Directory.CreateDirectory(verifyWorkPath);
+            string qualifiedArchiveSha256 = ComputeSha256(stagedArchivePath);
+            manifest.QualifiedArchiveSha256 = qualifiedArchiveSha256;
 
             var whitelistResult2 = WhitelistManager.SynchronizeWhitelist();
             if (!whitelistResult2.Success)
             {
-                stateStore.CleanupStaging(attemptId);
-                if (whitelistResult2.BootstrapRequired)
-                {
-                    manifest.Success = false;
-                    manifest.Failure = "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005";
-                    manifest.FailureDetails = whitelistResult2.Message;
-                    return manifest;
-                }
-                manifest.Success = false;
-                manifest.Failure = "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
+                manifest.Failure = whitelistResult2.BootstrapRequired
+                    ? "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005"
+                    : "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
                 manifest.FailureDetails = whitelistResult2.Message ?? "Whitelist synchronization failed.";
+                RecordFailedAttempt(
+                    stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
+                    manifest.Failure, "Verification whitelist prerequisite failed.");
+                string quarantineError;
+                stateStore.TryQuarantineOrphanFile(
+                    stagedArchivePath,
+                    attemptId + ".verification-prerequisite",
+                    out quarantineError);
+                TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
 
@@ -622,7 +672,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 try
                 {
                     verifiedLibrary = portal.GlobalLibraries.Retrieve(
-                        new FileInfo(qualifiedArchivePath),
+                        new FileInfo(stagedArchivePath),
                         new DirectoryInfo(verifyWorkPath),
                         OpenMode.ReadWrite);
                 }
@@ -631,26 +681,20 @@ namespace TiaAutomationFactory.TiaV21Worker
                     verifyOperationException = ex;
                 }
 
-                if (verifyOperationException == null)
+                if (verifyOperationException == null && verifiedLibrary != null)
                 {
-                    if (verifiedLibrary == null)
-                    {
-                        nativeReopenSuccess = false;
-                        nativeReopenDetails = "Current-version Retrieve returned null; produced archive is not a valid native V21 library.";
-                    }
-                    else
-                    {
-                        nativeReopenSuccess = true;
-                        nativeReopenDetails = "Successfully reopened with current-version GlobalLibraries.Retrieve.";
-                    }
+                    nativeReopenSuccess = true;
+                    nativeReopenDetails = "Successfully reopened staged archive with current-version GlobalLibraries.Retrieve.";
+                }
+                else if (verifyOperationException == null)
+                {
+                    nativeReopenDetails = "Current-version Retrieve returned null; staged archive is not a valid native V21 library.";
                 }
 
                 try
                 {
                     if (verifiedLibrary != null)
-                    {
                         verifiedLibrary.Close();
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -658,37 +702,143 @@ namespace TiaAutomationFactory.TiaV21Worker
                 }
             }
 
-            if (verifyOperationException != null)
+            if (verifyOperationException != null || verifyCloseException != null || !nativeReopenSuccess)
             {
-                manifest.Failure = FormatFailure(QualificationPhase.NativeRetrieve, verifyOperationException);
-                manifest.FailureDetails = verifyOperationException.ToString();
-                if (verifyCloseException != null)
-                    manifest.FailureDetails += Environment.NewLine + "Close failure: " + verifyCloseException;
+                Exception failureException = verifyOperationException ??
+                    verifyCloseException ??
+                    new InvalidOperationException(nativeReopenDetails);
+                QualificationPhase failurePhase = verifyOperationException != null || !nativeReopenSuccess
+                    ? QualificationPhase.NativeRetrieve
+                    : QualificationPhase.NativeClose;
+                manifest.Failure = FormatFailure(failurePhase, failureException);
+                manifest.FailureDetails = failureException.ToString();
+                RecordFailedAttempt(
+                    stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
+                    manifest.Failure, "Native V21 verification failed.");
+                string quarantineError;
+                stateStore.TryQuarantineOrphanFile(
+                    stagedArchivePath,
+                    attemptId + ".verification-failed",
+                    out quarantineError);
+                TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
 
-            if (verifyCloseException != null)
+            string provenanceRunId = QualificationStateStore.GenerateProvenanceRunId();
+            string completedAtUtc = QualificationStateStore.GetCurrentUtcTimestamp();
+            var completedState = QualificationState.CreateCompletedSuccess(
+                qualificationIdentity,
+                sourceSha256,
+                tiaBuildIdentity,
+                qualifiedArchiveSha256,
+                provenanceRunId,
+                completedAtUtc);
+            stateStore.WriteStaging(attemptId, completedState);
+
+            if (File.Exists(qualifiedArchivePath))
             {
-                manifest.Failure = FormatFailure(QualificationPhase.NativeClose, verifyCloseException);
-                manifest.FailureDetails = verifyCloseException.ToString();
+                QualificationState concurrentCompleted;
+                if (stateStore.TryLoadCompleted(out concurrentCompleted))
+                {
+                    manifest.Failure = "phase:publication type:IOException hresult:0x80131620";
+                    manifest.FailureDetails = "Completed evidence appeared concurrently; current attempt did not overwrite it.";
+                    stateStore.QuarantineStaging(attemptId, "concurrent-completed");
+                    TryDeleteAttemptDirectory(attemptRoot);
+                    return manifest;
+                }
+
+                string quarantineError;
+                if (!stateStore.TryQuarantineOrphanFile(
+                    qualifiedArchivePath,
+                    attemptId + ".publish-conflict",
+                    out quarantineError))
+                {
+                    manifest.Failure = "phase:publication type:IOException hresult:0x80131620";
+                    manifest.FailureDetails = quarantineError;
+                    stateStore.QuarantineStaging(attemptId, "archive-conflict");
+                    TryDeleteAttemptDirectory(attemptRoot);
+                    return manifest;
+                }
+            }
+
+            try
+            {
+                File.Move(stagedArchivePath, qualifiedArchivePath);
+            }
+            catch (Exception ex)
+            {
+                manifest.Failure = "phase:publication type:" + ex.GetType().Name +
+                    " hresult:0x" + ex.HResult.ToString("X8");
+                manifest.FailureDetails = "Verified archive could not be published without overwrite.";
+                stateStore.QuarantineStaging(attemptId, "archive-publication");
+                TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
 
-            manifest.NativeReopenSuccess = nativeReopenSuccess;
-            manifest.NativeReopenDetails = nativeReopenDetails;
-
-            if (!nativeReopenSuccess)
+            string promoteError;
+            if (!stateStore.TryPromoteStagingToCompleted(attemptId, out promoteError))
             {
-                manifest.Failure = FormatFailure(QualificationPhase.NativeRetrieve, new InvalidOperationException(nativeReopenDetails));
+                string quarantineError;
+                stateStore.TryQuarantineOrphanFile(
+                    qualifiedArchivePath,
+                    attemptId + ".manifest-publication",
+                    out quarantineError);
+                stateStore.QuarantineStaging(attemptId, "manifest-publication");
+                manifest.Failure = "phase:state-publication type:InvalidOperationException hresult:0x80131509";
+                manifest.FailureDetails = promoteError;
+                TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
+
+            TryDeleteAttemptDirectory(attemptRoot);
 
             manifest.Success = true;
-
-            string manifestPath = Path.ChangeExtension(qualifiedArchivePath, ".manifest.json");
-            File.WriteAllText(manifestPath, QualificationJson.Serialize(manifest), new UTF8Encoding(false));
-
+            manifest.IsReuse = false;
+            manifest.NativeReopenSuccess = true;
+            manifest.NativeReopenDetails = nativeReopenDetails;
+            manifest.QualifiedArchiveSha256 = qualifiedArchiveSha256;
+            manifest.OriginalProvenanceRunId = provenanceRunId;
+            manifest.OriginalCompletedAtUtc = completedAtUtc;
             return manifest;
+        }
+
+        private static void RecordFailedAttempt(
+            QualificationStateStore stateStore,
+            string attemptId,
+            string qualificationIdentity,
+            string sourceSha256,
+            string tiaBuildIdentity,
+            string failure,
+            string boundedFailureDetails)
+        {
+            try
+            {
+                stateStore.WriteStaging(
+                    attemptId,
+                    QualificationState.CreateStoredFalseSuccess(
+                        qualificationIdentity,
+                        sourceSha256,
+                        tiaBuildIdentity,
+                        failure,
+                        boundedFailureDetails));
+                stateStore.QuarantineStaging(attemptId, "failed");
+            }
+            catch
+            {
+                try { stateStore.CleanupStaging(attemptId); } catch { }
+            }
+        }
+
+        private static void TryDeleteAttemptDirectory(string attemptRoot)
+        {
+            try
+            {
+                if (Directory.Exists(attemptRoot))
+                    Directory.Delete(attemptRoot, true);
+            }
+            catch
+            {
+            }
         }
 
         private static string FormatFailure(QualificationPhase phase, Exception exception)
@@ -877,9 +1027,12 @@ namespace TiaAutomationFactory.TiaV21Worker
             return "Siemens.Engineering v" + name.Version + " (file: " + fileVersion.FileVersion + ")";
         }
 
-        private static string DeriveQualificationIdentity(string sourceSha256, string tiaBuildIdentity)
+        private static string DeriveQualificationIdentity(
+            string sourceSha256,
+            string tiaBuildIdentity,
+            string recipeIdentity)
         {
-            string combined = sourceSha256 + "|" + tiaBuildIdentity;
+            string combined = sourceSha256 + "|" + tiaBuildIdentity + "|" + recipeIdentity;
             using (var sha256 = SHA256.Create())
             {
                 byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(combined));
@@ -895,10 +1048,14 @@ namespace TiaAutomationFactory.TiaV21Worker
         public string SourceArchiveSha256 { get; set; }
         public string TiaBuildIdentity { get; set; }
         public string QualificationIdentity { get; set; }
+        public string QualificationRecipeIdentity { get; set; }
         public string QualifiedArchiveName { get; set; }
         public string QualifiedArchiveSha256 { get; set; }
         public bool NativeReopenSuccess { get; set; }
         public string NativeReopenDetails { get; set; }
+        public bool IsReuse { get; set; }
+        public string OriginalProvenanceRunId { get; set; }
+        public string OriginalCompletedAtUtc { get; set; }
         public string Failure { get; set; }
         public string FailureDetails { get; set; }
 
@@ -914,6 +1071,8 @@ namespace TiaAutomationFactory.TiaV21Worker
                 SourceArchiveBasename = sourceBasename,
                 SourceArchiveSha256 = sourceSha256,
                 TiaBuildIdentity = GetTiaBuildIdentityStatic(),
+                QualificationRecipeIdentity = QualificationState.CurrentRecipeIdentity,
+                IsReuse = false,
                 Failure = FormatTopLevelFailure(exception),
                 FailureDetails = exception.ToString()
             };
@@ -956,10 +1115,14 @@ namespace TiaAutomationFactory.TiaV21Worker
             AppendProperty(builder, "sourceArchiveSha256", result.SourceArchiveSha256, true, true);
             AppendProperty(builder, "tiaBuildIdentity", result.TiaBuildIdentity, true, true);
             AppendProperty(builder, "qualificationIdentity", result.QualificationIdentity, true, true);
+            AppendProperty(builder, "qualificationRecipeIdentity", result.QualificationRecipeIdentity, true, true);
             AppendProperty(builder, "qualifiedArchiveName", result.QualifiedArchiveName, true, true);
             AppendProperty(builder, "qualifiedArchiveSha256", result.QualifiedArchiveSha256, true, true);
             AppendProperty(builder, "nativeReopenSuccess", result.NativeReopenSuccess ? "true" : "false", false, true);
             AppendProperty(builder, "nativeReopenDetails", result.NativeReopenDetails, true, true);
+            AppendProperty(builder, "isReuse", result.IsReuse ? "true" : "false", false, true);
+            AppendProperty(builder, "originalProvenanceRunId", result.OriginalProvenanceRunId, true, true);
+            AppendProperty(builder, "originalCompletedAtUtc", result.OriginalCompletedAtUtc, true, true);
             AppendProperty(builder, "failure", result.Failure, true, true);
             AppendProperty(builder, "failureDetails", result.FailureDetails, true, false);
             builder.AppendLine("}");
@@ -983,6 +1146,8 @@ namespace TiaAutomationFactory.TiaV21Worker
                     result.TiaBuildIdentity = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"qualificationIdentity\":"))
                     result.QualificationIdentity = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"qualificationRecipeIdentity\":"))
+                    result.QualificationRecipeIdentity = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"qualifiedArchiveName\":"))
                     result.QualifiedArchiveName = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"qualifiedArchiveSha256\":"))
@@ -991,6 +1156,12 @@ namespace TiaAutomationFactory.TiaV21Worker
                     result.NativeReopenSuccess = trimmed.Contains("true");
                 else if (trimmed.StartsWith("\"nativeReopenDetails\":"))
                     result.NativeReopenDetails = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"isReuse\":"))
+                    result.IsReuse = trimmed.Contains("true");
+                else if (trimmed.StartsWith("\"originalProvenanceRunId\":"))
+                    result.OriginalProvenanceRunId = ExtractValue(trimmed);
+                else if (trimmed.StartsWith("\"originalCompletedAtUtc\":"))
+                    result.OriginalCompletedAtUtc = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"failure\":"))
                     result.Failure = ExtractValue(trimmed);
                 else if (trimmed.StartsWith("\"failureDetails\":"))
