@@ -145,8 +145,6 @@ foreach ($case in @($cases)) {
   $result = Test-QualificationPair `
     -Run1 $case.run1 `
     -Run2 $case.run2 `
-    -Run1ExitCode ([int]$case.run1ExitCode) `
-    -Run2ExitCode ([int]$case.run2ExitCode) `
     -ExpectedSourceArchiveSha256 ([string]$case.expectedSourceArchiveSha256)
 
   $results += [pscustomobject]@{
@@ -176,16 +174,12 @@ class TiaV21LibraryQualificationWorkflowTests(unittest.TestCase):
         run1: dict[str, object],
         run2: dict[str, object],
         *,
-        run1_exit: int = 0,
-        run2_exit: int = 0,
         expected_source: str = EXPECTED_SOURCE_SHA256,
     ) -> dict[str, object]:
         return {
             "name": name,
             "run1": run1,
             "run2": run2,
-            "run1ExitCode": run1_exit,
-            "run2ExitCode": run2_exit,
             "expectedSourceArchiveSha256": expected_source,
         }
 
@@ -209,7 +203,7 @@ class TiaV21LibraryQualificationWorkflowTests(unittest.TestCase):
         self.assertTrue(results["reuse-reuse"]["isValid"], results)
 
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
-    def test_production_pair_gate_rejects_old_mode_exit_and_success_claims(self) -> None:
+    def test_production_pair_gate_rejects_old_mode_and_success_claims(self) -> None:
         fresh = manifest(is_reuse=False, native_reopen=True)
         reuse = manifest(is_reuse=True, native_reopen=False)
 
@@ -224,14 +218,170 @@ class TiaV21LibraryQualificationWorkflowTests(unittest.TestCase):
 
         cases = [
             self.case("old-run2-fresh-reopen", fresh, old_gate),
-            self.case("run1-exit", fresh, reuse, run1_exit=7),
-            self.case("run2-exit", fresh, reuse, run2_exit=8),
             self.case("run1-success", run1_failed, reuse),
             self.case("run2-success", fresh, run2_failed),
         ]
         results = run_production_pair_cases(cases)
         for name in (case["name"] for case in cases):
             self.assertFalse(results[str(name)]["isValid"], (name, results))
+
+    def test_nonzero_run1_short_circuits_before_run2_and_nonzero_run2_is_projected(self) -> None:
+        script = qualification_script()
+        run1_exit = script.index("if ($evidence.run1ExitCode -ne 0)")
+        run2_start = script.index("$run2Process = Invoke-Qualification")
+        run2_exit = script.index("if ($evidence.run2ExitCode -ne 0)")
+        pair_gate = script.index("$pair = Test-QualificationPair")
+
+        self.assertLess(run1_exit, run2_start)
+        self.assertLess(run2_exit, pair_gate)
+
+        run1_branch = script[run1_exit:run2_start]
+        self.assertIn("Set-Run1FailureEvidence -Manifest $run1", run1_branch)
+        self.assertIn("throw 'Qualification worker run1 returned a nonzero exit code.'", run1_branch)
+
+        run2_branch = script[run2_exit:pair_gate]
+        self.assertIn("Set-Run2FailureEvidence -Manifest $run2", run2_branch)
+        self.assertIn("throw 'Qualification worker run2 returned a nonzero exit code.'", run2_branch)
+
+        self.assertLess(
+            script.index("Project-ValidatedRun1Evidence -Run1 $run1"),
+            run2_start,
+        )
+
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_worker_failure_projection_accepts_only_bounded_allowlisted_tokens(self) -> None:
+        script = harness_functions() + r'''
+$evidence = [ordered]@{
+  status = 'BLOCKED'
+  tiaBuildIdentity = $null
+  qualificationIdentity = $null
+  deterministicSecondRun = $true
+  failure = $null
+}
+$safeToken = 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:5fd3443943908efc'
+$safeManifest = [pscustomobject]@{
+  failure = $safeToken
+  failureDetails = 'C:\Users\sentinel-user\VendorSecret arbitrary vendor text'
+  tiaBuildIdentity = 'Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)'
+  qualificationIdentity = 'olq-c6c75a368b16bbf34a367cb843ba5e55'
+}
+Set-Run1FailureEvidence -Manifest $safeManifest
+$safeResult = [pscustomobject]@{
+  tokenAccepted = [bool](Test-SafeWorkerFailureToken $safeToken)
+  failure = [string]$evidence.failure
+  tiaBuildIdentity = [string]$evidence.tiaBuildIdentity
+  qualificationIdentity = [string]$evidence.qualificationIdentity
+  deterministicSecondRun = [bool]$evidence.deterministicSecondRun
+}
+
+$evidence.failure = $null
+$unsafeToken = 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 path:C:\Users\sentinel-user\VendorSecret'
+$unsafeManifest = [pscustomobject]@{
+  failure = $unsafeToken
+  failureDetails = 'VendorSecret sentinel-user'
+  tiaBuildIdentity = 'C:\Users\sentinel-user\Siemens.Engineering v21.0.0.0'
+  qualificationIdentity = 'DOMAIN\sentinel-user'
+}
+Set-Run1FailureEvidence -Manifest $unsafeManifest
+$unsafeResult = [pscustomobject]@{
+  tokenAccepted = [bool](Test-SafeWorkerFailureToken $unsafeToken)
+  failure = [string]$evidence.failure
+  tiaBuildIdentity = $evidence.tiaBuildIdentity
+  qualificationIdentity = $evidence.qualificationIdentity
+}
+
+$grammar = [pscustomobject]@{
+  unknownTag = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620 tags:not-allowlisted')
+  lowercaseHresult = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x8013162a')
+  unknownPhase = [bool](Test-SafeWorkerFailureToken 'phase:made-up type:IOException hresult:0x80131620')
+  detailWithoutTags = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620 detail-count:1')
+  fingerprintWithoutTags = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620 msgfp:eefb8fcdb933339b')
+  tagsOnly = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620 tags:unknown')
+  baseToken = [bool](Test-SafeWorkerFailureToken 'phase:save type:IOException hresult:0x80131620')
+}
+
+[pscustomobject]@{
+  safe = $safeResult
+  unsafe = $unsafeResult
+  grammar = $grammar
+} | ConvertTo-Json -Depth 8 -Compress
+'''
+        completed = run_pwsh(script)
+        self.assertEqual(0, completed.returncode, completed.stdout)
+        result = json.loads(completed.stdout.strip())
+
+        self.assertTrue(result["safe"]["tokenAccepted"], result)
+        self.assertEqual(
+            "phase:retrieve-with-upgrade type:EngineeringTargetInvocationException "
+            "hresult:0x80131500 tags:unknown detail-count:3 "
+            "msgfp:eefb8fcdb933339b dtlfp:5fd3443943908efc",
+            result["safe"]["failure"],
+        )
+        self.assertEqual(EXPECTED_TIA_BUILD, result["safe"]["tiaBuildIdentity"])
+        self.assertEqual(
+            "olq-c6c75a368b16bbf34a367cb843ba5e55",
+            result["safe"]["qualificationIdentity"],
+        )
+        self.assertFalse(result["safe"]["deterministicSecondRun"])
+
+        self.assertFalse(result["unsafe"]["tokenAccepted"], result)
+        self.assertEqual("WORKER_FAILURE_REDACTED", result["unsafe"]["failure"])
+        self.assertIsNone(result["unsafe"]["tiaBuildIdentity"])
+        self.assertIsNone(result["unsafe"]["qualificationIdentity"])
+        self.assertFalse(result["grammar"]["unknownTag"])
+        self.assertFalse(result["grammar"]["lowercaseHresult"])
+        self.assertFalse(result["grammar"]["unknownPhase"])
+        self.assertFalse(result["grammar"]["detailWithoutTags"])
+        self.assertFalse(result["grammar"]["fingerprintWithoutTags"])
+        self.assertTrue(result["grammar"]["tagsOnly"])
+        self.assertTrue(result["grammar"]["baseToken"])
+        self.assertNotIn("VendorSecret", completed.stdout)
+        self.assertNotIn("sentinel-user", completed.stdout)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_run2_failure_projection_preserves_only_prevalidated_run1_evidence(self) -> None:
+        script = harness_functions() + r'''
+$evidence = [ordered]@{
+  status = 'BLOCKED'
+  tiaBuildIdentity = 'Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)'
+  qualificationIdentity = 'olq-c6c75a368b16bbf34a367cb843ba5e55'
+  qualifiedArchiveName = 'trusted.zal21'
+  qualifiedArchiveSha256 = ('b' * 64)
+  run1IsReuse = $false
+  run1NativeReopenSuccess = $true
+  originalProvenanceRunId = 'trusted-run-123'
+  originalCompletedAtUtc = '2026-09-25T17:00:00.1234567Z'
+  deterministicSecondRun = $true
+  failure = $null
+}
+$run2 = [pscustomobject]@{
+  failure = 'phase:save type:IOException hresult:0x80131620'
+  failureDetails = 'C:\Users\sentinel-user\VendorSecret'
+  tiaBuildIdentity = 'untrusted replacement'
+  qualificationIdentity = 'untrusted replacement'
+}
+Set-Run2FailureEvidence -Manifest $run2
+$evidence | ConvertTo-Json -Depth 8 -Compress
+'''
+        completed = run_pwsh(script)
+        self.assertEqual(0, completed.returncode, completed.stdout)
+        result = json.loads(completed.stdout.strip())
+        self.assertEqual(EXPECTED_TIA_BUILD, result["tiaBuildIdentity"])
+        self.assertEqual(
+            "olq-c6c75a368b16bbf34a367cb843ba5e55",
+            result["qualificationIdentity"],
+        )
+        self.assertEqual("trusted.zal21", result["qualifiedArchiveName"])
+        self.assertEqual("trusted-run-123", result["originalProvenanceRunId"])
+        self.assertEqual(
+            "2026-09-25T17:00:00.1234567Z",
+            result["originalCompletedAtUtc"],
+        )
+        self.assertEqual(
+            "phase:save type:IOException hresult:0x80131620",
+            result["failure"],
+        )
+        self.assertFalse(result["deterministicSecondRun"])
 
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
     def test_production_pair_gate_rejects_missing_malformed_or_changed_provenance(self) -> None:
@@ -753,12 +903,15 @@ finally {
         self.assertNotIn("Get-QualificationProcessTreeIds", WORKFLOW)
         self.assertNotIn("if ($Process.HasExited) { return }", WORKFLOW)
 
-    def test_public_evidence_uses_exact_tia_identity_and_never_copies_worker_failure(self) -> None:
+    def test_public_evidence_uses_exact_identity_and_only_validated_worker_failure(self) -> None:
         functions = harness_functions()
         self.assertIn(EXPECTED_TIA_BUILD, functions)
         self.assertIn("Test-ExactTiaBuildIdentity", functions)
-        self.assertNotIn("[string]$run1.failure", WORKFLOW)
-        self.assertNotIn("[string]$run2.failure", WORKFLOW)
+        self.assertIn("Test-SafeWorkerFailureToken", functions)
+        self.assertIn("Get-PublicWorkerFailureToken", functions)
+        self.assertIn("WORKER_FAILURE_REDACTED", functions)
+        self.assertIn("Get-ManifestString $Manifest 'failure'", functions)
+        self.assertNotIn("failureDetails", functions)
         self.assertIn(
             "Qualification harness failed before valid public evidence could be completed.",
             WORKFLOW,
@@ -769,6 +922,7 @@ finally {
         )
         self.assertNotIn("stdout", publication.lower())
         self.assertNotIn("stderr", publication.lower())
+        self.assertNotIn("failureDetails", publication)
         self.assertIn("String(value).replace(/[\\r\\n`]/g, ' ').slice(0, 512)", publication)
 
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")

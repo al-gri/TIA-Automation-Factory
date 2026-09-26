@@ -208,6 +208,135 @@ jobs:
               [System.StringComparison]::Ordinal)
           }
 
+          function Test-SafeWorkerFailureToken {
+            param([string]$Value)
+
+            if (-not (Test-SafePublicText $Value 512)) { return $false }
+            if ($Value -match '[/\\]') { return $false }
+
+            $match = [System.Text.RegularExpressions.Regex]::Match(
+              $Value,
+              '^phase:(?<phase>[a-z0-9-]{1,64}) type:(?<type>[A-Za-z][A-Za-z0-9_]{0,127}) hresult:0x(?<hresult>[0-9A-F]{8})(?<suffix>(?: .+)?)$')
+            if (-not $match.Success) { return $false }
+
+            $allowedPhases = @(
+              'reuse-validation',
+              'state-recovery',
+              'archive-recovery',
+              'bootstrap-required',
+              'whitelist-sync',
+              'retrieve-with-upgrade',
+              'save',
+              'archive',
+              'upgrade-close',
+              'native-reopen',
+              'native-reopen-close',
+              'publication',
+              'state-publication',
+              'top-level'
+            )
+            if ($allowedPhases -notcontains $match.Groups['phase'].Value) { return $false }
+
+            $suffix = $match.Groups['suffix'].Value
+            if ([string]::IsNullOrWhiteSpace($suffix)) { return $true }
+
+            $tokens = @($suffix.Trim() -split ' +')
+            $index = 0
+            if ($tokens.Count -eq 0 -or
+                -not $tokens[$index].StartsWith('tags:', [System.StringComparison]::Ordinal)) {
+              return $false
+            }
+
+            $tagText = $tokens[$index].Substring(5)
+            if ([string]::IsNullOrWhiteSpace($tagText)) { return $false }
+            $allowedTags = @(
+              'unknown',
+              'missing-product',
+              'unreleased-content',
+              'unsupported-version',
+              'invalid-archive',
+              'access-denied',
+              'user-abort',
+              'target-conflict',
+              'license-missing'
+            )
+            $seenTags = @{}
+            foreach ($tag in @($tagText -split ',')) {
+              if ($allowedTags -notcontains $tag -or $seenTags.ContainsKey($tag)) { return $false }
+              $seenTags[$tag] = $true
+            }
+            $index++
+
+            if ($index -eq $tokens.Count) {
+              return $true
+            }
+            if (-not $tokens[$index].StartsWith('detail-count:', [System.StringComparison]::Ordinal)) {
+              return $false
+            }
+
+            $countText = $tokens[$index].Substring(13)
+            if ($countText -notmatch '^(?:0|[1-9][0-9]{0,3})$') { return $false }
+            $index++
+
+            if ($index -lt $tokens.Count -and $tokens[$index] -match '^msgfp:[0-9a-f]{16}$') {
+              $index++
+            }
+            if ($index -lt $tokens.Count -and $tokens[$index] -match '^dtlfp:[0-9a-f]{16}$') {
+              $index++
+            }
+
+            return ($index -eq $tokens.Count)
+          }
+
+          function Get-PublicWorkerFailureToken {
+            param($Manifest)
+
+            $failure = Get-ManifestString $Manifest 'failure'
+            if (Test-SafeWorkerFailureToken $failure) {
+              return $failure
+            }
+
+            return 'WORKER_FAILURE_REDACTED'
+          }
+
+          function Set-Run1FailureEvidence {
+            param($Manifest)
+
+            $evidence.status = 'FAIL'
+            $evidence.tiaBuildIdentity = $null
+            $evidence.qualificationIdentity = $null
+            $evidence.qualifiedArchiveName = $null
+            $evidence.qualifiedArchiveSha256 = $null
+            $evidence.run1IsReuse = $null
+            $evidence.run1NativeReopenSuccess = $null
+            $evidence.run2IsReuse = $null
+            $evidence.run2NativeReopenSuccess = $null
+            $evidence.originalProvenanceRunId = $null
+            $evidence.originalCompletedAtUtc = $null
+            $evidence.deterministicSecondRun = $false
+
+            $tiaBuildIdentity = Get-ManifestString $Manifest 'tiaBuildIdentity'
+            if (Test-ExactTiaBuildIdentity $tiaBuildIdentity) {
+              $evidence.tiaBuildIdentity = $tiaBuildIdentity
+            }
+
+            $qualificationIdentity = Get-ManifestString $Manifest 'qualificationIdentity'
+            if (Test-SafeProvenance $qualificationIdentity) {
+              $evidence.qualificationIdentity = $qualificationIdentity
+            }
+
+            $evidence.failure = Get-PublicWorkerFailureToken $Manifest
+          }
+
+          function Set-Run2FailureEvidence {
+            param($Manifest)
+
+            $evidence.status = 'FAIL'
+            $evidence.run2IsReuse = $null
+            $evidence.run2NativeReopenSuccess = $null
+            $evidence.deterministicSecondRun = $false
+            $evidence.failure = Get-PublicWorkerFailureToken $Manifest
+          }
           function Test-TruthfulRunMode {
             param($Manifest, [bool]$RequireReuse)
 
@@ -275,22 +404,49 @@ jobs:
             }
           }
 
+          function Test-QualificationRun1 {
+            param(
+              $Run1,
+              [string]$ExpectedSourceArchiveSha256
+            )
+
+            if ((Get-ManifestBoolean $Run1 'success') -ne $true) { return New-PairValidationResult $false 'RUN1_SUCCESS' }
+            if (-not (Test-TruthfulRunMode $Run1 $false)) { return New-PairValidationResult $false 'RUN1_MODE' }
+            if (-not (Test-ManifestIdentity $Run1 $ExpectedSourceArchiveSha256)) { return New-PairValidationResult $false 'RUN1_IDENTITY' }
+
+            $run1ProvenanceRunId = Get-ManifestString $Run1 'originalProvenanceRunId'
+            $run1CompletedAtUtc = Get-ManifestString $Run1 'originalCompletedAtUtc'
+            if (-not (Test-SafeProvenance $run1ProvenanceRunId)) { return New-PairValidationResult $false 'RUN1_PROVENANCE' }
+            if (-not (Test-CanonicalUtcTimestamp $run1CompletedAtUtc)) { return New-PairValidationResult $false 'RUN1_COMPLETED_AT' }
+
+            return New-PairValidationResult $true $null
+          }
+
+          function Project-ValidatedRun1Evidence {
+            param($Run1)
+
+            $evidence.tiaBuildIdentity = Get-ManifestString $Run1 'tiaBuildIdentity'
+            $evidence.qualificationIdentity = Get-ManifestString $Run1 'qualificationIdentity'
+            $evidence.qualifiedArchiveName = Get-ManifestString $Run1 'qualifiedArchiveName'
+            $evidence.qualifiedArchiveSha256 = Get-ManifestString $Run1 'qualifiedArchiveSha256'
+            $evidence.run1IsReuse = Get-ManifestBoolean $Run1 'isReuse'
+            $evidence.run1NativeReopenSuccess = Get-ManifestBoolean $Run1 'nativeReopenSuccess'
+            $evidence.originalProvenanceRunId = Get-ManifestString $Run1 'originalProvenanceRunId'
+            $evidence.originalCompletedAtUtc = Get-ManifestString $Run1 'originalCompletedAtUtc'
+          }
+
           function Test-QualificationPair {
             param(
               $Run1,
               $Run2,
-              [int]$Run1ExitCode,
-              [int]$Run2ExitCode,
               [string]$ExpectedSourceArchiveSha256
             )
 
-            if ($Run1ExitCode -ne 0) { return New-PairValidationResult $false 'RUN1_EXIT' }
-            if ($Run2ExitCode -ne 0) { return New-PairValidationResult $false 'RUN2_EXIT' }
-            if ((Get-ManifestBoolean $Run1 'success') -ne $true) { return New-PairValidationResult $false 'RUN1_SUCCESS' }
+            $run1Validation = Test-QualificationRun1 -Run1 $Run1 -ExpectedSourceArchiveSha256 $ExpectedSourceArchiveSha256
+            if (-not $run1Validation.IsValid) { return $run1Validation }
+
             if ((Get-ManifestBoolean $Run2 'success') -ne $true) { return New-PairValidationResult $false 'RUN2_SUCCESS' }
-            if (-not (Test-TruthfulRunMode $Run1 $false)) { return New-PairValidationResult $false 'RUN1_MODE' }
             if (-not (Test-TruthfulRunMode $Run2 $true)) { return New-PairValidationResult $false 'RUN2_MODE' }
-            if (-not (Test-ManifestIdentity $Run1 $ExpectedSourceArchiveSha256)) { return New-PairValidationResult $false 'RUN1_IDENTITY' }
             if (-not (Test-ManifestIdentity $Run2 $ExpectedSourceArchiveSha256)) { return New-PairValidationResult $false 'RUN2_IDENTITY' }
             if (-not (Test-SameManifestIdentity $Run1 $Run2)) { return New-PairValidationResult $false 'IDENTITY_MISMATCH' }
 
@@ -299,26 +455,17 @@ jobs:
             $run1CompletedAtUtc = Get-ManifestString $Run1 'originalCompletedAtUtc'
             $run2CompletedAtUtc = Get-ManifestString $Run2 'originalCompletedAtUtc'
 
-            if (-not (Test-SafeProvenance $run1ProvenanceRunId)) { return New-PairValidationResult $false 'RUN1_PROVENANCE' }
             if (-not (Test-SafeProvenance $run2ProvenanceRunId)) { return New-PairValidationResult $false 'RUN2_PROVENANCE' }
-            if (-not (Test-CanonicalUtcTimestamp $run1CompletedAtUtc)) { return New-PairValidationResult $false 'RUN1_COMPLETED_AT' }
             if (-not (Test-CanonicalUtcTimestamp $run2CompletedAtUtc)) { return New-PairValidationResult $false 'RUN2_COMPLETED_AT' }
-            if (-not [string]::Equals(
-              $run1ProvenanceRunId,
-              $run2ProvenanceRunId,
-              [System.StringComparison]::Ordinal)) {
+            if (-not [string]::Equals($run1ProvenanceRunId, $run2ProvenanceRunId, [System.StringComparison]::Ordinal)) {
               return New-PairValidationResult $false 'PROVENANCE_MISMATCH'
             }
-            if (-not [string]::Equals(
-              $run1CompletedAtUtc,
-              $run2CompletedAtUtc,
-              [System.StringComparison]::Ordinal)) {
+            if (-not [string]::Equals($run1CompletedAtUtc, $run2CompletedAtUtc, [System.StringComparison]::Ordinal)) {
               return New-PairValidationResult $false 'COMPLETED_AT_MISMATCH'
             }
 
             return New-PairValidationResult $true $null
           }
-
           function Initialize-QualificationJobObjectTypes {
             if ($null -ne ('TiaAutomationFactory.Qualification.ContainedProcess' -as [type])) {
               return
@@ -1057,6 +1204,16 @@ jobs:
             }
 
             $run1 = Get-Content -LiteralPath $run1ManifestPath -Raw | ConvertFrom-Json
+            if ($evidence.run1ExitCode -ne 0) {
+              Set-Run1FailureEvidence -Manifest $run1
+              throw 'Qualification worker run1 returned a nonzero exit code.'
+            }
+
+            $run1Validation = Test-QualificationRun1 -Run1 $run1 -ExpectedSourceArchiveSha256 $actualSourceSha256
+            if (-not $run1Validation.IsValid) {
+              Stop-Evidence 'FAIL' ("First qualification manifest failed trusted validation: {0}." -f $run1Validation.FailureCode)
+            }
+            Project-ValidatedRun1Evidence -Run1 $run1
 
             $run2Process = Invoke-Qualification `
               -Phase 'run2' `
@@ -1076,27 +1233,19 @@ jobs:
             }
 
             $run2 = Get-Content -LiteralPath $run2ManifestPath -Raw | ConvertFrom-Json
-            $pair = Test-QualificationPair `
-              -Run1 $run1 `
-              -Run2 $run2 `
-              -Run1ExitCode $evidence.run1ExitCode `
-              -Run2ExitCode $evidence.run2ExitCode `
-              -ExpectedSourceArchiveSha256 $actualSourceSha256
+            if ($evidence.run2ExitCode -ne 0) {
+              Set-Run2FailureEvidence -Manifest $run2
+              throw 'Qualification worker run2 returned a nonzero exit code.'
+            }
+
+            $pair = Test-QualificationPair -Run1 $run1 -Run2 $run2 -ExpectedSourceArchiveSha256 $actualSourceSha256
 
             if (-not $pair.IsValid) {
               Stop-Evidence 'FAIL' ("Qualification manifest pair failed trusted validation: {0}." -f $pair.FailureCode)
             }
 
-            $evidence.tiaBuildIdentity = Get-ManifestString $run1 'tiaBuildIdentity'
-            $evidence.qualificationIdentity = Get-ManifestString $run1 'qualificationIdentity'
-            $evidence.qualifiedArchiveName = Get-ManifestString $run1 'qualifiedArchiveName'
-            $evidence.qualifiedArchiveSha256 = Get-ManifestString $run1 'qualifiedArchiveSha256'
-            $evidence.run1IsReuse = Get-ManifestBoolean $run1 'isReuse'
-            $evidence.run1NativeReopenSuccess = Get-ManifestBoolean $run1 'nativeReopenSuccess'
             $evidence.run2IsReuse = Get-ManifestBoolean $run2 'isReuse'
             $evidence.run2NativeReopenSuccess = Get-ManifestBoolean $run2 'nativeReopenSuccess'
-            $evidence.originalProvenanceRunId = Get-ManifestString $run1 'originalProvenanceRunId'
-            $evidence.originalCompletedAtUtc = Get-ManifestString $run1 'originalCompletedAtUtc'
             $evidence.deterministicSecondRun = $true
             $evidence.status = 'PASS'
             $evidence.failure = $null
