@@ -98,7 +98,7 @@ namespace TiaAutomationFactory.TiaV21Worker
 
             if (!File.Exists(sourceArchivePath))
             {
-                Console.Error.WriteLine("Source archive not found: " + sourceArchivePath);
+                Console.Error.WriteLine(QualificationPublicDiagnostics.SourceArchiveNotFoundMessage());
                 return 64;
             }
 
@@ -455,7 +455,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                 if (!stateStore.TryQuarantineInvalidCompleted(preflightId, out recoveryError))
                 {
                     manifest.Failure = "phase:state-recovery type:InvalidOperationException hresult:0x80131509";
-                    manifest.FailureDetails = recoveryError;
+                    manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                        "state-recovery",
+                        recoveryError);
                     return manifest;
                 }
             }
@@ -469,7 +471,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                     out orphanError))
                 {
                     manifest.Failure = "phase:archive-recovery type:InvalidOperationException hresult:0x80131509";
-                    manifest.FailureDetails = orphanError;
+                    manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                        "archive-recovery",
+                        orphanError);
                     return manifest;
                 }
             }
@@ -501,7 +505,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.Failure = whitelistResult.BootstrapRequired
                     ? "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005"
                     : "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
-                manifest.FailureDetails = whitelistResult.Message ?? "Whitelist synchronization failed.";
+                manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    whitelistResult.BootstrapRequired ? "bootstrap-required" : "whitelist-sync",
+                    whitelistResult.Message);
                 RecordFailedAttempt(
                     stateStore,
                     attemptId,
@@ -586,7 +592,9 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (retrieveWithUpgradeException != null)
             {
                 manifest.Failure = FormatFailure(QualificationPhase.RetrieveWithUpgrade, retrieveWithUpgradeException);
-                manifest.FailureDetails = retrieveWithUpgradeException.ToString();
+                manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    "retrieve-with-upgrade",
+                    retrieveWithUpgradeException.ToString());
                 RecordFailedAttempt(
                     stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
                     manifest.Failure, "RetrieveWithUpgrade failed.");
@@ -597,7 +605,9 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (saveException != null)
             {
                 manifest.Failure = FormatFailure(QualificationPhase.Save, saveException);
-                manifest.FailureDetails = saveException.ToString();
+                manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    "save",
+                    saveException.ToString());
                 RecordFailedAttempt(
                     stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
                     manifest.Failure, "Save failed.");
@@ -608,7 +618,9 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (archiveException != null)
             {
                 manifest.Failure = FormatFailure(QualificationPhase.Archive, archiveException);
-                manifest.FailureDetails = archiveException.ToString();
+                manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    "archive",
+                    archiveException.ToString());
                 RecordFailedAttempt(
                     stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
                     manifest.Failure, "Archive failed.");
@@ -619,7 +631,9 @@ namespace TiaAutomationFactory.TiaV21Worker
             if (upgradeCloseException != null)
             {
                 manifest.Failure = FormatFailure(QualificationPhase.UpgradeClose, upgradeCloseException);
-                manifest.FailureDetails = upgradeCloseException.ToString();
+                manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    "upgrade-close",
+                    upgradeCloseException.ToString());
                 RecordFailedAttempt(
                     stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
                     manifest.Failure, "Upgrade close failed.");
@@ -647,7 +661,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                 manifest.Failure = whitelistResult2.BootstrapRequired
                     ? "phase:bootstrap-required type:UnauthorizedAccessException hresult:0x80070005"
                     : "phase:whitelist-sync type:InvalidOperationException hresult:0x80131509";
-                manifest.FailureDetails = whitelistResult2.Message ?? "Whitelist synchronization failed.";
+                manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    whitelistResult2.BootstrapRequired ? "bootstrap-required" : "whitelist-sync",
+                    whitelistResult2.Message);
                 RecordFailedAttempt(
                     stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
                     manifest.Failure, "Verification whitelist prerequisite failed.");
@@ -711,7 +727,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                     ? QualificationPhase.NativeRetrieve
                     : QualificationPhase.NativeClose;
                 manifest.Failure = FormatFailure(failurePhase, failureException);
-                manifest.FailureDetails = failureException.ToString();
+                manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    GetPhaseToken(failurePhase),
+                    failureException.ToString());
                 RecordFailedAttempt(
                     stateStore, attemptId, qualificationIdentity, sourceSha256, tiaBuildIdentity,
                     manifest.Failure, "Native V21 verification failed.");
@@ -754,7 +772,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                     out quarantineError))
                 {
                     manifest.Failure = "phase:publication type:IOException hresult:0x80131620";
-                    manifest.FailureDetails = quarantineError;
+                    manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                        "publication",
+                        quarantineError);
                     stateStore.QuarantineStaging(attemptId, "archive-conflict");
                     TryDeleteAttemptDirectory(attemptRoot);
                     return manifest;
@@ -785,7 +805,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                     out quarantineError);
                 stateStore.QuarantineStaging(attemptId, "manifest-publication");
                 manifest.Failure = "phase:state-publication type:InvalidOperationException hresult:0x80131509";
-                manifest.FailureDetails = promoteError;
+                manifest.FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    "state-publication",
+                    promoteError);
                 TryDeleteAttemptDirectory(attemptRoot);
                 return manifest;
             }
@@ -1074,7 +1096,9 @@ namespace TiaAutomationFactory.TiaV21Worker
                 QualificationRecipeIdentity = QualificationState.CurrentRecipeIdentity,
                 IsReuse = false,
                 Failure = FormatTopLevelFailure(exception),
-                FailureDetails = exception.ToString()
+                FailureDetails = QualificationPublicDiagnostics.SanitizeFailureDetails(
+                    "top-level",
+                    exception.ToString())
             };
         }
 
