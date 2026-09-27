@@ -1,139 +1,94 @@
 # Project State — Authoritative Operational Snapshot
 
-Last updated: 2026-09-21
+Last updated: 2026-09-27
+Checkpoint trusted main: `0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1`
 
-GitHub is the only durable source of truth. Read live GitHub state before acting; this snapshot is a recovery aid and coding-context baseline, not a substitute for current tasks, PRs, reviews and Actions evidence.
+GitHub is the only durable source of truth. Re-fetch live refs/tasks/PRs/reviews/Actions before acting; this file is a recovery aid, not a substitute for live evidence.
 
-## Project
+## Project and operating boundaries
 
 Repository: `al-gri/TIA-Automation-Factory`.
 
-Purpose: build a production engineering system that converts a vendor-neutral automation model into modular Siemens PLC code/projects and verifies/assembles them through TIA Portal V21 Openness. A second explicit output is the reusable AI-assisted development methodology.
+Goal: convert a vendor-neutral automation model into deterministic Siemens PLC artifacts and eventually assemble/verify the selected vertical slice through trusted TIA Portal V21 Openness.
 
-Baseline flow:
+Architecture:
 
 ```text
-Engineering UI
- -> canonical AutomationProject
+Automation input
  -> Domain
- -> PLC Compiler / PLC IR
- -> Siemens Backend / qualified Open Library bindings
- -> generated PLC artifact/package
- -> trusted TIA V21 Worker / ProjectAssembler
+ -> PlcCompiler / PLC IR
+ -> SiemensBackend
+ -> GeneratorCli
+ -> deterministic PLC/source artifacts
+ -> trusted TiaV21Worker on merged main
  -> TIA Portal V21
- -> compile/save/reopen/diagnostics
 ```
 
-`IndustrialMDE` is outside scope and must not be modified. Domain/compiler remain vendor-neutral; `Siemens.Engineering` is isolated in `src/TiaV21Worker`.
+Domain/compiler stay vendor-neutral. `Siemens.Engineering` stays inside `src/TiaV21Worker`. Candidate source executes on disposable Linux; Windows/TIA executes merged trusted main only. `IndustrialMDE` is out of scope.
 
-## Operating model
+## Completed generator foundation CORE
 
-- Coding provider order: OpenRouter first, DeepSeek `deepseek-flash` fallback.
-- Primary connected ChatGPT: Senior Architect, normal independent reviewer for coding-agent work, orchestrator, methodology curator and delegated technical merge authority.
-- `chatgpt-secondary`: fresh isolated reviewer only when primary materially authored/co-authored the candidate or another independent opinion is explicitly required.
-- Candidate source executes on disposable Linux only; trusted Windows/TIA executes merged trusted `main` only.
-- Reviews bind the exact candidate SHA. Candidate-changing repair invalidates prior approval.
-- Normal implementation authority is a versioned trusted task on `main`; repair budgets are authoritative and cannot be extended without explicit human decision.
+`GEN-VALVE-FOUNDATION-CORE-001` is merged and green. The trusted generator now has:
 
-## Current trusted main checkpoint
+- versioned unambiguous canonical parsed-model identity in PlcCompiler;
+- SiemensBackend-only bounded emitted-name/symbol policy;
+- Motor/Time compatibility and collision regressions.
 
-Live checkpoint before this documentation branch: `main@f67788b20143e69074b19c7008a9157c052b1899`.
+## Active generator foundation OUTPUT (#62)
 
-That main contains the independently reviewed/merged task authorities:
+Trusted task: `tasks/GEN-VALVE-FOUNDATION-OUTPUT-001.json`.
 
-- `tasks/TIA-AUTH-V21-ALLOWLIST-001.json` for issue #80;
-- `tasks/GEN-VALVE-FOUNDATION-001.json` for issue #62;
-- `tasks/OLQ-VALVE-PROFILE-001.json` remains the original #61 authority/history, but its latest candidate exhausted the trusted repair budget.
+Active PR #102:
 
-Always re-fetch live `main` before mutation because this snapshot PR will advance the branch after merge.
+- exact head `cc370d6d19c65c483837e1a8358dc9f931c2dc87`;
+- base `0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1`;
+- exact five allowed paths only;
+- CI #490 / run `36344246671`: SUCCESS;
+- net10 tests 96/96 PASS;
+- legacy Motor artifact generation PASS;
+- no candidate Windows/TIA execution;
+- awaiting fresh isolated `chatgpt-secondary` review because primary authored the implementation.
 
-## Product lane A — TIA V21 Openness AllowList (#80)
+Review request: `ER-102-cc370d6d19c6-CODE_REVIEW-1-chatgpt-secondary-manual`.
 
-Trusted task: `tasks/TIA-AUTH-V21-ALLOWLIST-001.json`, HIGH risk.
+Finish this gate before starting new discretionary generator work.
 
-Goal: replace the legacy versioned `Openness\Whitelist\<version>\Entries\...` path with the V21 version-independent Registry64 `SOFTWARE\Siemens\Automation\Openness\AllowList\TiaV21Worker.exe\Entry`, preserve exact Path/DateModified/FileHash synchronization and narrow fail-closed ACL behavior, and make bootstrap ACL detection genuinely SID-normalized/idempotent.
+## Open Library qualification (#61)
 
-Preflight against current worker source found two `new TiaPortal(...)` paths and two corresponding `WhitelistManager.SynchronizeWhitelist()` guards, with no separate attach path. The task's allowed implementation scope is therefore sufficient without `Program.cs` changes.
+The evidence-projection and bounded prerequisite-classifier work is merged.
 
-Next implementation action requires an `Autonomous Agent` workflow-dispatch run for the trusted task. The connected GitHub toolset currently has no initial workflow-dispatch mutation.
+Trusted run #320 / `36273653086` on `main@0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1` failed with sanitized evidence:
 
-## Product lane B — truthful V21 Valve qualification (#61)
+`phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:f85ef7ebe21aad89`
 
-Issue #61 remains active and HIGH risk.
+The classifier did not prove support-package/software-product/unsupported-library-element or another safe prerequisite category. #61 therefore remains BLOCKED on unknown trusted vendor prerequisite. Do not speculate, change migration APIs, claim a qualified Valve profile, or trigger another qualification run without a new reviewed evidence-backed authority.
 
-Historical trusted baseline source archive SHA256:
-`ed8fe3f52e90399475b321e40f7ce842d86e414324f06f1b078f44fcb666eed3`.
+## Future trusted Valve acceptance (#63)
 
-TIA/Openness identity:
-`Siemens.Engineering v21.0.0.0 (file: 2100.0.121.1)`.
+Planning-only. Do not start implementation until:
 
-Selected CPU:
-`OrderNumber:6ES7 516-3AP03-0AB0/V4.0`.
+1. #61 provides a reviewed qualified Valve contract/profile identity;
+2. #62 deterministic generator output/manifest semantics are reviewed, merged and post-merge green.
 
-Selected library object:
-`fbValve_Solenoid`.
+## Review/merge model
 
-Latest candidate PR #81 was closed unmerged at exact head `8101d1e197cf33eaf96874acb4a9933fb5256656` after exhausting trusted `maxRepairAttempts=2`. Exact-SHA review remained `CHANGES_REQUIRED` with unresolved MAJOR defects, including worker compile drift, missing mandatory tests and incorrect qualification/reference lifecycle. PR #81 is historical evidence only and must not be reopened or merged.
+- coding-agent-only candidates -> primary `chatgpt` independent review;
+- primary-authored/co-authored candidates -> fresh isolated `chatgpt-secondary`;
+- approvals bind exact current SHA;
+- repairs are bounded by trusted task;
+- routine technical merge is delegated to primary only when all exact gates pass.
 
-Any new candidate-changing continuation of #61 requires explicit human authorization because the trusted repair budget is exhausted. The recommended route is not a blind rerun of the monolithic task. Planning evidence in issue #61 splits replacement work into:
+## Handoff-process state
 
-1. a small qualification transaction/native-V21-open gate with deterministic recovery/reuse tests and exact `RetrieveWithUpgrade -> Save -> Archive -> current-version Retrieve` preservation;
-2. only after real native V21 open, a separate Valve contract/dependency/ownership/reference compile/save/reopen gate.
+Trusted task `CHAT-HANDOFF-001` exists, but the old protocol PR #39 remained stale/unmerged and main snapshot docs were stale. A new handoff synchronization candidate is being prepared from this exact current main without moving main, so it does not stale PR #102.
 
-Do not invent migration APIs, Valve contract facts, dependency names, versions, memory addresses, DB/ownership requirements or success provenance.
-
-## Product lane C — generator foundation (#62)
-
-Trusted task: `tasks/GEN-VALVE-FOUNDATION-001.json`, MEDIUM risk.
-
-This lane is intentionally independent of unknown Valve interface facts and may proceed in parallel with #61. Current product code is deliberately small:
-
-`AutomationDevice -> AutomationCompiler -> PlcIrDataType -> SclDataTypeGenerator -> GeneratorCli`.
-
-The foundation task extends that path additively with deterministic canonical input identity, explicit opaque profile identity, multi-artifact manifest/hash plumbing, output-root containment, centralized Siemens engineering-name/symbol validation and stable diagnostics/tests. Existing two-argument Motor CLI behavior must remain compatible. Domain/IR must not absorb filesystem/hash/manifest/Siemens-profile mechanics.
-
-No `fbValve_Solenoid` parameter, dependency, version, DB/ownership or target prerequisite fact may be guessed before #61 proves it.
-
-Next implementation action requires an `Autonomous Agent` workflow-dispatch run for this trusted task.
-
-## Product lane D — trusted TIA acceptance (#63)
-
-Issue #63 `TIA-VALVE-ACCEPT-001` is planning-only until #61 provides a reviewed qualified Valve profile/contract identity and #62 provides reviewed deterministic generated artifacts/manifest semantics.
-
-The eventual trusted-main truth gate will bind exact generator commit/input/profile/artifact hashes, import only the selected dependency closure/artifacts into the exact CPU, compile with zero errors, classify warnings, explicitly save, close and natively reopen, then verify expected blocks and instance/data ownership in the reopened project. It proves only this selected compile/save/reopen slice, not runtime correctness, commissioning readiness or safety certification.
-
-## Operator-action ledger
-
-Issue #82 is the single deferred human-action queue. Do not interrupt the operator for routine work; surface current items only when explicitly asked.
-
-Current live items:
-
-- H004: explicit human decision authorizing any fresh #61 candidate-changing continuation after PR #81 exhausted 2/2 repairs; recommended authorization is for primary to prepare the decomposed replacement task authority, not repair 3/2.
-- H005: launch `Autonomous Agent` with `source=task`, `task_path=tasks/TIA-AUTH-V21-ALLOWLIST-001.json`, empty `issue_number`.
-- H006: launch `Autonomous Agent` with `source=task`, `task_path=tasks/GEN-VALVE-FOUNDATION-001.json`, empty `issue_number`.
-
-Revalidate live GitHub before presenting or acting on any ledger item.
-
-## Review/CI caveat
-
-A PR CI run created by `github-actions[bot]` may show GitHub-level `action_required` with zero jobs before workflow execution. That is an Actions approval/policy gate, not deterministic test failure. Keep it distinct from Autonomous Agent Linux acceptance and from real failed CI jobs.
-
-## Current order of work
-
-1. Execute #80 AllowList implementation and independently review/merge it; prove repeated non-interactive trusted-main Openness admission on Windows/TIA.
-2. Continue #61 only after explicit human authorization following the exhausted repair budget; prefer the two-stage replacement decomposition described above.
-3. Execute #62 generator foundations in parallel; independently review exact-SHA candidate and keep all unqualified Valve facts out.
-4. Complete the real Valve generator binding only after #61 provides the qualified contract.
-5. Execute #63 trusted TIA import/compile/save/reopen acceptance for the exact selected profile/artifact set.
-6. Perform the next full audit/methodology checkpoint at the #63 milestone.
+The handoff docs candidate itself is primary-authored and must receive fresh isolated `chatgpt-secondary` review before merge. It should not be merged ahead of PR #102 if that would unnecessarily stale PR #102 review/base evidence.
 
 ## Hard boundaries
 
-- no Siemens F-safety generation/validation;
-- no arbitrary hardware-from-scratch generation for MVP;
-- no generic multi-vendor plugin architecture now;
-- no broad UI/HMI/graph/catalog expansion before the Valve vertical slice is stable;
-- no candidate execution on trusted Windows/TIA before independent approval + merge;
-- self-hosted TIA workflows are trusted-main only;
-- no vendor archive/project payloads in Git;
+- no unqualified Valve parameter/dependency/version/DB/ownership/target facts;
+- no candidate source on trusted Windows/TIA;
+- no vendor archive/project payload or raw vendor diagnostics in GitHub;
+- no F-safety generation/validation;
+- no broad UI/HMI/multi-vendor expansion before the vertical slice is stable;
 - never modify `IndustrialMDE`.
