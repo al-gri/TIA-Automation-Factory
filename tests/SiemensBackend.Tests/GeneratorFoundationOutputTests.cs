@@ -106,6 +106,7 @@ public sealed class GeneratorFoundationOutputTests
     [Theory]
     [InlineData("""{"name":"Motor","fields":[{"name":"Start"}]}""")]
     [InlineData("""{"name":"Motor","fields":[{"name":"Start","type":0}]}""")]
+    [InlineData("""{"name":"Motor","fields":[{"name":"Start","type":"0"}]}""")]
     [InlineData("""{"name":"Motor","fields":[{"name":"Start","type":"Bogus"}]}""")]
     public async Task Missing_numeric_or_unsupported_type_fails_closed(string json)
     {
