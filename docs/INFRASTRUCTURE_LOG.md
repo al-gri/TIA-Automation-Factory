@@ -70,3 +70,11 @@ Short chronological record of infrastructure work. Current policy is defined by 
 ## Logging rule
 
 Keep this file concise and factual. Raw workflow events belong in issue #25; reusable lessons belong in `docs/DEVELOPMENT_METHODOLOGY.md`; milestone interpretation belongs in `docs/METHODOLOGY_JOURNAL.md`.
+## 2026-09-26/27 — bounded OLQ diagnosis and generator foundation split
+
+### DONE / CURRENT
+- Merged CORE generator identity/name-policy foundation and proved post-merge CI/TIA baseline remained green.
+- Merged privacy-safe OLQ failure projection plus bounded prerequisite-tag harness/classifier.
+- Trusted qualification run #320 / `36273653086` still returned the same safe `tags:unknown` RetrieveWithUpgrade wrapper evidence. #61 remains blocked; no specific product/package/library prerequisite is proven.
+- OUTPUT foundation candidate PR #102 is green at exact head `cc370d6d19c65c483837e1a8358dc9f931c2dc87` and awaits fresh isolated secondary review.
+- Handoff audit found main state snapshots materially stale and the old handoff-protocol PR #39 unmerged. A fresh docs-only handoff candidate is prepared on a separate branch so the active PR #102 exact-SHA gate is not disturbed.
