@@ -4,9 +4,13 @@ using TiaAutomationFactory.Domain;
 using TiaAutomationFactory.PlcCompiler;
 using TiaAutomationFactory.SiemensBackend;
 
-return await GeneratorCliApp.RunAsync(args, Console.Out, Console.Error);
-
 namespace TiaAutomationFactory.GeneratorCli;
+
+public static class Program
+{
+    public static Task<int> Main(string[] args)
+        => GeneratorCliApp.RunAsync(args, Console.Out, Console.Error);
+}
 
 public sealed class GeneratorCliException : Exception
 {
