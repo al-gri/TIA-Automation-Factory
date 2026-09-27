@@ -1,97 +1,84 @@
 # TIA Automation Factory — Fresh Chat Handoff
 
-Updated: 2026-09-21
+Updated: 2026-09-27
+Checkpoint trusted main: `0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1`
 
-GitHub is the sole durable source of truth. Do not use old chat history as project state.
+GitHub is the sole durable source of truth. Re-fetch live state before acting; this checkpoint is navigation, not authority. `IndustrialMDE` is outside scope.
 
 ## Mandatory startup
 
-Read in order: `AGENTS.md`, `docs/PROJECT_STATE.md`, this file, `docs/AI_COLLABORATION_MODEL.md`, `docs/DEVELOPMENT_METHODOLOGY.md`, latest relevant `docs/METHODOLOGY_JOURNAL.md`, and `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work. Then inspect live tasks, PRs/issues, exact candidate SHAs, Actions and methodology issue #25.
+Read `AGENTS.md`, `docs/PROJECT_STATE.md`, this file, `docs/AI_COLLABORATION_MODEL.md`, `docs/DEVELOPMENT_METHODOLOGY.md`, latest relevant `docs/METHODOLOGY_JOURNAL.md`, and `docs/EXTERNAL_REVIEW_PROTOCOL.md` before review work. When this handoff-protocol candidate is merged, also read `docs/CHAT_HANDOFF_PROTOCOL.md`.
 
-`IndustrialMDE` is outside scope and must not be touched.
+## Current objective
 
-## Roles
+Finish the contract-independent generator foundation (#62) without inventing Valve/TIA contract facts. #61 qualification remains blocked by insufficient sanitized vendor evidence.
 
-- coding: OpenRouter first, DeepSeek `deepseek-flash` fallback;
-- primary connected ChatGPT: Senior Architect, independent reviewer for coding-agent candidates, orchestrator, methodology curator and delegated merge authority;
-- `chatgpt-secondary`: required when primary materially authored/co-authored the candidate;
-- trusted Windows/TIA runs merged trusted `main` only.
+## #61 — V21 Open Library qualification
 
-## Trusted checkpoint
+Trusted qualification run #320 / `36273653086` executed merged `main@0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1`.
 
-Live `main` before this documentation branch: `f67788b20143e69074b19c7008a9157c052b1899`.
+Post-merge CI #487, TIA V21 Verification #18 and TIA V21 End-to-End #15 were green before the run.
 
-Re-fetch live `main` before every mutation/review because documentation merges may move it.
+Final sanitized result is **FAIL**:
 
-Trusted task authorities already merged on main:
+`phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:f85ef7ebe21aad89`
 
-- `tasks/TIA-AUTH-V21-ALLOWLIST-001.json` -> issue #80;
-- `tasks/GEN-VALVE-FOUNDATION-001.json` -> issue #62;
-- `tasks/OLQ-VALVE-PROFILE-001.json` remains the original issue #61 authority/history, but its latest candidate exhausted its repair budget.
+The prerequisite classifier did not resolve the root cause. Under trusted task `OLQ-DIAG-PREREQ-CLASSIFIER-001`, stop and retain BLOCKED/unknown rather than speculating about a support package, product, license, library element, migration workaround or Valve contract.
 
-## Current product sequence
+Do not trigger another `/run-olq-001` without a new reviewed evidence-backed authority.
 
-Canonical priority: **#80 / #61 -> #62 -> #63**, with #62 contract-independent foundations allowed to run in parallel with #61.
+## #62 — active OUTPUT candidate
 
-### #80 — TIA V21 AllowList
+Trusted task: `tasks/GEN-VALVE-FOUNDATION-OUTPUT-001.json`.
 
-Next implementation lane. Replace the legacy versioned `Whitelist` path with V21 `SOFTWARE\Siemens\Automation\Openness\AllowList\TiaV21Worker.exe\Entry`, preserve exact executable identity sync and narrow fail-closed ACLs, and make bootstrap ACL detection SID-normalized/idempotent.
+PR #102 `GEN: add deterministic output manifest and containment` is the active candidate.
 
-Live source preflight found both `new TiaPortal(...)` paths already guarded by `SynchronizeWhitelist()`, so the trusted task's narrow allowed scope is sufficient.
+Checkpoint identity:
 
-Initial coding run still requires manual GitHub Actions `Autonomous Agent` workflow-dispatch because the connected GitHub toolset exposes no initial dispatch mutation.
+- head: `cc370d6d19c65c483837e1a8358dc9f931c2dc87`;
+- base: `0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1`;
+- changed paths: exactly the five task-authorized GeneratorCli/test paths;
+- CI #490 / run `36344246671`: **SUCCESS**;
+- net10 SiemensBackend.Tests: 96/96 PASS;
+- legacy Motor generation: PASS;
+- no Windows/TIA candidate execution;
+- current review state: **WAITING FOR FRESH ISOLATED `chatgpt-secondary` REVIEW** because primary authored the implementation.
 
-### #61 — truthful V21 Valve profile
+Review identity already embedded in PR #102 body:
 
-PR #81 is **closed unmerged** at exact head `8101d1e197cf33eaf96874acb4a9933fb5256656` after 2/2 repairs. It remains historical evidence only. Do not reopen or merge it.
+- `reviewRequestId`: `ER-102-cc370d6d19c6-CODE_REVIEW-1-chatgpt-secondary-manual`
+- `reviewerSlot`: `chatgpt-secondary`
+- task: `GEN-VALVE-FOUNDATION-OUTPUT-001`
+- candidate: `cc370d6d19c65c483837e1a8358dc9f931c2dc87`
+- round: 1
 
-Any new candidate-changing continuation requires explicit human authorization because `maxRepairAttempts=2` is exhausted.
+No review verdict was present at handoff audit time. Re-fetch before requesting/reusing anything.
 
-Recommended continuation after authorization is a fresh decomposed authority, not repair 3/2 and not a blind rerun of the old monolithic task:
+### Next safe product action
 
-1. qualification transaction/reuse + deterministic recovery tests + real native V21 open or sanitized BLOCKED prerequisite;
-2. only after successful native V21 open, actual `fbValve_Solenoid` contract/dependency/ownership/reference compile/save/reopen.
+1. obtain one fresh isolated `chatgpt-secondary` exact-SHA review of PR #102 using the self-contained package already in its body;
+2. if exact current head/base/CI/scope still match and verdict is APPROVE with no critical/major finding, primary may delegated-merge;
+3. verify post-merge CI before declaring #62 foundation complete;
+4. do not start #63 until #61 has a reviewed qualified Valve contract/profile and #62 is merged/green.
 
-Preserve exactly `RetrieveWithUpgrade -> Save -> Archive -> current-version Retrieve`; do not guess Siemens migration or Valve facts.
+## Handoff protocol candidate
 
-### #62 — generator foundations
+Main docs were materially stale at this checkpoint and `docs/CHAT_HANDOFF_PROTOCOL.md` was not yet on main. Old PR #39 is stale on an ancient base and is not active product authority.
 
-Trusted `GEN-VALVE-FOUNDATION-001` may run in parallel. Extend the current tiny `AutomationDevice -> PlcCompiler -> SiemensBackend -> GeneratorCli` path additively with deterministic canonical input identity, explicit opaque profile identity, manifest/artifact hashes, output containment, Siemens engineering-name/symbol validation and stable diagnostics/tests.
+The current handoff sync is prepared separately from current main so it does **not** move main or stale PR #102. Because primary authors this documentation/process candidate, it requires fresh isolated `chatgpt-secondary` exact-SHA review before merge.
 
-Existing two-argument Motor CLI behavior stays compatible. No unqualified Valve parameter/dependency/version/ownership/DB/target facts.
+Do not merge the handoff-doc candidate ahead of an in-flight PR #102 review unless prepared to refresh PR #102 base/CI/review afterward. Prefer finishing PR #102 first, then non-destructively refresh the handoff-doc candidate to the new main and review/merge it.
 
-Initial coding run also requires manual `Autonomous Agent` workflow-dispatch.
+## Historical/open PR hygiene
 
-### #63 — first real trusted TIA acceptance
-
-Do not start implementation until #61 has a reviewed qualified Valve contract/profile identity and #62 has reviewed deterministic generated artifact/manifest semantics.
-
-The eventual trusted-main truth gate binds exact commit/input/profile/artifact identities, imports only the selected dependency closure/artifacts into CPU `OrderNumber:6ES7 516-3AP03-0AB0/V4.0`, compiles with zero errors, classifies warnings, explicitly saves/closes/reopens and verifies expected blocks plus instance/data ownership in the reopened project.
-
-## Operator-action queue
-
-Issue #82 is the single deferred queue. Do not interrupt the operator unless they explicitly ask what is needed.
-
-Current items after a fresh live check:
-
-- H004: explicit human authorization for any fresh #61 candidate-changing continuation after #81 exhausted 2/2;
-- H005: launch `Autonomous Agent` for `tasks/TIA-AUTH-V21-ALLOWLIST-001.json`;
-- H006: launch `Autonomous Agent` for `tasks/GEN-VALVE-FOUNDATION-001.json`.
-
-If any item has already been completed by another path, supersede it rather than presenting stale instructions.
-
-## Evidence rules not to reinterpret
-
-- Linux green is not TIA acceptance.
-- GitHub `action_required` with zero jobs on a bot-created PR is an Actions approval/policy gate, not a test failure.
-- Successful qualification requires real native V21 reopen, not a matching file/flag.
-- Candidate source/scripts never execute on trusted Windows/TIA before independent review + merge.
-- Vendor `.zal19/.zal21` and project payloads remain private and never enter GitHub.
-
-## Open PR hygiene
-
-PR #81 is closed historical evidence. PR #39 and legacy experiment PRs #4/#5/#10/#13 are old and are not active implementation authority.
+Legacy experimental/historical PRs are not active implementation authority. In particular, do not treat old PR #39 or PR #90 as the current product candidate. Re-fetch and use trusted tasks/current PR state rather than reviving stale branches.
 
 ## Hard boundaries
 
-No F-safety generation, no broad UI/HMI/graph/catalog expansion, no arbitrary hardware-from-scratch MVP expansion, no generic multi-vendor plugin architecture, no candidate source on trusted Windows/TIA, no vendor payloads in Git, and never modify `IndustrialMDE`.
+- GitHub is sole source of truth;
+- exact-SHA reviews do not transfer across candidate changes;
+- candidate source never runs on trusted Windows/TIA before independent review + merge;
+- vendor payload/raw Siemens text stays out of GitHub;
+- no unverified Valve facts;
+- no F-safety/broad UI/multi-vendor expansion;
+- never modify `IndustrialMDE`.
