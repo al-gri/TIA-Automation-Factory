@@ -171,17 +171,50 @@ public static class GeneratorCliApp
             }
 
             var typeToken = typeElement.GetString();
-            if (string.IsNullOrWhiteSpace(typeToken)
-                || !Enum.TryParse<AutomationType>(typeToken, ignoreCase: true, out var type)
-                || !Enum.IsDefined(type))
-            {
+            if (!TryParseAutomationType(typeToken, out var type))
                 throw new GeneratorCliException(InputTypeDiagnostic);
-            }
 
             fields.Add(new AutomationField(fieldNameElement.GetString()!, type));
         }
 
         return new AutomationDevice(nameElement.GetString()!, fields);
+    }
+
+    private static bool TryParseAutomationType(string? token, out AutomationType type)
+    {
+        if (string.Equals(token, "Bool", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.Bool;
+            return true;
+        }
+        if (string.Equals(token, "Int", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.Int;
+            return true;
+        }
+        if (string.Equals(token, "DInt", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.DInt;
+            return true;
+        }
+        if (string.Equals(token, "Real", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.Real;
+            return true;
+        }
+        if (string.Equals(token, "String", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.String;
+            return true;
+        }
+        if (string.Equals(token, "Time", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.Time;
+            return true;
+        }
+
+        type = default;
+        return false;
     }
 
     public static string ValidateProfileIdentity(string profileIdentity)
