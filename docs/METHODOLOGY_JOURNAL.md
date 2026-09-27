@@ -166,3 +166,19 @@ A follow-up audit of the fresh coding-agent context showed that a new initial Au
 
 ### Methodology effect
 For #61, replacement planning now separates qualification transaction/native-V21-open evidence from Valve contract/reference work. No new candidate is authorized until the explicit repair-budget decision is made. `PROJECT_STATE`/handoff/log are refreshed as coding-context inputs, and future replacement tasks should be smaller and self-contained enough that a fresh agent does not depend on hidden review history.
+
+## 2026-09-27 — Chat handoff must detect stale repository snapshots without invalidating active review
+
+### Evidence
+A live handoff audit found `docs/PROJECT_STATE.md` and `docs/NEXT_CHAT_HANDOFF.md` still described the 2026-09-21 state, while live main had advanced through CORE generator work, bounded OLQ diagnostic classifiers, trusted qualification run #320 and an active OUTPUT candidate PR #102. The originally proposed handoff protocol remained in stale open PR #39 rather than main.
+
+At the same time PR #102 had an exact head/base and green CI while waiting for independent secondary review. Merging a documentation checkpoint to main first would unnecessarily stale that candidate's base/review package.
+
+### Lessons
+- Repository-first does not mean snapshot-file-first; handoff begins with live refs/PRs/Actions and uses snapshot files only after freshness reconciliation.
+- A handoff state write is itself capable of invalidating exact-SHA/base evidence. Persist on a separate branch when needed and defer merge until the active candidate gate is safely completed.
+- An old handoff/protocol PR is historical evidence, not permission to revive an ancient base.
+- When trusted diagnostic enrichment still returns `unknown`, handoff must preserve the blocked uncertainty rather than turning it into a guessed vendor prerequisite.
+
+### Methodology effect
+Promote M-015: primary-chat handoff is a transactional freshness checkpoint with explicit stale-evidence handling. The current handoff candidate is docs/process-only and does not move trusted main during PR #102 review.
