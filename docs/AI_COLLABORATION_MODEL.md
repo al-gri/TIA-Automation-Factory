@@ -62,6 +62,12 @@ The human is strategic/risk authority and has delegated routine technical merge 
 
 For the exceptional bootstrap lane, positive human authority is represented by an SSH-signed Git attestation commit created outside ChatGPT/Codex/project automation with a human-controlled signing key. Owner attribution, comments, app-attribution metadata and unsigned API actions are not substitutes.
 
+## Primary-chat continuity
+
+The primary role belongs to the repository operating contract, not to one conversation instance. When the human requests a move to a fresh chat, the current primary executes `docs/CHAT_HANDOFF_PROTOCOL.md`: freeze discretionary work, audit live GitHub, persist factual state, detect stale exact-SHA evidence, then emit a compact bootstrap prompt.
+
+The old transcript and hidden memory are not authority and are not required for continuity. The fresh primary independently verifies GitHub before acting and inherits no stale approval merely because the old chat mentioned it. A handoff creates no new implementation, review, merge, risk-waiver or repair-budget authority.
+
 ## Independence rule
 
 The required reviewer must be independent from the candidate author/implementer.
