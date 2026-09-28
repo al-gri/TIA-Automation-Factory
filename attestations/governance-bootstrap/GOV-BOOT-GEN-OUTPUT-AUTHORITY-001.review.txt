@@ -1,0 +1,40 @@
+artifactType: governance-bootstrap-review-v1
+repository: al-gri/TIA-Automation-Factory
+issue: 106
+task: GOV-BOOT-GEN-OUTPUT-AUTHORITY-001
+purpose: review-attestation
+reviewRequestId: ER-104-a59f4cf1bdb4-CODE_REVIEW-BOOTSTRAP-2-chatgpt-secondary-manual
+reviewerSlot: chatgpt-secondary
+candidateSha: a59f4cf1bdb46ed2e09ef632a0d33fd0636ba865
+reviewRound: 2
+reviewJsonSha256: 320bdfc9bca6901a4c9e023e36bd0ff9b57a7aaabc3031321132e819be9ad170
+reviewJson:
+{
+  "protocolVersion": "1.0",
+  "reviewRequestId": "ER-104-a59f4cf1bdb4-CODE_REVIEW-BOOTSTRAP-2-chatgpt-secondary-manual",
+  "reviewerSlot": "chatgpt-secondary",
+  "taskId": "GOV-BOOT-GEN-OUTPUT-AUTHORITY-001",
+  "candidateSha": "a59f4cf1bdb46ed2e09ef632a0d33fd0636ba865",
+  "reviewType": "CODE_REVIEW",
+  "reviewRound": 2,
+  "reviewStatus": "APPROVE",
+  "summary": "Fresh isolated live-GitHub review confirms PR #104 remains open and unmerged at exact head a59f4cf1bdb46ed2e09ef632a0d33fd0636ba865, with both PR base and current main at 0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1. Issue #106 remains frozen and independently hashes to 48fc39d552beee7061e6bae6bcb486b9b64f05eeb3246066133f64ccb48ae229 over 7214 UTF-8 bytes. The replacement scope commit 1329fc3dde6581810008fd5d9c3bc425f79692a7 is bound directly to that main parent, has GitHub raw verification verified=true/reason=valid with an SSH signature, and resolves both author and committer to al-gri. Its canonical governance-bootstrap-scope-v1 payload exactly matches repository, issue, task and current body hash. Independent SSHSIG parsing confirms its Ed25519 public-key material is 4fdc1f347e5b7a88006ee942a7fe56d53900101a6930a64537d13d582f52a0d9, distinct from the disqualified key material b46eeff6b3fe6cbd4a00c7e1478ac281413fb71cb4c4d5deac10be5bb96595a2 used by f40e64435d60ae8068e1ae58356164dac5da5fdf and historical GOV-BOOT-001 attestations 4ac2b16c2b1ea81d225779ece58df3131fb18fd6 and 233abd7d55bf0c9f83e4b16da65bf5c73304a602. The exact PR diff changes only tasks/GEN-VALVE-FOUNDATION-OUTPUT-001.json and stays within issue #106's bounded authority. CI #492 / run 36347478466 remains successful for the exact candidate SHA. Bootstrap round-1 F001 is therefore resolved by the replacement fresh-key provenance. Per the stage-specific bootstrap rule, absence of a governance-bootstrap-review-v1 attestation is not a pre-verdict blocker; this APPROVE is not merge authority by itself.",
+  "requirements": {
+    "status": "PASS",
+    "notes": "The live frozen issue supplies the required HIGH-risk bounded governance authority and remains byte/hash exact. The replacement SSH-signed scope attestation exactly binds al-gri/TIA-Automation-Factory, issue 106, task GOV-BOOT-GEN-OUTPUT-AUTHORITY-001 and the current issue-body hash. The PR changes exactly one authorized file. The existing five candidatePolicy.allowedPaths are unchanged, maxRepairAttempts remains 2, the prerequisite is unchanged, acceptance.tia remains empty, allowTiaV21WorkerChanges remains false, protected paths remain unchanged, and no product/generator source, Siemens/Valve contract facts, Windows/TIA execution authority or IndustrialMDE scope is added."
+  },
+  "architecture": {
+    "status": "PASS",
+    "notes": "The bootstrap exception is semantically applicable rather than being used as a generic missing-task fallback. Trusted main authorizes only reviewerSlot chatgpt for the OUTPUT task, while PR #102 is live-documented as materially primary-ChatGPT-authored and therefore requires independent chatgpt-secondary review. A clean coding-agent replacement was attempted from trusted main in Autonomous Agent run #30 and failed twice before publication. PR #104 cannot rely on its own reviewer-slot addition to authorize itself, so issue #106 plus the independently verified SSH-signed human scope attestation supplies the required non-self-referential authority. The candidate preserves reviewer independence, exact-SHA binding, task-only normal automation and the Windows/TIA trust boundary."
+  },
+  "codeQuality": {
+    "status": "PASS",
+    "notes": "Independent base-to-head comparison shows only four semantic task-document changes: recording run #30 pre-publication evidence, adding one bounded authorship-fallback scope statement, adding one reviewer-selection acceptance statement, and changing reviewerSlots from [\"chatgpt\"] to [\"chatgpt\",\"chatgpt-secondary\"]. The fallback is explicitly limited to the existing five allowed paths and the reviewer mapping remains authorship-based rather than creating a dual-review requirement. No hidden scope widening was found."
+  },
+  "tests": {
+    "status": "PASS",
+    "notes": "CI #492 / run 36347478466 is completed SUCCESS for exact head a59f4cf1bdb46ed2e09ef632a0d33fd0636ba865. The Ubuntu build-test-generate job succeeded; the net48 SiemensBackend.Tests assembly compiled; net10 SiemensBackend.Tests passed 84/84; legacy generation produced artifacts/generated/UDT_Motor.scl beginning with TYPE \"UDT_Motor\". Autonomous Agent run #30 / 36346142106 independently confirms both implementation attempts reached the bounded coding-step limit, deterministic acceptance failed on CS0234 because GeneratorFoundationOutputTests referenced TiaAutomationFactory.GeneratorCli without the required project reference, and both publish jobs were skipped. No Windows/TIA candidate execution was present in the reviewed evidence."
+  },
+  "findings": [],
+  "recommendation": "APPROVE PR #104 for this exact independent bootstrap review gate only. Keep candidate a59f4cf1bdb46ed2e09ef632a0d33fd0636ba865 frozen. This JSON does not itself authorize merge and does not approve PR #102. Before any merge authority can be exercised, the human operator must place this exact APPROVE JSON in the separate SSH-signed governance-bootstrap-review-v1 attestation required by docs/GOVERNANCE_BOOTSTRAP.md, and primary must independently validate that attestation, its JSON hash and identity against the still-current candidate and GitHub state."
+}
