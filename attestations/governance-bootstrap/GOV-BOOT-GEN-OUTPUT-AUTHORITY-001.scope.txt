@@ -1,0 +1,7 @@
+artifactType: governance-bootstrap-scope-v1
+repository: al-gri/TIA-Automation-Factory
+issue: 106
+task: GOV-BOOT-GEN-OUTPUT-AUTHORITY-001
+purpose: scope-authorization
+issueBodySha256: 48fc39d552beee7061e6bae6bcb486b9b64f05eeb3246066133f64ccb48ae229
+statement: I authorize implementation and independent review only within the exact bounded scope of this issue body.
