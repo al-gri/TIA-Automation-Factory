@@ -8,7 +8,8 @@
   },
   "baselineEvidence": {
     "parentTask": "GEN-VALVE-FOUNDATION-001",
-    "failedRun": "Autonomous Agent run 36250733507 (#27) failed before candidate publication twice because the original combined task exceeded bounded coder steps. This task intentionally excludes compiler identity and Siemens name-policy implementation, which belong to its prerequisite core task."
+    "failedRun": "Autonomous Agent run 36250733507 (#27) failed before candidate publication twice because the original combined task exceeded bounded coder steps. This task intentionally excludes compiler identity and Siemens name-policy implementation, which belong to its prerequisite core task.",
+    "outputPrepublicationRun": "Autonomous Agent run 36346142106 (#30) executed this exact trusted OUTPUT task from main@0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1. Initial attempt and one failed-job rerun both reached the bounded coding-step limit before a publishable candidate existed; deterministic acceptance then failed because GeneratorFoundationOutputTests.cs referenced TiaAutomationFactory.GeneratorCli without the task-authorized net10 ProjectReference to src/GeneratorCli/GeneratorCli.csproj. Publisher was skipped both times, so no candidate PR/review existed and maxRepairAttempts was not consumed."
   },
   "contextFiles": [
     "src/GeneratorCli/Program.cs",
@@ -26,7 +27,8 @@
     "Profile identity is opaque external binding only. Validate only bounded/safe representation needed for deterministic manifest transport; do not infer or fabricate Siemens library metadata.",
     "Keep malformed/omitted JSON type tokens and unsupported AutomationType enum tokens fail-closed. Add stable bounded CLI diagnostic identity for parse/type/profile/containment failures without moving vendor-specific policy into Domain/PlcCompiler.",
     "Add focused Linux tests for manifest determinism and hashes, profile-token separation from input identity, output containment including sibling-prefix/absolute/traversal attacks, malformed/omitted/unsupported type input, and legacy two-argument Motor compatibility.",
-    "Do not add any fbValve_Solenoid call, parameter, dependency/version, instance/data ownership, DB/memory or target prerequisite fact."
+    "Do not add any fbValve_Solenoid call, parameter, dependency/version, instance/data ownership, DB/memory or target prerequisite fact.",
+    "Authorship fallback after the two recorded pre-publication failures is bounded and does not widen product scope: primary connected ChatGPT may complete or carry forward an implementation limited exactly to candidatePolicy.allowedPaths. If primary materially authors/co-authors the resulting exact candidate, the required independent reviewer is chatgpt-secondary; a coding-agent-authored exact candidate remains reviewed by primary chatgpt. Reviewer choice must follow authorship and the explicit reviewerSlots allow-list."
   ],
   "acceptance": {
     "requirements": [
@@ -40,7 +42,8 @@
       "Malformed/omitted required type tokens and unsupported enum tokens fail rather than defaulting semantics.",
       "Focused Linux tests cover determinism, profile/input separation, hashes, containment attacks, input parse/type failures and legacy Motor CLI.",
       "No unqualified Valve contract fact is asserted.",
-      "No Windows/TIA candidate execution occurs."
+      "No Windows/TIA candidate execution occurs.",
+      "Reviewer selection is satisfiable for either authorized authorship route: coding-agent-authored candidate -> independent chatgpt; primary-ChatGPT-authored/co-authored bounded maintainer candidate -> fresh isolated chatgpt-secondary. The selected reviewer must be independent and exact-SHA bound."
     ],
     "tia": []
   },
@@ -48,7 +51,8 @@
     "riskClass": "MEDIUM",
     "reviewType": "CODE_REVIEW",
     "reviewerSlots": [
-      "chatgpt"
+      "chatgpt",
+      "chatgpt-secondary"
     ]
   },
   "candidatePolicy": {
