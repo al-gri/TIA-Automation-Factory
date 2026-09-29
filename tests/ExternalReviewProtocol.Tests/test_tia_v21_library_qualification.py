@@ -368,6 +368,57 @@ $cases | ConvertTo-Json -Depth 4 -Compress
         self.assertFalse(result["controlCharacter"], result)
 
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
+    def test_worker_failure_projection_accepts_only_canonical_fixed_lexical_hints(self) -> None:
+        script = harness_functions() + r'''
+$canonicalHints = 'context-dependency,context-library-element,context-license,context-software-product,context-support-package,context-version,semantic-available,semantic-cannot-use,semantic-compatible,semantic-install,semantic-missing,semantic-release,semantic-required,semantic-unsupported,semantic-upgrade'
+$cases = [ordered]@{
+  canonical = [bool](Test-SafeWorkerFailureToken ('phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:' + $canonicalHints + ' detail-count:3 msgfp:0123456789abcdef dtlfp:fedcba9876543210'))
+  single = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:semantic-missing detail-count:3')
+  backwardCompatible = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:0123456789abcdef dtlfp:fedcba9876543210')
+  tagsOnlyBackwardCompatible = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown')
+  duplicate = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:semantic-missing,semantic-missing detail-count:3')
+  outOfOrder = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:semantic-required,semantic-missing detail-count:3')
+  mixedCase = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:Semantic-missing detail-count:3')
+  unknown = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:semantic-secret detail-count:3')
+  pathBearing = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:semantic-missing/secret detail-count:3')
+  withoutTags = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 hints:semantic-missing detail-count:3')
+  withoutDetailCount = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:semantic-missing')
+  afterDetailCount = [bool](Test-SafeWorkerFailureToken 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 hints:semantic-missing')
+}
+$controlToken = 'phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:semantic-missing' + [char]10 + ' detail-count:3'
+$cases['controlCharacter'] = [bool](Test-SafeWorkerFailureToken $controlToken)
+$overlongHint = 'semantic-' + ('x' * 520)
+$cases['overlong'] = [bool](Test-SafeWorkerFailureToken ('phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown hints:' + $overlongHint + ' detail-count:3'))
+$cases | ConvertTo-Json -Depth 4 -Compress
+'''
+        completed = run_pwsh(script)
+        self.assertEqual(0, completed.returncode, completed.stdout)
+        result = json.loads(completed.stdout.strip())
+
+        self.assertTrue(result["canonical"], result)
+        self.assertTrue(result["single"], result)
+        self.assertTrue(result["backwardCompatible"], result)
+        self.assertTrue(result["tagsOnlyBackwardCompatible"], result)
+        self.assertFalse(result["duplicate"], result)
+        self.assertFalse(result["outOfOrder"], result)
+        self.assertFalse(result["mixedCase"], result)
+        self.assertFalse(result["unknown"], result)
+        self.assertFalse(result["pathBearing"], result)
+        self.assertFalse(result["withoutTags"], result)
+        self.assertFalse(result["withoutDetailCount"], result)
+        self.assertFalse(result["afterDetailCount"], result)
+        self.assertFalse(result["controlCharacter"], result)
+        self.assertFalse(result["overlong"], result)
+
+        publication = between(
+            "      - name: Publish sanitized result to qualification issue",
+            "      - name: Enforce qualification result",
+        )
+        self.assertNotIn("failureDetails", publication)
+        self.assertNotIn("MessageData", publication)
+        self.assertNotIn("DetailMessageData", publication)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "pwsh is unavailable")
     def test_run2_failure_projection_preserves_only_prevalidated_run1_evidence(self) -> None:
         script = harness_functions() + r'''
 $evidence = [ordered]@{
