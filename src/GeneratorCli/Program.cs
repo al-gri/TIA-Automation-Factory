@@ -84,10 +84,27 @@ public static class GeneratorCliApp
             }
 
             Directory.CreateDirectory(Path.GetFullPath(arguments[1]));
+
+            artifactPath = OutputContainment.ResolveContainedPath(
+                arguments[1],
+                artifactRelativePath);
+
+            if (manifestPath is not null)
+            {
+                manifestPath = OutputContainment.ResolveContainedPath(
+                    arguments[1],
+                    GeneratorManifest.ManifestFileName);
+            }
+
             await File.WriteAllBytesAsync(artifactPath, artifactBytes);
 
             if (manifestPath is not null && manifestBytes is not null)
+            {
+                manifestPath = OutputContainment.ResolveContainedPath(
+                    arguments[1],
+                    GeneratorManifest.ManifestFileName);
                 await File.WriteAllBytesAsync(manifestPath, manifestBytes);
+            }
 
             await stdout.WriteLineAsync(artifactRelativePath);
             if (manifestPath is not null)
@@ -140,17 +157,19 @@ public static class GeneratorCliApp
         if (root.ValueKind != JsonValueKind.Object)
             throw new GeneratorCliException(InputModelDiagnostic);
 
-        if (!TryGetPropertyIgnoreCase(root, "name", out var nameElement)
-            || nameElement.ValueKind != JsonValueKind.String)
-        {
+        var nameElement = GetRequiredUniquePropertyIgnoreCase(
+            root,
+            "name",
+            InputModelDiagnostic);
+        if (nameElement.ValueKind != JsonValueKind.String)
             throw new GeneratorCliException(InputModelDiagnostic);
-        }
 
-        if (!TryGetPropertyIgnoreCase(root, "fields", out var fieldsElement)
-            || fieldsElement.ValueKind != JsonValueKind.Array)
-        {
+        var fieldsElement = GetRequiredUniquePropertyIgnoreCase(
+            root,
+            "fields",
+            InputModelDiagnostic);
+        if (fieldsElement.ValueKind != JsonValueKind.Array)
             throw new GeneratorCliException(InputModelDiagnostic);
-        }
 
         var fields = new List<AutomationField>();
         foreach (var fieldElement in fieldsElement.EnumerateArray())
@@ -158,17 +177,19 @@ public static class GeneratorCliApp
             if (fieldElement.ValueKind != JsonValueKind.Object)
                 throw new GeneratorCliException(InputModelDiagnostic);
 
-            if (!TryGetPropertyIgnoreCase(fieldElement, "name", out var fieldNameElement)
-                || fieldNameElement.ValueKind != JsonValueKind.String)
-            {
+            var fieldNameElement = GetRequiredUniquePropertyIgnoreCase(
+                fieldElement,
+                "name",
+                InputModelDiagnostic);
+            if (fieldNameElement.ValueKind != JsonValueKind.String)
                 throw new GeneratorCliException(InputModelDiagnostic);
-            }
 
-            if (!TryGetPropertyIgnoreCase(fieldElement, "type", out var typeElement)
-                || typeElement.ValueKind != JsonValueKind.String)
-            {
+            var typeElement = GetRequiredUniquePropertyIgnoreCase(
+                fieldElement,
+                "type",
+                InputTypeDiagnostic);
+            if (typeElement.ValueKind != JsonValueKind.String)
                 throw new GeneratorCliException(InputTypeDiagnostic);
-            }
 
             var typeToken = typeElement.GetString();
             if (!TryParseAutomationType(typeToken, out var type))
@@ -229,21 +250,29 @@ public static class GeneratorCliApp
         return profileIdentity;
     }
 
-    private static bool TryGetPropertyIgnoreCase(
+    private static JsonElement GetRequiredUniquePropertyIgnoreCase(
         JsonElement element,
         string propertyName,
-        out JsonElement value)
+        string diagnosticCode)
     {
+        var found = false;
+        var value = default(JsonElement);
+
         foreach (var property in element.EnumerateObject())
         {
-            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
-            {
-                value = property.Value;
-                return true;
-            }
+            if (!string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (found)
+                throw new GeneratorCliException(diagnosticCode);
+
+            found = true;
+            value = property.Value;
         }
 
-        value = default;
-        return false;
+        if (!found)
+            throw new GeneratorCliException(diagnosticCode);
+
+        return value;
     }
 }
