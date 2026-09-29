@@ -124,6 +124,45 @@ public sealed class GeneratorFoundationOutputTests
     }
 
     [Theory]
+    [InlineData("""{"name":"Motor","fields":[{"name":"Start","type":"Bool","TYPE":0}]}""")]
+    [InlineData("""{"name":"Motor","fields":[{"name":"Start","TYPE":0,"type":"Bool"}]}""")]
+    [InlineData("""{"name":"Motor","fields":[{"name":"Start","type":"Bool","TYPE":"Bogus"}]}""")]
+    [InlineData("""{"name":"Motor","fields":[{"name":"Start","TYPE":"Bogus","type":"Bool"}]}""")]
+    public async Task Duplicate_type_properties_fail_closed_in_both_orders(string json)
+    {
+        using var temp = new TempDirectory();
+        var input = temp.WriteFile("input.json", json);
+        var output = Path.Combine(temp.Path, "out");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await GeneratorCliApp.RunAsync(new[] { input, output }, stdout, stderr);
+
+        Assert.Equal(2, exit);
+        Assert.Equal(GeneratorCliApp.InputTypeDiagnostic + Environment.NewLine, stderr.ToString());
+        Assert.False(Directory.Exists(output));
+    }
+
+    [Theory]
+    [InlineData("""{"name":"Motor","NAME":"Other","fields":[]}""")]
+    [InlineData("""{"name":"Motor","fields":[],"FIELDS":[]}""")]
+    [InlineData("""{"name":"Motor","fields":[{"name":"Start","NAME":"Other","type":"Bool"}]}""")]
+    public async Task Duplicate_non_type_semantic_properties_fail_as_model_errors(string json)
+    {
+        using var temp = new TempDirectory();
+        var input = temp.WriteFile("input.json", json);
+        var output = Path.Combine(temp.Path, "out");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await GeneratorCliApp.RunAsync(new[] { input, output }, stdout, stderr);
+
+        Assert.Equal(2, exit);
+        Assert.Equal(GeneratorCliApp.InputModelDiagnostic + Environment.NewLine, stderr.ToString());
+        Assert.False(Directory.Exists(output));
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("line\nbreak")]
@@ -159,6 +198,78 @@ public sealed class GeneratorFoundationOutputTests
             OutputContainment.ResolveContainedPath(root, @"C:\outside\escape.scl"));
 
         Assert.False(File.Exists(sibling));
+    }
+
+    [Fact]
+    public async Task Existing_artifact_symlink_fails_closed_without_modifying_outside_target()
+    {
+        using var temp = new TempDirectory();
+        var input = temp.WriteFile("motor.json", MotorJson);
+        var output = Path.Combine(temp.Path, "out");
+        Directory.CreateDirectory(output);
+
+        var outside = temp.WriteFile("outside-artifact.scl", "sentinel");
+        File.CreateSymbolicLink(Path.Combine(output, "UDT_Motor.scl"), outside);
+
+        var stderr = new StringWriter();
+        var exit = await GeneratorCliApp.RunAsync(
+            new[] { input, output },
+            new StringWriter(),
+            stderr);
+
+        Assert.Equal(2, exit);
+        Assert.Equal(OutputContainment.DiagnosticCode + Environment.NewLine, stderr.ToString());
+        Assert.Equal("sentinel", await File.ReadAllTextAsync(outside));
+    }
+
+    [Fact]
+    public async Task Existing_manifest_symlink_fails_before_any_output_write()
+    {
+        using var temp = new TempDirectory();
+        var input = temp.WriteFile("motor.json", MotorJson);
+        var output = Path.Combine(temp.Path, "out");
+        Directory.CreateDirectory(output);
+
+        var outside = temp.WriteFile("outside-manifest.json", "sentinel");
+        File.CreateSymbolicLink(
+            Path.Combine(output, GeneratorManifest.ManifestFileName),
+            outside);
+
+        var stderr = new StringWriter();
+        var exit = await GeneratorCliApp.RunAsync(
+            new[] { input, output, "profile-A" },
+            new StringWriter(),
+            stderr);
+
+        Assert.Equal(2, exit);
+        Assert.Equal(OutputContainment.DiagnosticCode + Environment.NewLine, stderr.ToString());
+        Assert.Equal("sentinel", await File.ReadAllTextAsync(outside));
+        Assert.False(File.Exists(Path.Combine(output, "UDT_Motor.scl")));
+    }
+
+    [Fact]
+    public async Task Redirecting_output_component_fails_closed_without_writing_through_link()
+    {
+        using var temp = new TempDirectory();
+        var input = temp.WriteFile("motor.json", MotorJson);
+        var outsideRoot = Path.Combine(temp.Path, "outside-root");
+        Directory.CreateDirectory(outsideRoot);
+
+        var rootParent = Path.Combine(temp.Path, "root-parent");
+        Directory.CreateDirectory(rootParent);
+        var redirect = Path.Combine(rootParent, "redirect");
+        Directory.CreateSymbolicLink(redirect, outsideRoot);
+
+        var output = Path.Combine(redirect, "nested");
+        var stderr = new StringWriter();
+        var exit = await GeneratorCliApp.RunAsync(
+            new[] { input, output },
+            new StringWriter(),
+            stderr);
+
+        Assert.Equal(2, exit);
+        Assert.Equal(OutputContainment.DiagnosticCode + Environment.NewLine, stderr.ToString());
+        Assert.False(File.Exists(Path.Combine(outsideRoot, "nested", "UDT_Motor.scl")));
     }
 
     [Fact]
