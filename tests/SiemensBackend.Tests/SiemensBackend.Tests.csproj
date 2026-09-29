@@ -30,13 +30,16 @@
     <ProjectReference Include="../../src/GeneratorCli/GeneratorCli.csproj" />
     <Compile Include="../../src/TiaV21Worker/QualificationState.cs" Link="QualificationState.cs" />
     <Compile Include="../../src/TiaV21Worker/QualificationPrerequisiteClassifier.cs" Link="QualificationPrerequisiteClassifier.cs" />
+    <Compile Include="../../src/TiaV21Worker/QualificationLexicalHints.cs" Link="QualificationLexicalHints.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
     <Compile Remove="**/*.cs" />
     <Compile Include="QualificationStateTests.cs" />
     <Compile Include="QualificationPrerequisiteClassifierTests.cs" />
+    <Compile Include="QualificationLexicalHintsTests.cs" />
     <Compile Include="../../src/TiaV21Worker/QualificationState.cs" Link="QualificationState.cs" />
     <Compile Include="../../src/TiaV21Worker/QualificationPrerequisiteClassifier.cs" Link="QualificationPrerequisiteClassifier.cs" />
+    <Compile Include="../../src/TiaV21Worker/QualificationLexicalHints.cs" Link="QualificationLexicalHints.cs" />
   </ItemGroup>
 </Project>
