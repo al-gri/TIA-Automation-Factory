@@ -56,6 +56,46 @@ Re-read live GitHub:
 11. methodology telemetry when it affects the checkpoint;
 12. newly created work not yet reflected in snapshot docs.
 
+## Operator-local Git / Windows context
+
+This block is a **non-authoritative execution convenience** for rare human-only local Git actions. GitHub live state still wins over the local clone, branch state and any remembered command output.
+
+Known operator context:
+
+- canonical local clone: `C:\Users\user\Documents\GitHub\TIA-Automation-Factory`;
+- repository: `al-gri/TIA-Automation-Factory`;
+- `origin`: `https://github.com/al-gri/TIA-Automation-Factory.git`;
+- default/trusted branch: `main`;
+- operator shell: Windows PowerShell;
+- Git identity observed in the local clone:
+  - `user.name = al-gri`;
+  - `user.email = 99790922+al-gri@users.noreply.github.com`;
+- commit signing mode:
+  - `gpg.format = ssh`;
+  - `commit.gpgsign = true`;
+  - current dedicated human-only signing key path: `$env:USERPROFILE\.ssh\tia_human_attest_20260928_v2`;
+  - public fingerprint: `SHA256:8/hD2CKFcZzl6Wu31wOoubmXANGd+la/F3kj6+2zimw`;
+  - the older `tia_human_attest` key was explicitly disqualified for governance-bootstrap authority after exposure outside the human-only trust boundary and must not be reused for such attestations.
+
+When a future primary needs the human to perform a local Git action:
+
+1. do **not** ask for the repository path again unless the user says it changed;
+2. provide command-only PowerShell blocks beginning with:
+   ```powershell
+   cd "C:\Users\user\Documents\GitHub\TIA-Automation-Factory"
+   git fetch origin
+   ```
+3. never include or ask the user to paste the PowerShell prompt prefix such as `PS C:\...>` as a command;
+4. for signed evidence, preserve the order `create/stage -> git commit -S -> git rev-parse HEAD -> git push`; do not ask for push before the commit exists;
+5. never request, print or persist a private-key body or passphrase. Only public-key material/fingerprint and GitHub verification metadata may enter project evidence;
+6. if GitHub reports `unknown_key`, first verify that the corresponding **public** key is registered in GitHub as a **Signing Key**; do not regenerate or amend the commit by default;
+7. treat CRLF/LF warnings as a local working-tree concern and validate the actual committed bytes from GitHub before consuming evidence;
+8. never merge human attestation/evidence branches into `main`;
+9. after any local push, connected primary must independently re-fetch exact commit/ref/signature metadata from GitHub before claiming success;
+10. local files and local branch state are never project authority by themselves.
+
+This local context exists specifically so a fresh primary chat can guide an exceptional human-only Git/SSH step without repeating environment discovery. It must not be used to bypass normal connected GitHub orchestration.
+
 ## 5. Reconciliation
 
 - GitHub wins over chat memory and older handoff documents.
