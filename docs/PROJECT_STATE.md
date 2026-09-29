@@ -1,7 +1,7 @@
 # Project State — Authoritative Operational Snapshot
 
-Last updated: 2026-09-27
-Checkpoint trusted main: `0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1`
+Last updated: 2026-09-29
+Checkpoint trusted main: `920c4e1a276c77af95288f42da94ddfa3ce414d3`
 
 GitHub is the only durable source of truth. Re-fetch live refs/tasks/PRs/reviews/Actions before acting; this file is a recovery aid, not a substitute for live evidence.
 
@@ -26,63 +26,86 @@ Automation input
 
 Domain/compiler stay vendor-neutral. `Siemens.Engineering` stays inside `src/TiaV21Worker`. Candidate source executes on disposable Linux; Windows/TIA executes merged trusted main only. `IndustrialMDE` is out of scope.
 
-## Completed generator foundation CORE
+## Generator foundation status
 
-`GEN-VALVE-FOUNDATION-CORE-001` is merged and green. The trusted generator now has:
+### CORE — complete
+
+`GEN-VALVE-FOUNDATION-CORE-001` is merged and green. Trusted generator foundation includes:
 
 - versioned unambiguous canonical parsed-model identity in PlcCompiler;
 - SiemensBackend-only bounded emitted-name/symbol policy;
 - Motor/Time compatibility and collision regressions.
 
-## Active generator foundation OUTPUT (#62)
+### OUTPUT — merged and independently accepted
 
 Trusted task: `tasks/GEN-VALVE-FOUNDATION-OUTPUT-001.json`.
 
-Active PR #102:
+PR #102 merged exact reviewed candidate `e4b0165fc86af24a147c10c8be7ee8d25422acdb` as `main@920c4e1a276c77af95288f42da94ddfa3ce414d3`.
 
-- exact head `cc370d6d19c65c483837e1a8358dc9f931c2dc87`;
-- base `0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1`;
-- exact five allowed paths only;
-- CI #490 / run `36344246671`: SUCCESS;
-- net10 tests 96/96 PASS;
-- legacy Motor artifact generation PASS;
-- no candidate Windows/TIA execution;
-- awaiting fresh isolated `chatgpt-secondary` review because primary authored the implementation.
+Accepted behavior:
 
-Review request: `ER-102-cc370d6d19c6-CODE_REVIEW-1-chatgpt-secondary-manual`.
+- deterministic generator manifest with stable generator/input/profile identities;
+- exact artifact SHA-256 over emitted bytes;
+- additive optional profile binding while preserving legacy two-argument Motor CLI;
+- strict fail-closed AutomationType tokens;
+- fail-closed duplicate semantic JSON properties;
+- path-aware output containment including pre-existing symlink/reparse-point rejection;
+- stable bounded diagnostics;
+- no unqualified Valve facts.
 
-Finish this gate before starting new discretionary generator work.
+Review/repair evidence:
+
+- round 1 on `e7ecea464e4c003fd2e139e44030616d955ebe5e`: CHANGES_REQUIRED for F001 symlink/reparse containment and F002 duplicate semantic JSON properties;
+- bounded repair round 1/2;
+- CI #497 / `36536698825`: SUCCESS, net10 106/106 PASS, net48 assembly compile PASS, Motor generation PASS;
+- round 2 request `ER-102-e4b0165fc86a-CODE_REVIEW-2-chatgpt-secondary-manual`: APPROVE with no findings;
+- post-merge CI #500 / `36547750103`: SUCCESS, net10 106/106, net48 assembly PASS, Motor generation PASS.
+
+Trusted-main TIA V21 End-to-End #16 / `36547750239` is still in progress at this checkpoint. Do not claim final Siemens/TIA acceptance for `920c4e1...` until its enforce result is terminal.
 
 ## Open Library qualification (#61)
 
-The evidence-projection and bounded prerequisite-classifier work is merged.
-
-Trusted run #320 / `36273653086` on `main@0a1d891bd7c26a4dbe057ca9d9a83e1c2b0e31b1` failed with sanitized evidence:
+Trusted qualification run #320 / `36273653086` on earlier trusted main failed with sanitized evidence:
 
 `phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:f85ef7ebe21aad89`
 
-The classifier did not prove support-package/software-product/unsupported-library-element or another safe prerequisite category. #61 therefore remains BLOCKED on unknown trusted vendor prerequisite. Do not speculate, change migration APIs, claim a qualified Valve profile, or trigger another qualification run without a new reviewed evidence-backed authority.
+The classifier did not prove support-package/software-product/unsupported-library-element or another safe prerequisite category. #61 remains **BLOCKED / unknown**.
+
+Do not speculate, change migration APIs, claim a qualified Valve profile, or trigger another qualification run without new reviewed evidence-backed authority.
 
 ## Future trusted Valve acceptance (#63)
 
-Planning-only. Do not start implementation until:
+Planning-only. Do not start implementation until #61 provides a reviewed qualified Valve contract/profile identity. The #62 deterministic foundation is now merged, so #61 is the remaining product-semantic prerequisite for the real Valve vertical slice.
 
-1. #61 provides a reviewed qualified Valve contract/profile identity;
-2. #62 deterministic generator output/manifest semantics are reviewed, merged and post-merge green.
+## Governance/review state
 
-## Review/merge model
+PR #104 resolved the reviewer-slot authorization recursion through the exceptional SSH-signed governance-bootstrap lane and merged as `d814919304b43f58ac6d82045ac7051eb7b1226c`. Post-merge CI #493 succeeded.
 
-- coding-agent-only candidates -> primary `chatgpt` independent review;
-- primary-authored/co-authored candidates -> fresh isolated `chatgpt-secondary`;
+Normal task-backed rules are restored:
+
+- coding-agent-only candidates -> primary `chatgpt` when independent;
+- primary-authored/co-authored candidates -> fresh isolated `chatgpt-secondary` when explicitly authorized by trusted task;
 - approvals bind exact current SHA;
 - repairs are bounded by trusted task;
-- routine technical merge is delegated to primary only when all exact gates pass.
+- routine technical merge is delegated to primary when all exact gates pass.
 
 ## Handoff-process state
 
-Trusted task `CHAT-HANDOFF-001` exists, but the old protocol PR #39 remained stale/unmerged and main snapshot docs were stale. A new handoff synchronization candidate is being prepared from this exact current main without moving main, so it does not stale PR #102.
+Trusted task `CHAT-HANDOFF-001` is active through PR #103.
 
-The handoff docs candidate itself is primary-authored and must receive fresh isolated `chatgpt-secondary` review before merge. It should not be merged ahead of PR #102 if that would unnecessarily stale PR #102 review/base evidence.
+Current docs candidate contains the repository-first handoff protocol plus persisted operator-local Git/Windows context, including:
+
+- canonical clone `C:\Users\user\Documents\GitHub\TIA-Automation-Factory`;
+- repository/origin/default branch;
+- PowerShell workflow;
+- Git identity;
+- current human-only SSH signing-key path/fingerprint and old-key disqualification;
+- private-key/passphrase non-disclosure rules;
+- correct signed-evidence command order and GitHub re-verification requirements.
+
+This local context is convenience only; GitHub remains authority.
+
+PR #103 is primary-authored and requires fresh isolated `chatgpt-secondary` exact-SHA review before merge. It must be refreshed/reviewed only after its snapshot reflects the latest product/TIA state.
 
 ## Hard boundaries
 
