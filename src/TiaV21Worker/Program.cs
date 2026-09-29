@@ -909,6 +909,7 @@ namespace TiaAutomationFactory.TiaV21Worker
                 }
 
                 var tags = QualificationPrerequisiteClassifier.Classify(messageText, detailTexts);
+                var hints = QualificationLexicalHints.DeriveHints(messageText, detailTexts);
 
                 string messageDataFingerprint = null;
                 if (!string.IsNullOrEmpty(messageText))
@@ -920,6 +921,8 @@ namespace TiaAutomationFactory.TiaV21Worker
 
                 var parts = new List<string>();
                 parts.Add("tags:" + string.Join(",", tags));
+                if (hints.Count > 0)
+                    parts.Add("hints:" + string.Join(",", hints));
                 parts.Add("detail-count:" + detailCount);
                 if (messageDataFingerprint != null)
                     parts.Add("msgfp:" + messageDataFingerprint);
