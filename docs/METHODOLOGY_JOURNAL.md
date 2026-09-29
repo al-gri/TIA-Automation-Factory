@@ -182,3 +182,22 @@ At the same time PR #102 had an exact head/base and green CI while waiting for i
 
 ### Methodology effect
 Promote M-015: primary-chat handoff is a transactional freshness checkpoint with explicit stale-evidence handling. The current handoff candidate is docs/process-only and does not move trusted main during PR #102 review.
+
+## 2026-09-29 — Handoff must persist execution context without turning the workstation into authority
+
+### Evidence
+During governance-bootstrap recovery, several human-only PowerShell/Git steps repeated avoidable environment discovery and command-order mistakes: locating the local clone, distinguishing the PowerShell prompt from commands, configuring SSH commit signing, ensuring `commit -> rev-parse -> push`, registering the public key as a GitHub Signing Key, and re-verifying signatures from GitHub.
+
+The canonical local clone was confirmed as `C:\Users\user\Documents\GitHub\TIA-Automation-Factory`. A fresh dedicated human-only SSH signing key was established at `$env:USERPROFILE\.ssh\tia_human_attest_20260928_v2` with public fingerprint `SHA256:8/hD2CKFcZzl6Wu31wOoubmXANGd+la/F3kj6+2zimw`; the older attestation key was explicitly disqualified for bootstrap authority.
+
+Separately, PR #102 semantic review found two major green-CI gaps (symlink/reparse redirection and duplicate semantic JSON properties), repaired them within bounded scope, and merged. Trusted-main TIA V21 End-to-End #16 then accepted the merged Motor path with 0 errors / 0 warnings.
+
+### Lessons
+- A repository-first handoff should persist stable operator execution context when it prevents repeated human setup work, but mark it non-authoritative and re-verify all real state through GitHub.
+- Human-only cryptographic actions need command sequences that are difficult to execute out of order; copy/paste instructions should never include shell prompt text as if it were a command.
+- Never persist private-key material or passphrases. Public key path/fingerprint and GitHub verification metadata are sufficient.
+- Local clone/branch/worktree state is convenience, not project truth.
+- Strong acceptance language such as “write nothing outside root” should drive adversarial semantic review even when CI is green.
+
+### Methodology effect
+The chat handoff protocol now includes a durable operator-local Git/Windows block for future exceptional human-only actions, while retaining GitHub as sole authority and exact-SHA review semantics.
