@@ -80,12 +80,10 @@ Before review/merge, verify PR #103 is refreshed onto current main and that any 
 
 ## Next safe actions
 
-1. obtain terminal result for trusted-main TIA V21 End-to-End #16 / `36547750239`;
-2. update PR #103 snapshots if that result changes state;
-3. verify exact PR #103 CI;
-4. obtain one fresh isolated `chatgpt-secondary` review of exact PR #103 head;
-5. if APPROVE and gates remain exact, delegated-merge PR #103 and verify post-merge CI;
-6. then return to #61 evidence-driven prerequisite diagnosis / product planning. Do not start a real Valve call before #61 contract qualification.
+1. verify exact PR #103 CI after the final TIA/state updates;
+2. obtain one fresh isolated `chatgpt-secondary` review of exact PR #103 head;
+3. if APPROVE and gates remain exact, delegated-merge PR #103 and verify post-merge CI;
+4. then return to #61 evidence-driven prerequisite diagnosis / product planning. Do not start a real Valve call before #61 contract qualification.
 
 ## Historical/bootstrap evidence
 
