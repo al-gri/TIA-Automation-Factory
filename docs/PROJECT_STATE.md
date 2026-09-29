@@ -61,7 +61,17 @@ Review/repair evidence:
 - round 2 request `ER-102-e4b0165fc86a-CODE_REVIEW-2-chatgpt-secondary-manual`: APPROVE with no findings;
 - post-merge CI #500 / `36547750103`: SUCCESS, net10 106/106, net48 assembly PASS, Motor generation PASS.
 
-Trusted-main TIA V21 End-to-End #16 / `36547750239` is still in progress at this checkpoint. Do not claim final Siemens/TIA acceptance for `920c4e1...` until its enforce result is terminal.
+Trusted-main TIA V21 End-to-End #16 / `36547750239`: **SUCCESS** on `main@920c4e1a276c77af95288f42da94ddfa3ce414d3`.
+
+Observed trusted Windows/TIA evidence:
+- generated `UDT_Motor.scl` from merged main;
+- TiaV21Worker build PASS;
+- TIA Portal V21 Openness import/update PASS;
+- `UDT_Motor (UDT)`: successfully updated;
+- block/project compile PASS;
+- final diagnostics: `success=true`, `state=Success`, **0 errors / 0 warnings**.
+
+This is post-merge Siemens acceptance for the generic Motor foundation path only; it does not qualify the blocked Open Library Valve contract in #61.
 
 ## Open Library qualification (#61)
 
