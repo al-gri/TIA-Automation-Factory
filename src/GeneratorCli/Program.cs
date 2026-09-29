@@ -1,27 +1,278 @@
+using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using TiaAutomationFactory.Domain;
 using TiaAutomationFactory.PlcCompiler;
 using TiaAutomationFactory.SiemensBackend;
 
-if (args.Length != 2)
+namespace TiaAutomationFactory.GeneratorCli;
+
+public static class Program
 {
-    Console.Error.WriteLine("Usage: GeneratorCli <input.json> <output-directory>");
-    return 2;
+    public static Task<int> Main(string[] args)
+        => GeneratorCliApp.RunAsync(args, Console.Out, Console.Error);
 }
 
-var json = await File.ReadAllTextAsync(args[0]);
-var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-options.Converters.Add(new JsonStringEnumConverter());
+public sealed class GeneratorCliException : Exception
+{
+    public string Code { get; }
 
-var device = JsonSerializer.Deserialize<AutomationDevice>(json, options)
-    ?? throw new InvalidOperationException("Input JSON did not contain an AutomationDevice.");
+    public GeneratorCliException(string code)
+        : base(code)
+    {
+        Code = code;
+    }
+}
 
-var ir = AutomationCompiler.Compile(device);
-var scl = SclDataTypeGenerator.Generate(ir);
+public static class GeneratorCliApp
+{
+    public const string UsageDiagnostic = "GEN-CLI-USAGE";
+    public const string InputJsonDiagnostic = "GEN-CLI-INPUT-JSON";
+    public const string InputModelDiagnostic = "GEN-CLI-INPUT-MODEL";
+    public const string InputTypeDiagnostic = "GEN-CLI-INPUT-TYPE";
+    public const string ProfileDiagnostic = "GEN-CLI-PROFILE";
+    public const string SiemensNameDiagnostic = "GEN-CLI-SIEMENS-NAME";
+    public const string IoDiagnostic = "GEN-CLI-IO";
+    public const string UnexpectedDiagnostic = "GEN-CLI-UNEXPECTED";
 
-Directory.CreateDirectory(args[1]);
-var output = Path.Combine(args[1], $"UDT_{ir.Name}.scl");
-await File.WriteAllTextAsync(output, scl);
-Console.WriteLine(output);
-return 0;
+    public static async Task<int> RunAsync(
+        string[] arguments,
+        TextWriter stdout,
+        TextWriter stderr)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(stdout);
+        ArgumentNullException.ThrowIfNull(stderr);
+
+        if (arguments.Length is < 2 or > 3)
+        {
+            await stderr.WriteLineAsync(UsageDiagnostic);
+            return 2;
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(arguments[0]);
+            var device = ParseDevice(json);
+            var ir = AutomationCompiler.Compile(device);
+            var scl = SclDataTypeGenerator.Generate(ir);
+            var artifactBytes = new UTF8Encoding(false).GetBytes(scl);
+            var artifactRelativePath = $"UDT_{ir.Name}.scl";
+
+            var artifactPath = OutputContainment.ResolveContainedPath(
+                arguments[1],
+                artifactRelativePath);
+
+            string? manifestPath = null;
+            byte[]? manifestBytes = null;
+
+            if (arguments.Length == 3)
+            {
+                var profileIdentity = ValidateProfileIdentity(arguments[2]);
+                var inputIdentity = CanonicalInputIdentity.Compute(ir);
+                var artifact = GeneratorManifest.ArtifactFromBytes(
+                    artifactRelativePath,
+                    artifactBytes);
+
+                manifestBytes = GeneratorManifest.Serialize(
+                    inputIdentity,
+                    profileIdentity,
+                    new[] { artifact });
+
+                manifestPath = OutputContainment.ResolveContainedPath(
+                    arguments[1],
+                    GeneratorManifest.ManifestFileName);
+            }
+
+            Directory.CreateDirectory(Path.GetFullPath(arguments[1]));
+
+            artifactPath = OutputContainment.ResolveContainedPath(
+                arguments[1],
+                artifactRelativePath);
+
+            if (manifestPath is not null)
+            {
+                manifestPath = OutputContainment.ResolveContainedPath(
+                    arguments[1],
+                    GeneratorManifest.ManifestFileName);
+            }
+
+            await File.WriteAllBytesAsync(artifactPath, artifactBytes);
+
+            if (manifestPath is not null && manifestBytes is not null)
+            {
+                manifestPath = OutputContainment.ResolveContainedPath(
+                    arguments[1],
+                    GeneratorManifest.ManifestFileName);
+                await File.WriteAllBytesAsync(manifestPath, manifestBytes);
+            }
+
+            await stdout.WriteLineAsync(artifactRelativePath);
+            if (manifestPath is not null)
+                await stdout.WriteLineAsync(GeneratorManifest.ManifestFileName);
+
+            return 0;
+        }
+        catch (GeneratorCliException exception)
+        {
+            await stderr.WriteLineAsync(exception.Code);
+            return 2;
+        }
+        catch (JsonException)
+        {
+            await stderr.WriteLineAsync(InputJsonDiagnostic);
+            return 2;
+        }
+        catch (InvalidOperationException)
+        {
+            await stderr.WriteLineAsync(InputModelDiagnostic);
+            return 2;
+        }
+        catch (SiemensNamePolicyException)
+        {
+            await stderr.WriteLineAsync(SiemensNameDiagnostic);
+            return 2;
+        }
+        catch (IOException)
+        {
+            await stderr.WriteLineAsync(IoDiagnostic);
+            return 2;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            await stderr.WriteLineAsync(IoDiagnostic);
+            return 2;
+        }
+        catch
+        {
+            await stderr.WriteLineAsync(UnexpectedDiagnostic);
+            return 2;
+        }
+    }
+
+    public static AutomationDevice ParseDevice(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new GeneratorCliException(InputModelDiagnostic);
+
+        var nameElement = GetRequiredUniquePropertyIgnoreCase(
+            root,
+            "name",
+            InputModelDiagnostic);
+        if (nameElement.ValueKind != JsonValueKind.String)
+            throw new GeneratorCliException(InputModelDiagnostic);
+
+        var fieldsElement = GetRequiredUniquePropertyIgnoreCase(
+            root,
+            "fields",
+            InputModelDiagnostic);
+        if (fieldsElement.ValueKind != JsonValueKind.Array)
+            throw new GeneratorCliException(InputModelDiagnostic);
+
+        var fields = new List<AutomationField>();
+        foreach (var fieldElement in fieldsElement.EnumerateArray())
+        {
+            if (fieldElement.ValueKind != JsonValueKind.Object)
+                throw new GeneratorCliException(InputModelDiagnostic);
+
+            var fieldNameElement = GetRequiredUniquePropertyIgnoreCase(
+                fieldElement,
+                "name",
+                InputModelDiagnostic);
+            if (fieldNameElement.ValueKind != JsonValueKind.String)
+                throw new GeneratorCliException(InputModelDiagnostic);
+
+            var typeElement = GetRequiredUniquePropertyIgnoreCase(
+                fieldElement,
+                "type",
+                InputTypeDiagnostic);
+            if (typeElement.ValueKind != JsonValueKind.String)
+                throw new GeneratorCliException(InputTypeDiagnostic);
+
+            var typeToken = typeElement.GetString();
+            if (!TryParseAutomationType(typeToken, out var type))
+                throw new GeneratorCliException(InputTypeDiagnostic);
+
+            fields.Add(new AutomationField(fieldNameElement.GetString()!, type));
+        }
+
+        return new AutomationDevice(nameElement.GetString()!, fields);
+    }
+
+    private static bool TryParseAutomationType(string? token, out AutomationType type)
+    {
+        if (string.Equals(token, "Bool", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.Bool;
+            return true;
+        }
+        if (string.Equals(token, "Int", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.Int;
+            return true;
+        }
+        if (string.Equals(token, "DInt", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.DInt;
+            return true;
+        }
+        if (string.Equals(token, "Real", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.Real;
+            return true;
+        }
+        if (string.Equals(token, "String", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.String;
+            return true;
+        }
+        if (string.Equals(token, "Time", StringComparison.OrdinalIgnoreCase))
+        {
+            type = AutomationType.Time;
+            return true;
+        }
+
+        type = default;
+        return false;
+    }
+
+    public static string ValidateProfileIdentity(string profileIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(profileIdentity)
+            || profileIdentity.Length > 128
+            || profileIdentity.Any(character => char.IsControl(character) || char.IsSurrogate(character)))
+        {
+            throw new GeneratorCliException(ProfileDiagnostic);
+        }
+
+        return profileIdentity;
+    }
+
+    private static JsonElement GetRequiredUniquePropertyIgnoreCase(
+        JsonElement element,
+        string propertyName,
+        string diagnosticCode)
+    {
+        var found = false;
+        var value = default(JsonElement);
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (found)
+                throw new GeneratorCliException(diagnosticCode);
+
+            found = true;
+            value = property.Value;
+        }
+
+        if (!found)
+            throw new GeneratorCliException(diagnosticCode);
+
+        return value;
+    }
+}
