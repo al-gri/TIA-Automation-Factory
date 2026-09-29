@@ -270,6 +270,43 @@ jobs:
             }
             $index++
 
+            if ($index -lt $tokens.Count -and
+                $tokens[$index].StartsWith('hints:', [System.StringComparison]::Ordinal)) {
+              $hintText = $tokens[$index].Substring(6)
+              if ([string]::IsNullOrWhiteSpace($hintText)) { return $false }
+
+              $allowedHints = @(
+                'context-support-package',
+                'context-software-product',
+                'context-license',
+                'context-library-element',
+                'context-version',
+                'context-dependency',
+                'semantic-required',
+                'semantic-missing',
+                'semantic-install',
+                'semantic-available',
+                'semantic-unsupported',
+                'semantic-compatible',
+                'semantic-release',
+                'semantic-upgrade',
+                'semantic-cannot-use'
+              )
+              $seenHints = @{}
+              $previousHint = $null
+              foreach ($hint in @($hintText -split ',')) {
+                if ($allowedHints -cnotcontains $hint -or $seenHints.ContainsKey($hint)) { return $false }
+                if ($null -ne $previousHint -and
+                    [string]::CompareOrdinal($previousHint, $hint) -ge 0) {
+                  return $false
+                }
+
+                $seenHints[$hint] = $true
+                $previousHint = $hint
+              }
+              $index++
+            }
+
             if ($index -eq $tokens.Count) {
               return $true
             }
