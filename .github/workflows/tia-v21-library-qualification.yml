@@ -305,6 +305,9 @@ jobs:
                 $previousHint = $hint
               }
               $index++
+              if ($index -eq $tokens.Count) {
+                return $false
+              }
             }
 
             if ($index -eq $tokens.Count) {
