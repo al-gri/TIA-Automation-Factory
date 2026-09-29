@@ -1,0 +1,155 @@
+{
+  "id": "OLQ-DIAG-LEXICAL-HINTS-001",
+  "title": "Expose bounded non-causal lexical hints for unresolved V21 qualification failures",
+  "goal": "After trusted OLQ run #320 remained tags:unknown despite the reviewed prerequisite classifier, add one privacy-safe diagnostic layer that exposes only fixed non-causal lexical hint categories derived in memory from EngineeringException MessageData/DetailMessageData. Preserve the exact qualification transaction and raw-text privacy boundary. Use one later trusted-main qualification run only to decide the next evidence step; hints alone must never be promoted to a causal prerequisite claim.",
+  "baselineEvidence": {
+    "issue": 61,
+    "trustedMainAtAuthorityDraft": "0fd558d1d7251a6037905ae0304c7375ffa0f07a",
+    "trustedRunId": "36273653086",
+    "trustedRunNumber": 320,
+    "trustedFailure": "phase:retrieve-with-upgrade type:EngineeringTargetInvocationException hresult:0x80131500 tags:unknown detail-count:3 msgfp:eefb8fcdb933339b dtlfp:f85ef7ebe21aad89",
+    "completedQualificationImplementation": "PR #94 merged the reviewed OLQ-V21-QUALIFICATION-TXN-002 Stage-2 implementation; do not dispatch or reimplement it again.",
+    "completedEvidenceProjection": "PR #97 preserves bounded worker failure evidence.",
+    "completedPrerequisiteClassifier": "PR #101 merged OLQ-DIAG-PREREQ-CLASSIFIER-001; run #320 still returned tags:unknown.",
+    "officialExceptionSurface": "Siemens TIA Portal V21 Openness documentation states EngineeringException exposes MessageData and DetailMessageData and ExceptionMessageData exposes only Text as the reason/additional reason; no documented structured prerequisite reason code is available.",
+    "officialLibraryPrerequisiteEvidence": "Siemens TIA Portal V21 documentation states global-library usability may depend on supported TIA products, required licenses and support packages, and global-library properties expose software products/support packages. These are evidence-backed possibilities, not the proven cause of run #320.",
+    "publicDistributionEvidence": "The official Siemens Open Library site states V17+ distribution was divided according to Siemens software dependencies. The exact nested V19 archive corresponding to the trusted source SHA-256 has not been proven from public metadata, so no dependency slice is inferred."
+  },
+  "contextFiles": [
+    ".github/workflows/tia-v21-library-qualification.yml",
+    "src/TiaV21Worker/Program.cs",
+    "src/TiaV21Worker/QualificationPrerequisiteClassifier.cs",
+    "tests/ExternalReviewProtocol.Tests/test_tia_v21_library_qualification.py",
+    "tests/SiemensBackend.Tests/QualificationPrerequisiteClassifierTests.cs",
+    "tasks/OLQ-DIAG-PREREQ-CLASSIFIER-001.json"
+  ],
+  "executionPlan": {
+    "ordering": "Stage 1 protected public-evidence grammar must be independently reviewed, merged, and green on trusted main before Stage 2 begins. The task-authority PR itself implements neither stage.",
+    "stages": [
+      {
+        "id": "trusted-hints-grammar",
+        "title": "Allow only fixed bounded lexical hints through the trusted public-evidence grammar",
+        "author": "primary-chatgpt",
+        "requiredIndependentReviewer": "chatgpt-secondary",
+        "riskClass": "HIGH",
+        "reviewType": "CODE_REVIEW",
+        "allowedPaths": [
+          ".github/workflows/tia-v21-library-qualification.yml",
+          "tests/ExternalReviewProtocol.Tests/test_tia_v21_library_qualification.py"
+        ],
+        "requirements": [
+          "Change exactly the two allowed paths and keep the workflow trusted-main-only.",
+          "Extend Test-SafeWorkerFailureToken with one optional hints:<comma-separated-fixed-values> token after tags:<...> and before detail-count:<...>. Tokens remain lowercase, deterministically sorted, unique and fixed-allowlisted.",
+          "The exact allowed hints are context-support-package, context-software-product, context-license, context-library-element, context-version, context-dependency, semantic-required, semantic-missing, semantic-install, semantic-available, semantic-unsupported, semantic-compatible, semantic-release, semantic-upgrade and semantic-cannot-use.",
+          "Existing tags remain causal/classification output and are unchanged. hints are explicitly non-causal observations and must never alter PASS/FAIL/BLOCKED status or be interpreted by the workflow as proof of a prerequisite.",
+          "A worker token with no hints remains valid for backward compatibility. tags:unknown hints:<...> is valid only when every hint is exactly allowlisted.",
+          "Reject unknown/mixed-case/duplicate/path-bearing/control-character/overlong hint values and reject malformed ordering or a hints token without tags.",
+          "Public evidence remains bounded to existing safe identities/tags/counts/fingerprints plus fixed hints. Never publish raw MessageData/DetailMessageData, product names, library object names, paths, usernames or arbitrary Siemens text.",
+          "Add deterministic Python/PowerShell regressions for valid hint grammar, backward compatibility, strict rejection and no raw diagnostic publication."
+        ],
+        "completionGate": [
+          "Exact-SHA CI is green.",
+          "Fresh isolated chatgpt-secondary exact-SHA review is APPROVE.",
+          "Primary delegated-merges only after both gates pass.",
+          "Post-merge CI on trusted main is green before Stage 2."
+        ]
+      },
+      {
+        "id": "worker-lexical-hints",
+        "title": "Derive fixed non-causal lexical hints in memory without exposing Siemens text",
+        "author": "coding-agent",
+        "requiredIndependentReviewer": "chatgpt",
+        "riskClass": "HIGH",
+        "reviewType": "CODE_REVIEW",
+        "dependsOn": [
+          "trusted-hints-grammar is independently approved and merged",
+          "trusted main contains the fixed hints grammar and green post-merge CI"
+        ],
+        "allowedPaths": [
+          "src/TiaV21Worker/Program.cs",
+          "src/TiaV21Worker/QualificationLexicalHints.cs",
+          "tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj",
+          "tests/SiemensBackend.Tests/QualificationLexicalHintsTests.cs"
+        ],
+        "requirements": [
+          "Start a fresh coding-agent candidate from then-current trusted main; do not modify the completed TXN-002 implementation except the smallest Program.cs adaptation required to append hints to the existing bounded failure token.",
+          "Keep QualificationPrerequisiteClassifier causal tags unchanged. Add a separate Siemens-independent QualificationLexicalHints helper.",
+          "Derive hints only from MessageData.Text and DetailMessageData.Text in memory. Never persist or emit the source text.",
+          "context-support-package requires support and package/package-family lexical context in the same source string; context-software-product requires software and product in the same source string; context-library-element requires library plus element/type/object in the same source string. context-license, context-version and context-dependency are fixed generic vocabulary signals.",
+          "semantic hints are generic predicate-family observations only: required, missing, install/installed/installation, available/unavailable, unsupported/not-supported, compatible/incompatible, release/released, upgrade/migration, and cannot-use equivalents.",
+          "Do not expose concrete Siemens/TIA product family names, vendor object names, quoted fragments, numbers, paths, usernames or arbitrary tokens. Output is only the exact fixed hint vocabulary defined by Stage 1.",
+          "Hints are sorted/deduplicated deterministically. Empty/no-match input emits no hints token.",
+          "Appending hints must preserve the exact existing phase/type/HRESULT, causal tags, detail-count and fingerprints. Migration control flow, qualification transaction, fresh/reuse state, archive/reopen logic and exception propagation remain unchanged.",
+          "Add focused synthetic tests with sentinel private paths/users/vendor text proving fixed hints only, same-string context coupling, case-insensitivity, deterministic ordering/deduplication, near-miss rejection and no sentinel leakage.",
+          "The helper must be BCL/net48-compatible and linked into SiemensBackend.Tests for net10 execution plus net48 compile evidence without loading Siemens.Engineering on Linux."
+        ],
+        "completionGate": [
+          "net10 SiemensBackend.Tests is green.",
+          "net48 Siemens-independent helper/test assembly compiles.",
+          "Motor generation remains green.",
+          "Exact-SHA Linux CI is green.",
+          "Primary chatgpt performs independent exact-SHA CODE_REVIEW and returns APPROVE.",
+          "No candidate Windows/TIA execution occurs before trusted merge."
+        ]
+      }
+    ]
+  },
+  "scope": [
+    "Diagnostic evidence only. Do not change RetrieveWithUpgrade -> Save -> Archive -> close -> current-version Retrieve, OpenMode, retry behavior, qualification identity/state/reuse/provenance/publication semantics, AllowList behavior or TIA execution mode.",
+    "Do not implement Valve/Stage-B contract discovery/reference generation, dependency resolution, ownership/DB/memory/target facts, generator semantics or any migration workaround.",
+    "Hints are not causal tags. A combination of hints may justify a later narrow diagnostic task, but cannot by itself authorize installation changes, licensing assumptions, product/package claims or Stage B.",
+    "Raw Siemens reason/detail text remains runner-local and must be removed according to the existing workflow cleanup boundary.",
+    "Vendor archives/projects remain outside GitHub. No runner configuration, secret, vendor payload, IndustrialMDE or unrelated workflow change is authorized.",
+    "After Stage 2 is independently approved and merged, run exactly one trusted /run-olq-001. If causal tags remain unknown, inspect only the fixed hints and stop; no blind rerun."
+  ],
+  "acceptance": {
+    "requirements": [
+      "The task authority itself changes only this task file.",
+      "The two implementation stages remain separate PRs with separate exact-SHA CI and authorship-correct independent review.",
+      "Stage 1 changes exactly its two protected harness/test paths; Stage 2 changes exactly candidatePolicy.allowedPaths.",
+      "Existing causal prerequisite tags and classification semantics remain unchanged.",
+      "The public failure grammar optionally carries only exact fixed non-causal hints; malformed or arbitrary hints fail closed.",
+      "Worker lexical analysis emits only the fixed hint vocabulary and never raw text/product names/object names/paths/usernames/arbitrary tokens.",
+      "Lexical context coupling and predicate hints are deterministic, case-insensitive where intended, and covered by synthetic sentinel tests.",
+      "Migration/qualification transaction, reuse/provenance/archive/reopen behavior and privacy cleanup are unchanged.",
+      "Existing tests and Motor generation remain green; Siemens-independent helper has net48 compile evidence.",
+      "No candidate Windows/TIA execution occurs.",
+      "No Valve/Stage-B facts or behavior are introduced."
+    ],
+    "tia": [
+      "After Stage 2 is independently approved, merged and post-merge CI is green, run exactly one trusted OLQ qualification on merged main with the existing trusted source SHA-256 and TIA V21 build identity.",
+      "If qualification succeeds, continue only through the already-defined success gates; hints are irrelevant to success.",
+      "If RetrieveWithUpgrade fails, publish the existing bounded causal tags plus optional fixed hints, counts and fingerprints only.",
+      "Do not claim a missing product/license/support package or unsupported library element unless the causal classifier itself emits the corresponding reviewed causal tag.",
+      "If causal tags remain unknown after this one run, stop and use hints only to design the next evidence step; do not rerun unchanged or start Valve Stage B."
+    ]
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "CODE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt",
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      "src/TiaV21Worker/Program.cs",
+      "src/TiaV21Worker/QualificationLexicalHints.cs",
+      "tests/SiemensBackend.Tests/SiemensBackend.Tests.csproj",
+      "tests/SiemensBackend.Tests/QualificationLexicalHintsTests.cs"
+    ],
+    "allowTiaV21WorkerChanges": true
+  },
+  "protectedPaths": [
+    ".github/**",
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 2,
+  "issue": 61
+}
