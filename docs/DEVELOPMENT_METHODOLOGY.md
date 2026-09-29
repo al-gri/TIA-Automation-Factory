@@ -121,6 +121,12 @@ For genuine governance-authority recursion, bind scope to a frozen GitHub issue 
 
 Any material issue-body/scope change invalidates prior signed scope authorization. Any candidate change invalidates review. The bootstrap lane is exceptional governance, not a shortcut for ordinary implementation work.
 
+### M-015 — Chat handoff is a transactional freshness checkpoint
+
+A primary-chat replacement transfers verified repository state and role, not transcript memory. On an unambiguous handoff request, the old primary freezes discretionary work, re-audits live GitHub, reconciles stale snapshot/review evidence, persists factual operational state without smuggling normative changes, and emits a compact bootstrap prompt. The fresh primary must independently re-run startup and exact-SHA checks before acting.
+
+A handoff checkpoint must not silently move or invalidate an in-flight reviewed candidate. If persistence would stale a base/head/review, defer the persistence merge or explicitly require a fresh gate.
+
 ## 5. Rule maturity
 
 Methodology statements should be classified mentally or explicitly as:

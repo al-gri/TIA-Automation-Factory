@@ -70,3 +70,24 @@ Short chronological record of infrastructure work. Current policy is defined by 
 ## Logging rule
 
 Keep this file concise and factual. Raw workflow events belong in issue #25; reusable lessons belong in `docs/DEVELOPMENT_METHODOLOGY.md`; milestone interpretation belongs in `docs/METHODOLOGY_JOURNAL.md`.
+## 2026-09-26/27 — bounded OLQ diagnosis and generator foundation split
+
+### DONE / CURRENT
+- Merged CORE generator identity/name-policy foundation and proved post-merge CI/TIA baseline remained green.
+- Merged privacy-safe OLQ failure projection plus bounded prerequisite-tag harness/classifier.
+- Trusted qualification run #320 / `36273653086` still returned the same safe `tags:unknown` RetrieveWithUpgrade wrapper evidence. #61 remains blocked; no specific product/package/library prerequisite is proven.
+- OUTPUT foundation candidate PR #102 is green at exact head `cc370d6d19c65c483837e1a8358dc9f931c2dc87` and awaits fresh isolated secondary review.
+- Handoff audit found main state snapshots materially stale and the old handoff-protocol PR #39 unmerged. A fresh docs-only handoff candidate is prepared on a separate branch so the active PR #102 exact-SHA gate is not disturbed.
+
+## 2026-09-29 — GEN OUTPUT merge, TIA PASS and handoff local-context hardening
+
+### DONE
+- PR #102 `GEN-VALVE-FOUNDATION-OUTPUT-001` merged as `920c4e1a276c77af95288f42da94ddfa3ce414d3` after bounded repair round 1 and fresh exact-SHA secondary APPROVE.
+- Post-merge CI #500 / `36547750103` succeeded: net10 106/106, net48 test assembly compile, Motor generation.
+- Trusted-main TIA V21 End-to-End #16 / `36547750239` succeeded with `success=true`, `state=Success`, 0 errors / 0 warnings; `UDT_Motor (UDT)` updated and compile completed successfully.
+- Handoff PR #103 now persists operator-local Git/Windows context needed for exceptional human-only Git/SSH steps: canonical clone path, origin/main, PowerShell usage, Git identity, SSH signing mode/current dedicated v2 key path + public fingerprint, old-key disqualification and private-key/passphrase non-disclosure rules.
+- Local context is explicitly convenience only; GitHub remains authority. Evidence branches must never merge into main.
+
+### CURRENT
+- PR #103 remains the active `CHAT-HANDOFF-001` docs/process candidate and requires fresh isolated `chatgpt-secondary` review before merge.
+- #61 Open Library qualification remains BLOCKED/unknown.
