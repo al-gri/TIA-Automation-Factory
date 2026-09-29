@@ -1,0 +1,68 @@
+{
+  "id": "REVIEW-PACKAGE-BOUND-002",
+  "title": "Keep connected-primary large-diff review packages under publication bound",
+  "goal": "Repair the concrete regression reproduced by PR #109 External Review Request run 36613231716 attempt 2: the connected-primary large-diff fallback correctly omits the full diff but still renders a 68,208-byte package above the trusted 54,000-byte publication bound because bounded source context and repeated connected notices/evidence are composed too generously. Preserve immutable review identity, exact full-diff byte count/SHA-256, changed files, deterministic Linux evidence, authorship/task binding and mandatory exact-GitHub-candidate inspection, while keeping chatgpt-secondary self-contained/fail-closed semantics unchanged.",
+  "baselineEvidence": {
+    "issue": 49,
+    "activeBlockedProductPr": 109,
+    "trustedMainAtAuthorityDraft": "f9d40c805c3f5fc5170f99b7f6e4b09e59da4e4b",
+    "candidateSha": "2d434e9d236050b5bfb891f629acfa3a99964d1f",
+    "candidateCi": "CI #513 / run 36613230177 completed SUCCESS",
+    "reviewRequestRun": "36613231716 attempt 2",
+    "requestId": "ER-109-2d434e9d2360-CODE_REVIEW-1-chatgpt-36613231716",
+    "fullDiffFallback": "Connected reviewer slot chatgpt fallback activated because exact diff exceeded 32,000-byte embedded-diff bound.",
+    "failure": "Rendered package exceeds bound: 68208 > 54000",
+    "priorAuthority": "REVIEW-PACKAGE-BOUND-001 / PR #79 and PR #89 established the connected-primary large-diff exception and bounded multi-round history compaction. This new task is a regression repair, not a redesign.",
+    "currentProductReview": "Primary independently inspected exact PR #109 in GitHub and recorded CHANGES_REQUIRED major F001 (unbounded substring lexical matching). No repair may be dispatched until a valid WAITING_FOR_EXTERNAL_REVIEW state exists."
+  },
+  "scope": [
+    "Modify only .github/workflows/external-review-request.yml, tests/ExternalReviewProtocol.Tests/test_large_connected_review_package.py, and docs/EXTERNAL_REVIEW_PROTOCOL.md only if a normative clarification is strictly required. Prefer workflow + regression only when protocol text already covers the behavior.",
+    "Do not change external-review-response.yml, agent-repair.yml, review response schema, reviewer-slot authorization, authorship independence, repair-budget semantics, task authority resolution, candidate publication, provider policy, Windows/TIA workflows, product code, secrets, vendor payload handling or IndustrialMDE.",
+    "For reviewerSlot=chatgpt with fullDiffEmbedded=false, eliminate redundant package bulk rather than raising the 54,000-byte publication ceiling. The fallback must remain explicitly non-self-contained and must still instruct the connected reviewer to inspect the exact immutable candidate in GitHub.",
+    "Preserve exact immutable request/base/task/task-hash/candidate/review identity, changed-file list, exact full-diff byte count and SHA-256, bounded deterministic Linux evidence and artifact evidence, plus bounded prior-review findings when applicable.",
+    "The large-diff connected-primary path may omit or sharply cap candidate source-context because the protocol already requires direct exact-GitHub inspection. It must not imply omitted source was reviewed from the package.",
+    "Normal <=32,000-byte embedded-diff packages remain unchanged.",
+    "chatgpt-secondary and other package-dependent isolated reviewers remain fail-closed when sufficient self-contained source evidence cannot fit the trusted bounds.",
+    "Add a deterministic regression at PR #109 scale that renders the real template with large-diff fallback, approximately 16 KB candidate source context, realistic Linux evidence and no prior findings, and proves final package <=54,000 bytes while retaining mandatory identity/hash/inspection notice.",
+    "Add a regression ensuring normal embedded-diff and secondary oversized behavior are unchanged."
+  ],
+  "acceptance": {
+    "requirements": [
+      "Candidate changed paths are exactly the trusted allowed paths.",
+      "PR #109-scale connected-primary fallback renders <=54,000 UTF-8 bytes without increasing the bound.",
+      "Fallback package retains request/base/task/task-hash/candidate/reviewer/review-round/risk identity, changed files, full exact diff byte count + SHA-256, deterministic Linux evidence, artifact evidence, and explicit mandatory exact-GitHub inspection instruction.",
+      "Fallback package does not duplicate the same connected-primary notice in multiple large sections unnecessarily.",
+      "When fullDiffEmbedded=false, omitted candidate source text is clearly marked omitted/non-authoritative; the package does not claim self-contained source review.",
+      "Normal <=32,000-byte embedded-diff behavior is byte/semantics compatible except for test-only nondeterministic metadata if any.",
+      "chatgpt-secondary oversized path remains fail-closed.",
+      "Prior review history compaction from PR #89 remains unchanged and current-lineage validation still fails closed.",
+      "External review response validation, REVIEW_CHANGES_REQUIRED state publication and bounded repair dispatch are unchanged.",
+      "Exact-SHA CI is green; no Windows/TIA execution occurs."
+    ],
+    "tia": []
+  },
+  "review": {
+    "riskClass": "HIGH",
+    "reviewType": "ARCHITECTURE_REVIEW",
+    "reviewerSlots": [
+      "chatgpt-secondary"
+    ]
+  },
+  "candidatePolicy": {
+    "allowedPaths": [
+      ".github/workflows/external-review-request.yml",
+      "tests/ExternalReviewProtocol.Tests/test_large_connected_review_package.py"
+    ],
+    "allowTiaV21WorkerChanges": false
+  },
+  "protectedPaths": [
+    "agents/**",
+    "tasks/**",
+    ".gemini/**",
+    ".openhands/**",
+    ".gitignore",
+    "opencode.json"
+  ],
+  "maxRepairAttempts": 1,
+  "issue": 49
+}
